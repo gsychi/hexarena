@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["crates/protocol", "crates/engine", "crates/cli", "sdk/rust"]
+members = ["crates/protocol", "crates/engine", "crates/arena", "crates/server", "crates/cli", "sdk/rust"]
 
 [workspace.package]
 version = "0.1.0"
@@ -13,3 +13,4 @@ serde_json = "1"
 hexarena-protocol = { path = "crates/protocol" }
 hexarena-engine = { path = "crates/engine" }
 hexarena-sdk = { path = "sdk/rust" }
+hexarena-arena = { path = "crates/arena" }

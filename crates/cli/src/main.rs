@@ -1,8 +1,9 @@
+use hexarena_arena::{play, settings, viewer_json};
 use hexarena_engine::stats::BuildingReport;
-use hexarena_engine::{build_replay, mapgen::generate, replay_state, State};
+use hexarena_engine::{mapgen::generate, replay_state};
 use hexarena_protocol::*;
-use hexarena_sdk::{Bot, Expander};
-use std::collections::{BTreeMap, HashMap};
+use hexarena_sdk::{style, Style, ROSTER};
+use std::collections::HashMap;
 
 fn flags(args: &[String]) -> HashMap<String, String> {
     let mut m = HashMap::new();
@@ -21,51 +22,24 @@ fn get<T: std::str::FromStr>(f: &HashMap<String, String>, k: &str, d: T) -> T {
     f.get(k).and_then(|v| v.parse().ok()).unwrap_or(d)
 }
 
-fn settings(f: &HashMap<String, String>, seed: u64) -> MatchSettings {
-    MatchSettings {
-        players: get(f, "players", 4),
-        terrain_seed: seed,
-        spawn_seed: seed.wrapping_mul(31).wrapping_add(7),
-        match_seed: seed.wrapping_mul(13).wrapping_add(5),
-        rules: RulesConfig::default(),
+/// `--bots a,b,c` picks one CPU style per seat; otherwise `--players N` Expanders.
+fn styles(f: &HashMap<String, String>) -> Result<Vec<&'static Style>, String> {
+    match f.get("bots") {
+        Some(list) => list
+            .split(',')
+            .map(|id| style(id.trim()).ok_or_else(|| format!("unknown bot '{id}'")))
+            .collect(),
+        None => Ok(vec![&ROSTER[0]; get(f, "players", 4)]),
     }
 }
 
-struct Played {
-    state: State,
-    commands: Vec<TickCommands>,
-    events: Vec<Vec<Event>>,
-}
-
-fn play(s: MatchSettings, max_ticks: u32) -> Result<Played, String> {
-    let mut st = State::new(s.clone(), vec![])?;
-    let mut bots: Vec<Box<dyn Bot>> = (0..s.players)
-        .map(|_| Box::new(Expander::default()) as Box<dyn Bot>)
-        .collect();
-    let (mut commands, mut events) = (vec![], vec![]);
-    while !st.is_over() && st.tick < max_ticks {
-        let cmds: TickCommands = (0..s.players)
-            .filter(|&p| !st.eliminated[p as usize])
-            .map(|p| (p, bots[p as usize].act(&st.view(p))))
-            .collect();
-        st.step(&cmds);
-        commands.push(cmds);
-        events.push(st.last_events.clone());
-    }
-    Ok(Played {
-        state: st,
-        commands,
-        events,
-    })
-}
-
-fn describe(r: &MatchResult) -> String {
+fn describe(names: &[String], r: &MatchResult) -> String {
     r.placements
         .iter()
         .map(|p| {
             format!(
-                "P{}: place {}-{} ({:.1} pts, land {})",
-                p.player + 1,
+                "{}: place {}-{} ({:.1} pts, land {})",
+                names[p.player as usize],
                 p.place_start,
                 p.place_end,
                 p.points as f64 / 1000.0,
@@ -77,22 +51,21 @@ fn describe(r: &MatchResult) -> String {
 }
 
 fn simulate(f: HashMap<String, String>) -> Result<(), String> {
-    let s = settings(&f, get(&f, "seed", 1));
-    let played = play(s, get(&f, "max-ticks", u32::MAX))?;
-    let result = played
-        .state
-        .result
-        .clone()
-        .unwrap_or_else(|| played.state.final_result());
+    let played = play(
+        get(&f, "seed", 1),
+        &styles(&f)?,
+        get(&f, "max-ticks", u32::MAX),
+    )?;
+    let result = played.result();
     println!(
         "ticks: {}  winner: {:?}\n{}",
         result.final_tick,
         result.winner(),
-        describe(&result)
+        describe(&played.state.names, &result)
     );
     if let Some(path) = f.get("out") {
-        let replay = build_replay(&played.state, played.commands, played.events);
-        std::fs::write(path, serde_json::to_vec(&replay).unwrap()).map_err(|e| e.to_string())?;
+        std::fs::write(path, serde_json::to_vec(&played.replay()).unwrap())
+            .map_err(|e| e.to_string())?;
         println!("replay written to {path}");
     }
     Ok(())
@@ -101,15 +74,11 @@ fn simulate(f: HashMap<String, String>) -> Result<(), String> {
 fn report(f: HashMap<String, String>) -> Result<(), String> {
     let n: u64 = get(&f, "matches", 10);
     let base: u64 = get(&f, "seed", 1);
+    let seats = styles(&f)?;
     let mut total = BuildingReport::default();
     for i in 0..n {
-        let played = play(settings(&f, base + i), get(&f, "max-ticks", u32::MAX))?;
-        let result = played
-            .state
-            .result
-            .clone()
-            .unwrap_or_else(|| played.state.final_result());
-        total.add_match(&played.state.records, &result);
+        let played = play(base + i, &seats, get(&f, "max-ticks", u32::MAX))?;
+        total.add_match(&played.state.records, &played.result());
     }
     total.finalize();
     println!("{}", serde_json::to_string_pretty(&total).unwrap());
@@ -117,8 +86,7 @@ fn report(f: HashMap<String, String>) -> Result<(), String> {
 }
 
 fn map(f: HashMap<String, String>) -> Result<(), String> {
-    let s = settings(&f, get(&f, "seed", 1));
-    let m = generate(&s)?;
+    let m = generate(&settings(get(&f, "players", 4), get(&f, "seed", 1)))?;
     let open = m.terrain.iter().flatten().filter(|t| t.passable()).count();
     let total = m.terrain.iter().flatten().count();
     println!(
@@ -153,139 +121,9 @@ fn verify(path: &str) -> Result<(), String> {
     }
 }
 
-/// Viewer frame stride: idx, owner, troops, building, production_remaining,
-/// link a, link b, link c (hex indices or -1), link cooldown.
 fn export(path: &str, out: &str) -> Result<(), String> {
-    let replay = read_replay(path)?;
-    let mut st = State::new(
-        replay.settings(),
-        replay.players.iter().map(|p| p.name.clone()).collect(),
-    )?;
-    let radius = st.board.radius;
-    let initial: Vec<u32> = st
-        .cells
-        .iter()
-        .map(|c| if c.owner.is_none() { c.troops } else { 0 })
-        .collect();
-    let frame = |st: &State| -> Vec<i32> {
-        let mut v = vec![];
-        for h in st.board.hexes() {
-            let c = st.cell(h).unwrap();
-            let i = st.board.index(h).unwrap();
-            if c.owner.is_none() && c.building.is_none() && c.troops == initial[i] {
-                continue;
-            }
-            let cell = st_visible(st, h);
-            v.extend([
-                st.board.index(h).unwrap() as i32,
-                c.owner.map(|o| o as i32).unwrap_or(-1),
-                c.troops as i32,
-                c.building.map(|b| b as i32 + 1).unwrap_or(0),
-                cell.0 as i32,
-                cell.1[0]
-                    .map(|l| st.board.index(l).unwrap() as i32)
-                    .unwrap_or(-1),
-                cell.1[1]
-                    .map(|l| st.board.index(l).unwrap() as i32)
-                    .unwrap_or(-1),
-                cell.1[2]
-                    .map(|l| st.board.index(l).unwrap() as i32)
-                    .unwrap_or(-1),
-                cell.2 as i32,
-            ]);
-        }
-        v
-    };
-    let mut prev = frame(&st);
-    let mut frames = vec![prev.clone()];
-    let mut vel = Velocity::new();
-    let mut events = vec![serde_json::json!([])];
-    for cmds in &replay.commands {
-        st.step(cmds);
-        let next = frame(&st);
-        frames.push(frame_delta(&prev, &next, &mut vel));
-        prev = next;
-        events.push(serde_json::to_value(&st.last_events).unwrap());
-    }
-    let doc = serde_json::json!({
-        "radius": radius, "fog": st.rules().fog_radius, "names": st.names, "rules": st.rules(),
-        "terrain": st.terrain,
-        "neutral": initial,
-        "frame_encoding": "delta-v2", "frames": frames, "events": events,
-        "result": replay.result, "building_report": st.building_report(),
-    });
+    let doc = viewer_json(&read_replay(path)?)?;
     std::fs::write(out, serde_json::to_vec(&doc).unwrap()).map_err(|e| e.to_string())
-}
-
-/// Bit set in a delta mask when a cell left the frame.
-const DELTA_REMOVED: i32 = 1 << 8;
-
-/// Record fields (after idx) that are predicted to keep last tick's rate of
-/// change: troops, production remaining, link cooldown.
-const DELTA_PREDICTED: [usize; 3] = [1, 3, 7];
-
-type Record = [i32; 8];
-type Velocity = BTreeMap<i32, [i32; 3]>;
-
-fn records(f: &[i32]) -> BTreeMap<i32, Record> {
-    f.chunks(9)
-        .map(|c| (c[0], c[1..].try_into().unwrap()))
-        .collect()
-}
-
-/// Frames after the first are deltas: groups of `idx, mask, values...` where
-/// bit k of `mask` means field k (0 = owner) differs from its prediction and
-/// the true value follows, in field order. Predicted fields assume the same
-/// change as the previous tick; others assume no change.
-fn frame_delta(prev: &[i32], next: &[i32], vel: &mut Velocity) -> Vec<i32> {
-    let (a, b) = (records(prev), records(next));
-    let mut out = vec![];
-    let mut next_vel = Velocity::new();
-    for (idx, new) in &b {
-        let old = a.get(idx);
-        let v = vel.get(idx).copied().unwrap_or([0; 3]);
-        let mut mask = 0;
-        let mut vals = vec![];
-        for k in 0..8 {
-            let expected = old.map(|o| match DELTA_PREDICTED.iter().position(|&p| p == k) {
-                Some(j) => o[k] + v[j],
-                None => o[k],
-            });
-            if expected != Some(new[k]) {
-                mask |= 1 << k;
-                vals.push(new[k]);
-            }
-        }
-        next_vel.insert(
-            *idx,
-            old.map_or([0; 3], |o| DELTA_PREDICTED.map(|k| new[k] - o[k])),
-        );
-        if mask != 0 {
-            out.extend([*idx, mask]);
-            out.extend(vals);
-        }
-    }
-    for idx in a.keys().filter(|i| !b.contains_key(i)) {
-        out.extend([*idx, DELTA_REMOVED]);
-    }
-    *vel = next_vel;
-    out
-}
-
-/// (production remaining, links, cooldown) for a hex, using the same logic the View exposes.
-fn st_visible(st: &State, h: Hex) -> (u32, [Option<Hex>; 3], u32) {
-    let c = st.cell(h).unwrap();
-    let remaining = match c.building {
-        Some(Building::Farm | Building::Quarry) => {
-            st.rules().extractor_period.saturating_sub(c.progress)
-        }
-        _ => 0,
-    };
-    let links = match c.building {
-        Some(Building::Village) => [st.supporting_farm(h), None, None],
-        _ => c.links,
-    };
-    (remaining, links, c.link_ready_tick.saturating_sub(st.tick))
 }
 
 fn main() {
@@ -300,7 +138,7 @@ fn main() {
             (Some(a), Some(b)) => export(a, b),
             _ => Err("usage: hexarena export <replay.json> <viewer.json>".into()),
         },
-        _ => Err("usage: hexarena <simulate|report|map|verify|export> [--players N --seed S --matches M --max-ticks T --out file]".into()),
+        _ => Err("usage: hexarena <simulate|report|map|verify|export> [--players N | --bots expander,raider,... --seed S --matches M --max-ticks T --out file]".into()),
     };
     if let Err(e) = res {
         eprintln!("error: {e}");

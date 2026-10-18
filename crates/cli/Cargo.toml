@@ -12,5 +12,6 @@ path = "src/main.rs"
 hexarena-protocol.workspace = true
 hexarena-engine.workspace = true
 hexarena-sdk.workspace = true
+hexarena-arena.workspace = true
 serde.workspace = true
 serde_json.workspace = true
