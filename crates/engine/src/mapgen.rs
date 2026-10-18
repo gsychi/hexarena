@@ -195,28 +195,56 @@ fn open_within(board: &Board, terrain: &[Option<Terrain>], c: Hex, r: i32) -> us
 }
 
 /// Expected attacker cost to take a hex, as a percentage of troops (integer).
-pub fn expected_capture_cost(rules: &hexarena_protocol::RulesConfig, garrison: u32, from_h: i8, to_h: i8) -> u32 {
+pub fn expected_capture_cost(
+    rules: &hexarena_protocol::RulesConfig,
+    garrison: u32,
+    from_h: i8,
+    to_h: i8,
+) -> u32 {
     let d = rules.defense_milli(from_h, to_h, None) as u64;
     let p = rules.attacker_exchange_win_milli as u64;
     (garrison as u64 * d * (1000 - p) / p / 1000) as u32
 }
 
 /// Count adjacent or two-step expansion targets the starting army can plausibly afford.
-pub fn affordable_expansions(board: &Board, terrain: &[Option<Terrain>], garrison: &[u32], spawn: Hex, rules: &hexarena_protocol::RulesConfig) -> usize {
-    let height = |h: Hex| board.index(h).and_then(|i| terrain[i]).map(|t| t.height).unwrap_or(0);
+pub fn affordable_expansions(
+    board: &Board,
+    terrain: &[Option<Terrain>],
+    garrison: &[u32],
+    spawn: Hex,
+    rules: &hexarena_protocol::RulesConfig,
+) -> usize {
+    let height = |h: Hex| {
+        board
+            .index(h)
+            .and_then(|i| terrain[i])
+            .map(|t| t.height)
+            .unwrap_or(0)
+    };
     let budget = (rules.starting_troops.saturating_sub(1)) * 85 / 100;
     let mut seen = std::collections::HashSet::new();
     for n in spawn.neighbors() {
         if !passable(board, terrain, n) {
             continue;
         }
-        let cost = expected_capture_cost(rules, garrison[board.index(n).unwrap()], height(spawn), height(n));
+        let cost = expected_capture_cost(
+            rules,
+            garrison[board.index(n).unwrap()],
+            height(spawn),
+            height(n),
+        );
         if cost <= budget {
             seen.insert(n);
         }
         for n2 in n.neighbors() {
             if n2 != spawn && passable(board, terrain, n2) && n2.distance(spawn) == 2 {
-                let c2 = cost + expected_capture_cost(rules, garrison[board.index(n2).unwrap()], height(n), height(n2));
+                let c2 = cost
+                    + expected_capture_cost(
+                        rules,
+                        garrison[board.index(n2).unwrap()],
+                        height(n),
+                        height(n2),
+                    );
                 if c2 <= budget {
                     seen.insert(n2);
                 }
@@ -254,9 +282,12 @@ pub fn generate(s: &MatchSettings) -> Result<GeneratedMap, String> {
         for &h in &open {
             let (x, y) = planar(h);
             let t = fbm(tseed ^ 0xD4, x, y, gscale, 3);
-            let base = rules.neutral_min as f64 + (rules.neutral_max - rules.neutral_min) as f64 * t;
+            let base =
+                rules.neutral_min as f64 + (rules.neutral_max - rules.neutral_min) as f64 * t;
             let jitter = grng.range(0, 4) as i32 - 2;
-            garrison[board.index(h).unwrap()] = (base.round() as i32 + jitter).clamp(rules.neutral_min as i32, rules.neutral_max as i32) as u32;
+            garrison[board.index(h).unwrap()] = (base.round() as i32 + jitter)
+                .clamp(rules.neutral_min as i32, rules.neutral_max as i32)
+                as u32;
         }
         let min_dist = rules.spawn_min_distance.max(6);
         let mut cands = open.clone();
@@ -266,10 +297,14 @@ pub fn generate(s: &MatchSettings) -> Result<GeneratedMap, String> {
             if spawns.len() == s.players as usize {
                 break;
             }
-            if spawns.iter().any(|p| p.distance(c) < min_dist) || open_within(&board, &terrain, c, 4) < 14 {
+            if spawns.iter().any(|p| p.distance(c) < min_dist)
+                || open_within(&board, &terrain, c, 4) < 14
+            {
                 continue;
             }
-            if has_two_independent_routes(&board, &terrain, c) && affordable_expansions(&board, &terrain, &garrison, c, rules) >= 2 {
+            if has_two_independent_routes(&board, &terrain, c)
+                && affordable_expansions(&board, &terrain, &garrison, c, rules) >= 2
+            {
                 spawns.push(c);
             }
         }

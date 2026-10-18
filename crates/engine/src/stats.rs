@@ -121,7 +121,12 @@ impl BuildingReport {
     }
 
     pub fn finalize(&mut self) {
-        for b in [Building::Farm, Building::Village, Building::Quarry, Building::Wall] {
+        for b in [
+            Building::Farm,
+            Building::Village,
+            Building::Quarry,
+            Building::Wall,
+        ] {
             let k = self.kind_mut(b);
             let n = k.constructed.max(1) as f64;
             let s = k.sums.clone();
@@ -133,12 +138,24 @@ impl BuildingReport {
             k.captured_share = s.captured_n / n;
             k.avg_resource_generated = s.generated / n;
             k.avg_village_bonus_troops = s.bonus / n;
-            k.linked_share = if s.linked + s.unlinked > 0.0 { s.linked / (s.linked + s.unlinked) } else { 0.0 };
-            k.avg_wall_multiplier = if s.mult_ticks > 0.0 { s.mult / s.mult_ticks / 100.0 } else { 0.0 };
+            k.linked_share = if s.linked + s.unlinked > 0.0 {
+                s.linked / (s.linked + s.unlinked)
+            } else {
+                0.0
+            };
+            k.avg_wall_multiplier = if s.mult_ticks > 0.0 {
+                s.mult / s.mult_ticks / 100.0
+            } else {
+                0.0
+            };
             k.avg_wall_fights = s.fights / n;
             k.repaid_share = s.repaid / n;
             k.avg_builder_place = s.builder_place / n;
-            k.avg_captor_place = if s.captured_n > 0.0 { s.captor_place / s.captured_n } else { 0.0 };
+            k.avg_captor_place = if s.captured_n > 0.0 {
+                s.captor_place / s.captured_n
+            } else {
+                0.0
+            };
         }
     }
 }

@@ -2,9 +2,10 @@ import { Eye, EyeOff, Maximize2, ZoomIn, ZoomOut } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import type { Cell, Hex, ViewerReplay } from './model'
 import { HEIGHT_STYLE, HEX_DIRS, PLAYER_COLORS, PLAYER_MARKS, addHex, hexAt, hexIndex, onBoard } from './model'
-import { BUILDING_STYLE, drawBuilding } from './icons'
+import type { Cell, Hex, Rules, ViewerReplay } from './model'
+import { BUILDING_STYLE, drawBuilding, drawHeightMark } from './icons'
+import type { Pips } from './icons'
 
 const SIZE = 22
 const toPx = (h: Hex) => ({ x: SIZE * Math.sqrt(3) * (h.q + h.r / 2), y: SIZE * 1.5 * h.r })
@@ -29,6 +30,17 @@ function hexPath(ctx: CanvasRenderingContext2D, x: number, y: number, s: number)
 function outlinedText(ctx: CanvasRenderingContext2D, text: string, x: number, y: number, fill: string) {
   ctx.lineWidth = 2.2; ctx.strokeStyle = 'rgba(6,7,10,0.9)'; ctx.strokeText(text, x, y)
   ctx.fillStyle = fill; ctx.fillText(text, x, y)
+}
+
+/** Link slots shown above a building token: Farm sockets, Village farm support, Wall links. */
+export function buildingPips(c: Cell, rules: Rules): Pips | undefined {
+  const linked = c.links.filter((l) => l >= 0).length
+  switch (c.building) {
+    case 1: return { filled: linked, total: rules.farm.sockets, color: BUILDING_STYLE[0].color }
+    case 2: return { filled: c.links[0] >= 0 ? 1 : 0, total: 1, color: BUILDING_STYLE[0].color }
+    case 4: return { filled: linked, total: rules.wall.max_links, color: BUILDING_STYLE[3].color }
+    default: return undefined
+  }
 }
 
 export interface Relationship { hexes: Set<number>; alternatives: Set<number>; discounted: Set<number> }
@@ -90,7 +102,8 @@ export function Board({ rep, cells, perspective, visible, selected, heightMode, 
     const ro = new ResizeObserver(() => {
       const w = el.clientWidth, h = el.clientHeight
       setDims({ w, h })
-      setCam((c) => (c.k === 1 && c.x === 0 && c.y === 0 ? { x: 0, y: 0, k: fit(w, h) } : c))
+      const zoom = Number(new URLSearchParams(location.search).get('zoom')) || 1
+      setCam((c) => (c.k === 1 && c.x === 0 && c.y === 0 ? { x: 0, y: 0, k: fit(w, h) * zoom } : c))
     })
     ro.observe(el)
     return () => ro.disconnect()
@@ -156,7 +169,7 @@ export function Board({ rep, cells, perspective, visible, selected, heightMode, 
       if (!hidden && !heightMode && detail === 2 && (!cell || cell.owner < 0) && !(cell && cell.building > 0)) {
         ctx.font = '600 10.5px Geist Variable, ui-sans-serif, sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'
         ctx.fillStyle = 'rgba(255,255,255,0.88)'
-        ctx.fillText(String(cell ? cell.troops : rep.neutral[idx]), x, y + 1)
+        ctx.fillText(String(cell ? cell.troops : rep.neutral[idx]), x, t.height === 0 ? y + 1 : y - SIZE * 0.08)
       }
       if (heightMode && detail >= 1) {
         ctx.fillStyle = hs.tag
@@ -178,9 +191,9 @@ export function Board({ rep, cells, perspective, visible, selected, heightMode, 
             const b = center(l)
             const hot = emphasized(idx) && emphasized(l)
             ctx.lineCap = 'round'
-            ctx.strokeStyle = 'rgba(6,7,10,0.9)'; ctx.lineWidth = hot ? 7 : 5
+            ctx.strokeStyle = 'rgba(6,7,10,0.9)'; ctx.lineWidth = hot ? 7 : 5.5
             ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke()
-            ctx.strokeStyle = hot ? '#d6ffc8' : '#8be36f'; ctx.lineWidth = hot ? 4.4 : 2.8
+            ctx.strokeStyle = hot ? '#d6ffc8' : '#86e36a'; ctx.lineWidth = hot ? 4.4 : 3
             ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke()
           }
         } else if (cell.building === 4) {
@@ -188,13 +201,13 @@ export function Board({ rep, cells, perspective, visible, selected, heightMode, 
             if (l < 0 || l < idx || !seen(l)) continue
             const b = center(l)
             const hot = emphasized(idx) && emphasized(l)
-            ctx.lineCap = 'butt'
-            ctx.strokeStyle = '#0a0c10'; ctx.lineWidth = hot ? 11 : 9
+            ctx.lineCap = 'round'
+            ctx.strokeStyle = 'rgba(6,7,10,0.9)'; ctx.lineWidth = hot ? 10 : 8.5
             ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke()
-            ctx.strokeStyle = hot ? '#ffffff' : '#c9ced8'; ctx.lineWidth = hot ? 7 : 5.5
+            ctx.strokeStyle = hot ? '#e6e9ef' : '#9aa1ae'; ctx.lineWidth = hot ? 6.5 : 5
             ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke()
-            ctx.setLineDash([3, 3]); ctx.strokeStyle = '#7b8190'; ctx.lineWidth = 1
-            ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke(); ctx.setLineDash([])
+            ctx.strokeStyle = hot ? '#ffffff' : '#d5d9e1'; ctx.lineWidth = 1.4
+            ctx.beginPath(); ctx.moveTo(a.x, a.y - 1.2); ctx.lineTo(b.x, b.y - 1.2); ctx.stroke()
           }
         }
       }
@@ -213,51 +226,26 @@ export function Board({ rep, cells, perspective, visible, selected, heightMode, 
         }
         continue
       }
+      const flat = rep.terrain[idx]?.height === 0
       if (!heightMode && detail === 2 && troops > 0 && (cell.owner >= 0 || hasB)) {
-        ctx.font = '600 10.5px Geist Variable, ui-sans-serif, sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'
-        outlinedText(ctx, String(troops), x, hasB ? y + SIZE * 0.34 : y + 1, '#ffffff')
+        ctx.font = `600 ${hasB ? 9.5 : 10.5}px Geist Variable, ui-sans-serif, sans-serif`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'
+        outlinedText(ctx, String(troops), x, hasB ? y + SIZE * 0.36 : flat ? y + 1 : y - SIZE * 0.08, '#ffffff')
       }
       if (!hasB) continue
-      const supported = cell.building === 2 && cell.links[0] >= 0
-      const wallLinks = cell.building === 4 ? cell.links.filter((l) => l >= 0).length : 0
-      drawBuilding(ctx, cell.building, x, y - SIZE * 0.3, SIZE * 0.32, {
-        dashed: (cell.building === 2 && !supported) || (cell.building === 4 && wallLinks === 0),
-        doubleRing: supported || (cell.building === 4 && wallLinks === 2),
-      })
-      if (detail < 2) continue
-      ctx.font = '700 7.5px sans-serif'; ctx.textAlign = 'left'; ctx.textBaseline = 'middle'
-      const lx = x + SIZE * 0.42, ly = y - SIZE * 0.36
-      if (cell.building === 1) {
-        const n = cell.links.filter((l) => l >= 0).length
-        outlinedText(ctx, `${n}/${rules.farm.sockets}`, lx, ly, '#8be36f')
-        for (let i = 0; i < rules.farm.sockets; i++) {
-          ctx.beginPath(); ctx.arc(x + (i - 1) * SIZE * 0.2, y - SIZE * 0.78, SIZE * 0.07, 0, Math.PI * 2)
-          ctx.fillStyle = i < n ? '#8be36f' : 'rgba(0,0,0,0)'; ctx.fill()
-          ctx.strokeStyle = '#8be36f'; ctx.lineWidth = 0.9; ctx.stroke()
-        }
-      } else if (cell.building === 2) {
-        const inc = rules.base_income + rules.village.bonus + (supported ? rules.village.farm_bonus : 0)
-        outlinedText(ctx, `${inc}/tick`, lx, ly, supported ? '#ffd9a1' : '#c9a373')
-        if (supported) drawBuilding(ctx, 1, x - SIZE * 0.5, y - SIZE * 0.62, SIZE * 0.17)
-      } else if (cell.building === 4) {
-        const mult = rules.wall.defense_milli_by_links[wallLinks] / 1000
-        outlinedText(ctx, `${wallLinks}/${rules.wall.max_links} ${mult.toFixed(1)}x`, lx - SIZE * 0.1, ly, '#f1f3f7')
+      if (detail < 2) {
+        drawBuilding(ctx, cell.building, x, y, SIZE * 0.5)
+        continue
       }
+      drawBuilding(ctx, cell.building, x, y - SIZE * 0.22, SIZE * 0.38, { pips: buildingPips(cell, rules) })
     }
 
-    if (detail >= 1) {
+    if (detail >= 2 && !heightMode) {
       for (const idx of all) {
         const t = rep.terrain[idx]!
-        if (t.kind !== 'open' || heightMode || fogged(idx)) continue
-        const cell = cells.get(idx)
-        if (detail < 2) continue
+        if (t.kind !== 'open' || t.height === 0 || fogged(idx)) continue
         const { x, y } = center(idx)
-        const hs = HEIGHT_STYLE[t.height]
-        ctx.font = '600 7px ui-sans-serif, system-ui, sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'
-        ctx.globalAlpha = 0.7
-        ctx.fillStyle = hs.tag
-        ctx.fillText(hs.label, x, y + SIZE * (cell && cell.building > 0 ? 0.74 : 0.66))
-        ctx.globalAlpha = 1
+        const hasB = (cells.get(idx)?.building ?? 0) > 0
+        drawHeightMark(ctx, t.height, x, y + SIZE * (hasB ? 0.7 : 0.54), SIZE * 0.25)
       }
     }
 

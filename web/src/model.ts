@@ -99,6 +99,49 @@ export interface Cell {
   cooldown: number
 }
 
+const DELTA_REMOVED = 1 << 8
+const DELTA_PREDICTED = [1, 3, 7]
+
+/** Expands `delta-v2` frames (see `frame_delta` in the CLI) into full stride-9 frames. */
+export function decodeFrames(raw: number[][]): number[][] {
+  const cur = new Map<number, number[]>()
+  const vel = new Map<number, number[]>()
+  const f0 = raw[0]
+  for (let i = 0; i < f0.length; i += 9) cur.set(f0[i], f0.slice(i + 1, i + 9))
+  const flatten = () => {
+    const out: number[] = []
+    for (const idx of [...cur.keys()].sort((a, b) => a - b)) out.push(idx, ...cur.get(idx)!)
+    return out
+  }
+  const frames = [flatten()]
+  for (let t = 1; t < raw.length; t++) {
+    const prev = new Map(cur)
+    for (const [idx, rec] of cur) {
+      const v = vel.get(idx) ?? [0, 0, 0]
+      const next = rec.slice()
+      DELTA_PREDICTED.forEach((k, j) => { next[k] += v[j] })
+      cur.set(idx, next)
+    }
+    const d = raw[t]
+    let i = 0
+    while (i < d.length) {
+      const idx = d[i], mask = d[i + 1]
+      i += 2
+      if (mask & DELTA_REMOVED) { cur.delete(idx); continue }
+      const rec = cur.get(idx) ?? new Array(8).fill(0)
+      for (let k = 0; k < 8; k++) if (mask & (1 << k)) rec[k] = d[i++]
+      cur.set(idx, rec)
+    }
+    vel.clear()
+    for (const [idx, rec] of cur) {
+      const old = prev.get(idx)
+      vel.set(idx, old ? DELTA_PREDICTED.map((k) => rec[k] - old[k]) : [0, 0, 0])
+    }
+    frames.push(flatten())
+  }
+  return frames
+}
+
 export function frameCells(rep: ViewerReplay, tick: number): Map<number, Cell> {
   const f = rep.frames[tick]
   const m = new Map<number, Cell>()

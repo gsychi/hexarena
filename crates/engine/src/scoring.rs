@@ -15,7 +15,11 @@ pub fn group_points(n: usize, start: usize, end: usize) -> FixedScore {
 }
 
 pub fn normalized_score(n: usize, place: f64) -> f64 {
-    if n < 2 { 1.0 } else { (n as f64 - place) / (n as f64 - 1.0) }
+    if n < 2 {
+        1.0
+    } else {
+        (n as f64 - place) / (n as f64 - 1.0)
+    }
 }
 
 /// Groups players best-to-worst. Survivors are ranked by `keys` (exact ties share);
@@ -25,8 +29,14 @@ pub fn rank_groups(eliminated_at: &[Option<u32>], keys: &[SurvivorKey]) -> Vec<V
     let mut dead: BTreeMap<std::cmp::Reverse<u32>, Vec<PlayerId>> = BTreeMap::new();
     for p in 0..eliminated_at.len() {
         match eliminated_at[p] {
-            None => survivors.entry(std::cmp::Reverse(keys[p])).or_default().push(p as PlayerId),
-            Some(t) => dead.entry(std::cmp::Reverse(t)).or_default().push(p as PlayerId),
+            None => survivors
+                .entry(std::cmp::Reverse(keys[p]))
+                .or_default()
+                .push(p as PlayerId),
+            Some(t) => dead
+                .entry(std::cmp::Reverse(t))
+                .or_default()
+                .push(p as PlayerId),
         }
     }
     survivors.into_values().chain(dead.into_values()).collect()
@@ -65,7 +75,11 @@ pub fn build_result(
         }
         start = end + 1;
     }
-    MatchResult { rules_version: version.to_string(), final_tick: tick, placements }
+    MatchResult {
+        rules_version: version.to_string(),
+        final_tick: tick,
+        placements,
+    }
 }
 
 /// Metrics are never combined across these dimensions.
@@ -119,16 +133,36 @@ impl Metrics {
         self.last += share(&|r| r == n);
     }
     fn rate(&self, v: f64) -> f64 {
-        if self.games == 0 { 0.0 } else { v / self.games as f64 }
+        if self.games == 0 {
+            0.0
+        } else {
+            v / self.games as f64
+        }
     }
-    pub fn avg_points(&self) -> f64 { self.rate(self.sum_points) }
-    pub fn avg_place(&self) -> f64 { self.rate(self.sum_place) }
-    pub fn avg_normalized(&self) -> f64 { self.rate(self.sum_normalized) }
-    pub fn avg_survival(&self) -> f64 { self.rate(self.sum_survival) }
-    pub fn win_rate(&self) -> f64 { self.rate(self.wins) }
-    pub fn top4_rate(&self) -> f64 { self.rate(self.top4) }
-    pub fn top_half_rate(&self) -> f64 { self.rate(self.top_half) }
-    pub fn last_rate(&self) -> f64 { self.rate(self.last) }
+    pub fn avg_points(&self) -> f64 {
+        self.rate(self.sum_points)
+    }
+    pub fn avg_place(&self) -> f64 {
+        self.rate(self.sum_place)
+    }
+    pub fn avg_normalized(&self) -> f64 {
+        self.rate(self.sum_normalized)
+    }
+    pub fn avg_survival(&self) -> f64 {
+        self.rate(self.sum_survival)
+    }
+    pub fn win_rate(&self) -> f64 {
+        self.rate(self.wins)
+    }
+    pub fn top4_rate(&self) -> f64 {
+        self.rate(self.top4)
+    }
+    pub fn top_half_rate(&self) -> f64 {
+        self.rate(self.top_half)
+    }
+    pub fn last_rate(&self) -> f64 {
+        self.rate(self.last)
+    }
 }
 
 #[cfg(test)]
@@ -137,13 +171,33 @@ mod tests {
 
     fn res(elim: &[Option<u32>], keys: &[SurvivorKey]) -> MatchResult {
         let n = elim.len();
-        build_result("v0", 100, elim, keys, &vec![0; n], &vec![0; n], &vec![0; n], &vec![0; n])
+        build_result(
+            "v0",
+            100,
+            elim,
+            keys,
+            &vec![0; n],
+            &vec![0; n],
+            &vec![0; n],
+            &vec![0; n],
+        )
     }
-    fn k() -> SurvivorKey { (1, 1, 1, 1) }
+    fn k() -> SurvivorKey {
+        (1, 1, 1, 1)
+    }
 
     #[test]
     fn eight_player_points_table() {
-        let elim: Vec<Option<u32>> = vec![None, Some(70), Some(60), Some(50), Some(40), Some(30), Some(20), Some(10)];
+        let elim: Vec<Option<u32>> = vec![
+            None,
+            Some(70),
+            Some(60),
+            Some(50),
+            Some(40),
+            Some(30),
+            Some(20),
+            Some(10),
+        ];
         let r = res(&elim, &vec![k(); 8]);
         let pts: Vec<f64> = (0..8).map(|p| r.points_f64(p)).collect();
         assert_eq!(pts, vec![8.0, 7.0, 6.0, 5.0, 4.0, 3.0, 2.0, 1.0]);
@@ -154,11 +208,23 @@ mod tests {
 
     #[test]
     fn tied_placements_average_points() {
-        let elim = vec![None, Some(70), Some(50), Some(50), Some(40), Some(30), Some(20), Some(10)];
+        let elim = vec![
+            None,
+            Some(70),
+            Some(50),
+            Some(50),
+            Some(40),
+            Some(30),
+            Some(20),
+            Some(10),
+        ];
         let r = res(&elim, &vec![k(); 8]);
         assert_eq!(r.points_f64(2), 5.5);
         assert_eq!(r.points_f64(3), 5.5);
-        assert_eq!((r.placement(2).place_start, r.placement(2).place_end), (3, 4));
+        assert_eq!(
+            (r.placement(2).place_start, r.placement(2).place_end),
+            (3, 4)
+        );
         assert_eq!(r.placement(2).points, 5500);
     }
 
@@ -170,7 +236,15 @@ mod tests {
         let order: Vec<PlayerId> = r.placements.iter().map(|p| p.player).collect();
         assert_eq!(order[0], 2);
         assert_eq!(order[3], 0);
-        assert_eq!((r.points_f64(0), r.points_f64(1), r.points_f64(2), r.points_f64(3)), (1.0, 2.5, 4.0, 2.5));
+        assert_eq!(
+            (
+                r.points_f64(0),
+                r.points_f64(1),
+                r.points_f64(2),
+                r.points_f64(3)
+            ),
+            (1.0, 2.5, 4.0, 2.5)
+        );
         assert_eq!(r.winner(), Some(2));
         let r = res(&elim, &vec![k(); 4]);
         assert_eq!(r.winner(), None);
@@ -184,7 +258,10 @@ mod tests {
 
     #[test]
     fn surviving_longer_always_beats_dying_earlier() {
-        let r = res(&[Some(90), Some(10), None], &[(0, 0, 0, 0), (0, 0, 0, 0), k()]);
+        let r = res(
+            &[Some(90), Some(10), None],
+            &[(0, 0, 0, 0), (0, 0, 0, 0), k()],
+        );
         assert!(r.points_f64(0) > r.points_f64(1));
         assert!(r.points_f64(2) > r.points_f64(0));
     }

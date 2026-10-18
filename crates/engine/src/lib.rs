@@ -166,7 +166,11 @@ impl State {
     }
 
     pub fn height(&self, h: Hex) -> i8 {
-        self.board.index(h).and_then(|i| self.terrain[i]).map(|t| t.height).unwrap_or(0)
+        self.board
+            .index(h)
+            .and_then(|i| self.terrain[i])
+            .map(|t| t.height)
+            .unwrap_or(0)
     }
 
     pub fn is_over(&self) -> bool {
@@ -184,7 +188,8 @@ impl State {
     }
 
     fn is_building(&self, h: Hex, p: PlayerId, b: Building) -> bool {
-        self.cell(h).is_some_and(|c| c.owner == Some(p) && c.building == Some(b))
+        self.cell(h)
+            .is_some_and(|c| c.owner == Some(p) && c.building == Some(b))
     }
 
     /// The friendly Farm currently supporting this Village, if any.
@@ -196,12 +201,19 @@ impl State {
         }
         village.neighbors().into_iter().find(|&f| {
             self.is_building(f, owner, Building::Farm)
-                && self.cell(f).unwrap().links.iter().any(|l| *l == Some(village))
+                && self
+                    .cell(f)
+                    .unwrap()
+                    .links
+                    .iter()
+                    .any(|l| *l == Some(village))
         })
     }
 
     pub fn wall_links(&self, h: Hex) -> usize {
-        self.cell(h).map(|c| c.links.iter().flatten().count()).unwrap_or(0)
+        self.cell(h)
+            .map(|c| c.links.iter().flatten().count())
+            .unwrap_or(0)
     }
 
     /// Defender multiplier (milli) at `h` against an attacker standing at `attacker_height`.
@@ -210,7 +222,8 @@ impl State {
             .cell(h)
             .filter(|c| c.building == Some(Building::Wall))
             .map(|_| self.wall_links(h));
-        self.rules().defense_milli(attacker_height, self.height(h), wall)
+        self.rules()
+            .defense_milli(attacker_height, self.height(h), wall)
     }
 
     pub fn income(&self, h: Hex) -> u32 {
@@ -306,7 +319,11 @@ impl State {
 
     fn validate_management(&self, p: PlayerId, m: &ManagementCommand) -> Result<(), &'static str> {
         match m {
-            ManagementCommand::SetFarmLink { farm, village, enabled } => {
+            ManagementCommand::SetFarmLink {
+                farm,
+                village,
+                enabled,
+            } => {
                 if !self.is_building(*farm, p, Building::Farm) {
                     return Err("not your Farm");
                 }
@@ -335,8 +352,14 @@ impl State {
                     Err("not linked")
                 }
             }
-            ManagementCommand::SetWallLink { wall_a: a, wall_b: b, enabled } => {
-                if !self.is_building(*a, p, Building::Wall) || !self.is_building(*b, p, Building::Wall) {
+            ManagementCommand::SetWallLink {
+                wall_a: a,
+                wall_b: b,
+                enabled,
+            } => {
+                if !self.is_building(*a, p, Building::Wall)
+                    || !self.is_building(*b, p, Building::Wall)
+                {
                     return Err("both hexes must be your Walls");
                 }
                 if a.distance(*b) != 1 {
@@ -371,7 +394,11 @@ impl State {
     fn apply_management(&mut self, p: PlayerId, m: &ManagementCommand, ev: &mut Vec<Event>) {
         let tick = self.tick;
         match m {
-            ManagementCommand::SetFarmLink { farm, village, enabled } => {
+            ManagementCommand::SetFarmLink {
+                farm,
+                village,
+                enabled,
+            } => {
                 let cd = self.rules().farm.relink_cooldown;
                 let c = self.cell_mut(*farm);
                 if *enabled {
@@ -380,9 +407,16 @@ impl State {
                     c.links[i] = None;
                 }
                 c.link_ready_tick = tick + cd;
-                ev.push(Event::LinkChanged { player: p, at: *farm });
+                ev.push(Event::LinkChanged {
+                    player: p,
+                    at: *farm,
+                });
             }
-            ManagementCommand::SetWallLink { wall_a: a, wall_b: b, enabled } => {
+            ManagementCommand::SetWallLink {
+                wall_a: a,
+                wall_b: b,
+                enabled,
+            } => {
                 let cd = self.rules().wall.relink_cooldown;
                 for (x, y) in [(*a, *b), (*b, *a)] {
                     let c = self.cell_mut(x);
@@ -434,7 +468,11 @@ impl State {
         c.links = [None; 3];
         c.link_ready_tick = 0;
         c.record = rec;
-        ev.push(Event::Built { player: p, at, building: b });
+        ev.push(Event::Built {
+            player: p,
+            at,
+            building: b,
+        });
     }
 
     /// Drop links that are no longer valid around a hex whose ownership changed.
@@ -442,7 +480,9 @@ impl State {
         let mut around = vec![h];
         around.extend(h.neighbors());
         for x in around {
-            let Some(c) = self.cell(x).copied() else { continue };
+            let Some(c) = self.cell(x).copied() else {
+                continue;
+            };
             let Some(owner) = c.owner else { continue };
             let mut links = c.links;
             for l in links.iter_mut() {
@@ -467,7 +507,9 @@ impl State {
         }
         // A Wall partner may still point at a hex that just dropped it; resolve mutuality.
         for x in h.neighbors().into_iter().chain([h]) {
-            let Some(c) = self.cell(x).copied() else { continue };
+            let Some(c) = self.cell(x).copied() else {
+                continue;
+            };
             if c.building != Some(Building::Wall) {
                 continue;
             }
@@ -505,7 +547,12 @@ impl State {
 
     fn apply_move(&mut self, p: PlayerId, from: Hex, to: Hex, n: u32, ev: &mut Vec<Event>) {
         self.cell_mut(from).troops -= n;
-        ev.push(Event::Moved { player: p, from, to, troops: n });
+        ev.push(Event::Moved {
+            player: p,
+            from,
+            to,
+            troops: n,
+        });
         let target = *self.cell(to).unwrap();
         if target.owner == Some(p) {
             self.cell_mut(to).troops += n;
@@ -522,14 +569,26 @@ impl State {
             c.owner = Some(p);
             c.troops = left;
             if target.record != NO_RECORD {
-                self.records[target.record as usize].captures.push((tick, p));
+                self.records[target.record as usize]
+                    .captures
+                    .push((tick, p));
             }
-            ev.push(Event::Captured { player: p, at: to, previous_owner: target.owner, troops_left: left, building: target.building });
+            ev.push(Event::Captured {
+                player: p,
+                at: to,
+                previous_owner: target.owner,
+                troops_left: left,
+                building: target.building,
+            });
             self.sanitize_around(to, ev);
             self.resolve_encirclement(p, to, ev);
         } else {
             self.cell_mut(to).troops = ((def_milli + 999) / 1000) as u32;
-            ev.push(Event::Repelled { attacker: p, at: to, attackers_lost: n });
+            ev.push(Event::Repelled {
+                attacker: p,
+                at: to,
+                attackers_lost: n,
+            });
         }
     }
 
@@ -577,7 +636,9 @@ impl State {
         }
         let mut done: Vec<Hex> = vec![];
         for nb in at.neighbors() {
-            let Some(owner) = self.cell(nb).and_then(|c| c.owner) else { continue };
+            let Some(owner) = self.cell(nb).and_then(|c| c.owner) else {
+                continue;
+            };
             if owner == capturer || done.contains(&nb) {
                 continue;
             }
@@ -590,7 +651,11 @@ impl State {
                 for &h in &comp {
                     self.sanitize_around(h, ev);
                 }
-                ev.push(Event::Surrendered { capturer, from: owner, hexes: comp });
+                ev.push(Event::Surrendered {
+                    capturer,
+                    from: owner,
+                    hexes: comp,
+                });
             }
         }
     }
@@ -614,7 +679,11 @@ impl State {
             if h == target || troops <= 1 {
                 continue;
             }
-            if let Some(next) = h.neighbors().into_iter().find(|n| dist.get(n) == Some(&(d - 1))) {
+            if let Some(next) = h
+                .neighbors()
+                .into_iter()
+                .find(|n| dist.get(n) == Some(&(d - 1)))
+            {
                 transfers.push((h, next, troops - 1));
             }
         }
@@ -623,7 +692,11 @@ impl State {
             self.cell_mut(from).troops -= n;
             self.cell_mut(to).troops += n;
         }
-        ev.push(Event::Gathered { player: p, target, sources });
+        ev.push(Event::Gathered {
+            player: p,
+            target,
+            sources,
+        });
     }
 
     fn produce(&mut self) {
@@ -635,7 +708,8 @@ impl State {
             let Some(owner) = c.owner else { continue };
             let income = self.income(h);
             let active = c.built_tick < tick;
-            let supported = c.building == Some(Building::Village) && self.supporting_farm(h).is_some();
+            let supported =
+                c.building == Some(Building::Village) && self.supporting_farm(h).is_some();
             let mut gained = 0;
             let mut progress = c.progress;
             if matches!(c.building, Some(Building::Farm | Building::Quarry)) && active {
@@ -689,7 +763,12 @@ impl State {
 
     /// Alive seats, rotated by `(match_seed + tick) % alive`. Independent of input arrival order.
     pub fn initiative_order(&self) -> Vec<PlayerId> {
-        let mut alive: Vec<PlayerId> = self.seat_order.iter().copied().filter(|&p| !self.eliminated[p as usize]).collect();
+        let mut alive: Vec<PlayerId> = self
+            .seat_order
+            .iter()
+            .copied()
+            .filter(|&p| !self.eliminated[p as usize])
+            .collect();
         let first = (self.settings.match_seed as usize + self.tick as usize) % alive.len().max(1);
         alive.rotate_left(first);
         alive
@@ -698,7 +777,9 @@ impl State {
     fn mark_eliminations(&mut self, events: &mut Vec<Event>) {
         let n = self.settings.players as usize;
         let counts = self.hex_counts();
-        let fresh: Vec<usize> = (0..n).filter(|&p| !self.eliminated[p] && counts[p] == 0).collect();
+        let fresh: Vec<usize> = (0..n)
+            .filter(|&p| !self.eliminated[p] && counts[p] == 0)
+            .collect();
         if fresh.is_empty() {
             return;
         }
@@ -707,7 +788,9 @@ impl State {
             self.eliminated[p] = true;
             self.eliminated_at[p] = Some(self.tick);
             self.elim_place[p] = Some((alive_after as u16 + 1, (alive_after + fresh.len()) as u16));
-            events.push(Event::Eliminated { player: p as PlayerId });
+            events.push(Event::Eliminated {
+                player: p as PlayerId,
+            });
         }
     }
 
@@ -721,20 +804,32 @@ impl State {
             if self.eliminated[p as usize] {
                 continue;
             }
-            let Some((_, cmd)) = commands.iter().find(|(pid, _)| *pid == p) else { continue };
+            let Some((_, cmd)) = commands.iter().find(|(pid, _)| *pid == p) else {
+                continue;
+            };
             for m in &cmd.management {
                 match self.validate_management(p, m) {
                     Ok(()) => self.apply_management(p, m, &mut events),
-                    Err(reason) => events.push(Event::Rejected { player: p, reason: reason.into() }),
+                    Err(reason) => events.push(Event::Rejected {
+                        player: p,
+                        reason: reason.into(),
+                    }),
                 }
             }
             match self.validate_action(p, &cmd.action) {
-                Err(reason) => events.push(Event::Rejected { player: p, reason: reason.into() }),
+                Err(reason) => events.push(Event::Rejected {
+                    player: p,
+                    reason: reason.into(),
+                }),
                 Ok(()) => match &cmd.action {
                     Action::NoOp => {}
-                    Action::Move { from, to, troops } => self.apply_move(p, *from, *to, *troops, &mut events),
+                    Action::Move { from, to, troops } => {
+                        self.apply_move(p, *from, *to, *troops, &mut events)
+                    }
                     Action::Gather { target } => self.gather(p, *target, &mut events),
-                    Action::Build { at, building } => self.apply_build(p, *at, *building, &mut events),
+                    Action::Build { at, building } => {
+                        self.apply_build(p, *at, *building, &mut events)
+                    }
                 },
             }
             self.mark_eliminations(&mut events);
@@ -743,7 +838,9 @@ impl State {
         self.mark_eliminations(&mut events);
         self.tick += 1;
         self.last_events = events;
-        let alive = (0..self.settings.players as usize).filter(|&p| !self.eliminated[p]).count();
+        let alive = (0..self.settings.players as usize)
+            .filter(|&p| !self.eliminated[p])
+            .count();
         if alive <= 1 || self.tick >= self.rules().max_ticks {
             self.result = Some(self.final_result());
         }
@@ -761,8 +858,19 @@ impl State {
                 buildings[o as usize] += c.building.is_some() as u32;
             }
         }
-        let keys: Vec<scoring::SurvivorKey> = (0..n).map(|p| (counts[p], troops[p], self.resources[p], buildings[p])).collect();
-        scoring::build_result(&self.rules().version, self.tick, &self.eliminated_at, &keys, &counts, &troops, &self.resources, &buildings)
+        let keys: Vec<scoring::SurvivorKey> = (0..n)
+            .map(|p| (counts[p], troops[p], self.resources[p], buildings[p]))
+            .collect();
+        scoring::build_result(
+            &self.rules().version,
+            self.tick,
+            &self.eliminated_at,
+            &keys,
+            &counts,
+            &troops,
+            &self.resources,
+            &buildings,
+        )
     }
 
     pub fn building_report(&self) -> stats::BuildingReport {
@@ -800,10 +908,26 @@ impl State {
                 Building::Farm | Building::Quarry => r.extractor_period.saturating_sub(c.progress),
                 _ => 0,
             };
-            VisibleBuilding { kind, production_remaining, links, link_cooldown: c.link_ready_tick.saturating_sub(self.tick) }
+            VisibleBuilding {
+                kind,
+                production_remaining,
+                links,
+                link_cooldown: c.link_ready_tick.saturating_sub(self.tick),
+            }
         });
-        let wall_milli = if c.building == Some(Building::Wall) { self.wall_only_milli(h) } else { MILLI };
-        VisibleHex { hex: h, owner: c.owner, troops: c.troops, building, income: self.income(h), wall_milli }
+        let wall_milli = if c.building == Some(Building::Wall) {
+            self.wall_only_milli(h)
+        } else {
+            MILLI
+        };
+        VisibleHex {
+            hex: h,
+            owner: c.owner,
+            troops: c.troops,
+            building,
+            income: self.income(h),
+            wall_milli,
+        }
     }
 
     /// The only information channel to a player. Depends solely on public data, the
@@ -818,13 +942,21 @@ impl State {
             .enumerate()
             .map(|(i, t)| if public || mask[i] { *t } else { None })
             .collect();
-        let visible_hexes = self.board.hexes().into_iter().filter(|&h| vis(h)).map(|h| self.visible_cell(h)).collect();
+        let visible_hexes = self
+            .board
+            .hexes()
+            .into_iter()
+            .filter(|&h| vis(h))
+            .map(|h| self.visible_cell(h))
+            .collect();
         let visible_events = self
             .last_events
             .iter()
             .filter(|e| match e {
                 Event::Moved { from, to, .. } => vis(*from) || vis(*to),
-                Event::Gathered { player: p, target, .. } => *p == player || vis(*target),
+                Event::Gathered {
+                    player: p, target, ..
+                } => *p == player || vis(*target),
                 Event::Captured { at, .. }
                 | Event::Repelled { at, .. }
                 | Event::Built { at, .. }
@@ -853,7 +985,9 @@ impl State {
                 .collect(),
             public_terrain,
             visible_hexes,
-            own_economy: PlayerEconomy { resource: self.resources[player as usize] },
+            own_economy: PlayerEconomy {
+                resource: self.resources[player as usize],
+            },
             own_queue: vec![],
             visible_events,
         }
@@ -894,7 +1028,15 @@ pub fn build_replay(state: &State, commands: Vec<TickCommands>, events: Vec<Vec<
         terrain_seed: state.settings.terrain_seed,
         spawn_seed: state.settings.spawn_seed,
         match_seed: state.settings.match_seed,
-        players: state.names.iter().enumerate().map(|(i, n)| ReplayPlayer { id: i as PlayerId, name: n.clone() }).collect(),
+        players: state
+            .names
+            .iter()
+            .enumerate()
+            .map(|(i, n)| ReplayPlayer {
+                id: i as PlayerId,
+                name: n.clone(),
+            })
+            .collect(),
         commands,
         events,
         result: state.result.clone().unwrap_or_else(|| state.final_result()),

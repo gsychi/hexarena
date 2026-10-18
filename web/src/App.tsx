@@ -1,4 +1,4 @@
-import { ChevronFirst, ChevronLast, Link2, Mountain, Pause, Play, SkipBack, SkipForward, Swords } from 'lucide-react'
+import { ChevronFirst, ChevronLast, Link2, Mountain, Pause, Play, RotateCcw, SkipBack, SkipForward, Swords, Trophy } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -9,11 +9,11 @@ import { Slider } from '@/components/ui/slider'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
-import { Board } from './Board'
+import { Board, buildingPips } from './Board'
 import { BuildingIcon, Legend } from './Legend'
-import type { Cell, GameEvent, ViewerReplay } from './model'
+import type { Cell, GameEvent, Placement, ViewerReplay } from './model'
 import {
-  BUILDING_KEYS, BUILDING_NAMES, HEIGHT_STYLE, PLAYER_COLORS, PLAYER_MARKS, buildPreview, defenseMilli, frameCells, hexAt, hexIndex, visibleSet,
+  BUILDING_KEYS, BUILDING_NAMES, HEIGHT_STYLE, PLAYER_COLORS, PLAYER_MARKS, buildPreview, decodeFrames, defenseMilli, frameCells, hexAt, hexIndex, visibleSet,
 } from './model'
 
 const SPEEDS = [1, 2, 4, 8, 16]
@@ -53,9 +53,19 @@ export default function App() {
   const [drawer, setDrawer] = useState(false)
   const [heightMode, setHeightMode] = useState(false)
   const [tab, setTab] = useState('events')
+  const [hideEnd, setHideEnd] = useState(false)
 
   useEffect(() => {
-    fetch('/sample-replay.json').then((r) => r.json()).then(setRep).catch((e) => setError(String(e)))
+    fetch('/sample-replay.json')
+      .then((r) => r.json())
+      .then((raw: ViewerReplay & { frame_encoding?: string }) => {
+        const loaded = raw.frame_encoding === 'delta-v2' ? { ...raw, frames: decodeFrames(raw.frames) } : raw
+        const want = new URLSearchParams(location.search).get('tick')
+        const lastTick = loaded.frames.length - 1
+        if (want) setTick(want === 'end' ? lastTick : Math.min(lastTick, Math.max(0, Number(want) || 0)))
+        setRep(loaded)
+      })
+      .catch((e) => setError(String(e)))
   }, [])
 
   useEffect(() => {
@@ -63,6 +73,8 @@ export default function App() {
     const id = setInterval(() => setTick((t) => (t >= rep.frames.length - 1 ? (setPlaying(false), t) : t + 1)), 1000 / speed)
     return () => clearInterval(id)
   }, [playing, speed, rep])
+
+  useEffect(() => { if (rep && tick < rep.frames.length - 1) setHideEnd(false) }, [tick, rep])
 
   const cells = useMemo(() => (rep ? frameCells(rep, tick) : new Map<number, Cell>()), [rep, tick])
   const visible = useMemo(() => (rep && perspective >= 0 ? visibleSet(rep, cells, perspective) : null), [rep, cells, perspective])
@@ -175,9 +187,10 @@ export default function App() {
   return (
     <div className="flex h-full flex-col gap-3 bg-background p-3 text-foreground lg:flex-row">
       <div className="flex min-h-0 flex-1 flex-col gap-3">
-        <div className="min-h-0 flex-1">
+        <div className="relative min-h-0 flex-1">
           <Board rep={rep} cells={cells} perspective={perspective} visible={visible} selected={selected} heightMode={heightMode}
             onSelect={(i) => { setSelected(i); if (i !== null) setTab('hex') }} />
+          {tick === last && !hideEnd && <MatchOver rep={rep} onReplay={() => { setTick(0); setPlaying(true) }} onClose={() => setHideEnd(true)} />}
         </div>
         <Card size="sm" className="py-2">
           <CardContent className="flex flex-wrap items-center gap-2">
@@ -205,6 +218,55 @@ export default function App() {
           <div className="px-4 pb-4">{sidebar}</div>
         </SheetContent>
       </Sheet>
+    </div>
+  )
+}
+
+function MatchOver({ rep, onReplay, onClose }: { rep: ViewerReplay; onReplay: () => void; onClose: () => void }) {
+  const ps = [...rep.result.placements].sort((a, b) => a.place_start - b.place_start || a.player - b.player)
+  const survivors = ps.filter((p) => p.land > 0).length
+  const winner = ps[0]
+  const reason = survivors <= 1 ? 'Last player standing' : `Tick limit reached (${rep.result.final_tick} ticks). Survivors ranked by land, then troops.`
+  const place = (p: Placement) => (p.place_start === p.place_end ? `#${p.place_start}` : `#${p.place_start}–${p.place_end}`)
+  return (
+    <div className="absolute inset-0 flex items-center justify-center bg-background/55 p-4 backdrop-blur-[2px]">
+      <Card className="w-full max-w-sm">
+        <CardHeader>
+          <SectionLabel>Match over</SectionLabel>
+          <CardTitle className="flex items-center gap-2 text-lg">
+            <Trophy className="size-5 text-amber-300" />
+            <span style={{ color: PLAYER_COLORS[winner.player % 8] }}>{rep.names[winner.player]}</span> wins
+          </CardTitle>
+          <div className="text-xs text-muted-foreground">{reason}</div>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <Table>
+            <TableHeader>
+              <TableRow className="hover:bg-transparent">
+                <TableHead className="h-7">Place</TableHead><TableHead className="h-7" />
+                <TableHead className="h-7 text-right">Land</TableHead><TableHead className="h-7 text-right">Points</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {ps.map((p) => (
+                <TableRow key={p.player} className="hover:bg-transparent">
+                  <TableCell className="py-1.5 tabular-nums">{place(p)}</TableCell>
+                  <TableCell className="py-1.5 font-medium">
+                    <span className="mr-2 inline-block size-2 rounded-full" style={{ background: PLAYER_COLORS[p.player % 8] }} />{rep.names[p.player]}
+                    {p.land === 0 && <span className="ml-1.5 text-[10px] text-muted-foreground">eliminated</span>}
+                  </TableCell>
+                  <TableCell className="py-1.5 text-right tabular-nums">{p.land}</TableCell>
+                  <TableCell className="py-1.5 text-right tabular-nums">{(p.points / 1000).toFixed(1)}</TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+          <div className="flex gap-2">
+            <Button className="flex-1" onClick={onReplay}><RotateCcw />Watch again</Button>
+            <Button variant="outline" className="flex-1" onClick={onClose}>View final board</Button>
+          </div>
+        </CardContent>
+      </Card>
     </div>
   )
 }
@@ -285,7 +347,7 @@ function BuildingDetail({ rep, c, wallLinks }: { rep: ViewerReplay; c: Cell; wal
   const cd = c.cooldown > 0 ? `relink in ${c.cooldown} ticks` : 'relink ready'
   return (
     <div className="flex items-start gap-3 rounded-lg border bg-muted/30 p-2.5">
-      <BuildingIcon kind={c.building} size={30} dashed={(c.building === 2 && c.links[0] < 0) || wallLinks === 0} double={(c.building === 2 && c.links[0] >= 0) || wallLinks === 2} />
+      <BuildingIcon kind={c.building} size={36} pips={buildingPips(c, r)} />
       <div className="space-y-0.5">
         <div className="font-medium">{BUILDING_NAMES[c.building - 1]}</div>
         {c.building === 1 && <div className="text-muted-foreground"><Link2 className="mr-1 inline size-3" />{linked}/{r.farm.sockets} Villages supported · {cd}<br />+1 Resource in {c.remaining} ticks</div>}

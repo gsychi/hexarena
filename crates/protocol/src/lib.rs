@@ -96,19 +96,36 @@ pub type Tick = u32;
 pub enum Action {
     NoOp,
     /// Move `troops` from an owned hex to an adjacent hex.
-    Move { from: Hex, to: Hex, troops: u32 },
+    Move {
+        from: Hex,
+        to: Hex,
+        troops: u32,
+    },
     /// Every owned hex with spare troops steps one hex toward `target` through friendly land.
-    Gather { target: Hex },
+    Gather {
+        target: Hex,
+    },
     /// Construct a building. Paid in troops from that hex plus global Resource.
-    Build { at: Hex, building: Building },
+    Build {
+        at: Hex,
+        building: Building,
+    },
 }
 
 /// Free management commands. They never consume the main action but have cooldowns.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum ManagementCommand {
-    SetFarmLink { farm: Hex, village: Hex, enabled: bool },
-    SetWallLink { wall_a: Hex, wall_b: Hex, enabled: bool },
+    SetFarmLink {
+        farm: Hex,
+        village: Hex,
+        enabled: bool,
+    },
+    SetWallLink {
+        wall_a: Hex,
+        wall_b: Hex,
+        enabled: bool,
+    },
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Default, Serialize, Deserialize)]
@@ -125,7 +142,10 @@ impl Default for Action {
 
 impl PlayerCommand {
     pub fn action(action: Action) -> Self {
-        PlayerCommand { management: vec![], action }
+        PlayerCommand {
+            management: vec![],
+            action,
+        }
     }
 }
 
@@ -228,8 +248,19 @@ impl Default for RulesConfig {
             maximum_total_defense_milli: 5000,
             extractor_period: 10,
             extractor_output: 1,
-            farm: FarmRules { troop_cost: 60, resource_cost: 0, allowed_heights: vec![-2, -1], sockets: 3, relink_cooldown: 10 },
-            village: VillageRules { troop_cost: 90, resource_cost: 2, bonus: 1, farm_bonus: 1 },
+            farm: FarmRules {
+                troop_cost: 60,
+                resource_cost: 0,
+                allowed_heights: vec![-2, -1],
+                sockets: 3,
+                relink_cooldown: 10,
+            },
+            village: VillageRules {
+                troop_cost: 90,
+                resource_cost: 2,
+                bonus: 1,
+                farm_bonus: 1,
+            },
             quarry: QuarryRules {
                 troop_cost: 180,
                 resource_cost: 0,
@@ -239,7 +270,13 @@ impl Default for RulesConfig {
                 troop_discount_pct: 25,
                 resource_discount: 1,
             },
-            wall: WallRules { troop_cost: 40, resource_cost: 1, max_links: 2, defense_milli_by_links: vec![2000, 2500, 3000], relink_cooldown: 10 },
+            wall: WallRules {
+                troop_cost: 40,
+                resource_cost: 1,
+                max_links: 2,
+                defense_milli_by_links: vec![2000, 2500, 3000],
+                relink_cooldown: 10,
+            },
             encirclement_enabled: true,
             impassable_breaks_encirclement: true,
             spawn_min_distance: 8,
@@ -286,11 +323,20 @@ impl RulesConfig {
         let (bt, br) = self.base_cost(b);
         let discounted = next_to_friendly_quarry && b != Building::Quarry;
         let (troops, resource) = if discounted {
-            ((bt * (100 - self.quarry.troop_discount_pct) + 99) / 100, br.saturating_sub(self.quarry.resource_discount))
+            (
+                (bt * (100 - self.quarry.troop_discount_pct) + 99) / 100,
+                br.saturating_sub(self.quarry.resource_discount),
+            )
         } else {
             (bt, br)
         };
-        BuildCost { base_troops: bt, base_resource: br, troops, resource, discounted }
+        BuildCost {
+            base_troops: bt,
+            base_resource: br,
+            troops,
+            resource,
+            discounted,
+        }
     }
 
     pub fn terrain_allowed(&self, b: Building, height: i8) -> bool {
@@ -312,15 +358,26 @@ impl RulesConfig {
         let d = defender_height as i32 - attacker_height as i32;
         let mut m: u64 = MILLI as u64;
         for _ in 0..d.abs() {
-            m = if d > 0 { (m * f + 500) / 1000 } else { (m * 1000 + f / 2) / f };
+            m = if d > 0 {
+                (m * f + 500) / 1000
+            } else {
+                (m * 1000 + f / 2) / f
+            };
         }
         m as u32
     }
 
     /// Terrain multiplied by Wall multiplier, capped.
-    pub fn defense_milli(&self, attacker_height: i8, defender_height: i8, wall_links: Option<usize>) -> u32 {
+    pub fn defense_milli(
+        &self,
+        attacker_height: i8,
+        defender_height: i8,
+        wall_links: Option<usize>,
+    ) -> u32 {
         let h = self.height_multiplier_milli(attacker_height, defender_height) as u64;
-        let w = wall_links.map(|n| self.wall_multiplier_milli(n)).unwrap_or(MILLI) as u64;
+        let w = wall_links
+            .map(|n| self.wall_multiplier_milli(n))
+            .unwrap_or(MILLI) as u64;
         ((h * w / 1000) as u32).min(self.maximum_total_defense_milli)
     }
 }
@@ -360,18 +417,55 @@ pub struct VisibleHex {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum Event {
-    Moved { player: PlayerId, from: Hex, to: Hex, troops: u32 },
-    Gathered { player: PlayerId, target: Hex, sources: u32 },
-    Captured { player: PlayerId, at: Hex, previous_owner: Option<PlayerId>, troops_left: u32, building: Option<Building> },
-    Repelled { attacker: PlayerId, at: Hex, attackers_lost: u32 },
-    Surrendered { capturer: PlayerId, from: PlayerId, hexes: Vec<Hex> },
-    Built { player: PlayerId, at: Hex, building: Building },
-    LinkChanged { player: PlayerId, at: Hex },
+    Moved {
+        player: PlayerId,
+        from: Hex,
+        to: Hex,
+        troops: u32,
+    },
+    Gathered {
+        player: PlayerId,
+        target: Hex,
+        sources: u32,
+    },
+    Captured {
+        player: PlayerId,
+        at: Hex,
+        previous_owner: Option<PlayerId>,
+        troops_left: u32,
+        building: Option<Building>,
+    },
+    Repelled {
+        attacker: PlayerId,
+        at: Hex,
+        attackers_lost: u32,
+    },
+    Surrendered {
+        capturer: PlayerId,
+        from: PlayerId,
+        hexes: Vec<Hex>,
+    },
+    Built {
+        player: PlayerId,
+        at: Hex,
+        building: Building,
+    },
+    LinkChanged {
+        player: PlayerId,
+        at: Hex,
+    },
     /// Links at this hex broke because ownership changed.
-    LinksBroken { at: Hex },
-    Eliminated { player: PlayerId },
+    LinksBroken {
+        at: Hex,
+    },
+    Eliminated {
+        player: PlayerId,
+    },
     /// Visible only to the player whose action was rejected.
-    Rejected { player: PlayerId, reason: String },
+    Rejected {
+        player: PlayerId,
+        reason: String,
+    },
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -434,11 +528,17 @@ pub struct MatchResult {
 
 impl MatchResult {
     pub fn placement(&self, p: PlayerId) -> &Placement {
-        self.placements.iter().find(|x| x.player == p).expect("player in result")
+        self.placements
+            .iter()
+            .find(|x| x.player == p)
+            .expect("player in result")
     }
     /// Set only when a single player finished strictly first.
     pub fn winner(&self) -> Option<PlayerId> {
-        self.placements.first().filter(|f| f.place_start == 1 && f.place_end == 1).map(|f| f.player)
+        self.placements
+            .first()
+            .filter(|f| f.place_start == 1 && f.place_end == 1)
+            .map(|f| f.player)
     }
     /// Average place (e.g. 3.5 for a tie across 3rd and 4th).
     pub fn place_f64(&self, p: PlayerId) -> f64 {
@@ -451,7 +551,11 @@ impl MatchResult {
     /// (N - place) / (N - 1)
     pub fn normalized(&self, p: PlayerId) -> f64 {
         let n = self.placements.len() as f64;
-        if n < 2.0 { 1.0 } else { (n - self.place_f64(p)) / (n - 1.0) }
+        if n < 2.0 {
+            1.0
+        } else {
+            (n - self.place_f64(p)) / (n - 1.0)
+        }
     }
     pub fn survival_ticks(&self, p: PlayerId) -> Tick {
         self.placement(p).eliminated_at.unwrap_or(self.final_tick)

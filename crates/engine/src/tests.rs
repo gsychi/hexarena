@@ -2,7 +2,13 @@ use super::*;
 use mapgen::{affordable_expansions, generate, has_two_independent_routes};
 
 fn settings(players: u16, seed: u64) -> MatchSettings {
-    MatchSettings { players, terrain_seed: seed, spawn_seed: seed ^ 0xFEED, match_seed: seed + 3, rules: RulesConfig::default() }
+    MatchSettings {
+        players,
+        terrain_seed: seed,
+        spawn_seed: seed ^ 0xFEED,
+        match_seed: seed + 3,
+        rules: RulesConfig::default(),
+    }
 }
 
 fn state(players: u16, seed: u64) -> State {
@@ -18,11 +24,18 @@ fn act(p: PlayerId, a: Action) -> Vec<(PlayerId, PlayerCommand)> {
 }
 
 fn first_owned(st: &State, p: PlayerId) -> Hex {
-    st.board.hexes().into_iter().find(|&h| st.cell(h).unwrap().owner == Some(p)).unwrap()
+    st.board
+        .hexes()
+        .into_iter()
+        .find(|&h| st.cell(h).unwrap().owner == Some(p))
+        .unwrap()
 }
 
 fn open_neighbor(st: &State, h: Hex) -> Hex {
-    h.neighbors().into_iter().find(|&n| passable(&st.board, &st.terrain, n)).unwrap()
+    h.neighbors()
+        .into_iter()
+        .find(|&n| passable(&st.board, &st.terrain, n))
+        .unwrap()
 }
 
 fn set(st: &mut State, h: Hex, owner: Option<PlayerId>, troops: u32) {
@@ -33,7 +46,10 @@ fn set(st: &mut State, h: Hex, owner: Option<PlayerId>, troops: u32) {
 
 fn set_height(st: &mut State, h: Hex, height: i8) {
     let i = st.board.index(h).unwrap();
-    st.terrain[i] = Some(Terrain { height, kind: TerrainKind::Open });
+    st.terrain[i] = Some(Terrain {
+        height,
+        kind: TerrainKind::Open,
+    });
 }
 
 fn put_building(st: &mut State, h: Hex, b: Building) {
@@ -48,14 +64,23 @@ fn interior_open(st: &State) -> Hex {
         .hexes()
         .into_iter()
         .find(|&h| {
-            st.board.hexes_within(h, 2).len() == 19 && st.board.hexes_within(h, 2).iter().all(|&n| passable(&st.board, &st.terrain, n))
+            st.board.hexes_within(h, 2).len() == 19
+                && st
+                    .board
+                    .hexes_within(h, 2)
+                    .iter()
+                    .all(|&n| passable(&st.board, &st.terrain, n))
         })
         .expect("open disc")
 }
 
 /// An on-board hex far from `c` (used to keep a second player alive).
 fn faraway(st: &State, c: Hex) -> Hex {
-    st.board.hexes().into_iter().max_by_key(|h| (h.distance(c), *h)).unwrap()
+    st.board
+        .hexes()
+        .into_iter()
+        .max_by_key(|h| (h.distance(c), *h))
+        .unwrap()
 }
 
 fn clear_owners(st: &mut State) {
@@ -109,7 +134,11 @@ fn map_safety_invariants() {
             let m = generate(&s).unwrap_or_else(|e| panic!("{players}p seed {seed}: {e}"));
             let board = Board::new(m.radius);
             let hexes = board.hexes();
-            let open: Vec<Hex> = hexes.iter().copied().filter(|&h| passable(&board, &m.terrain, h)).collect();
+            let open: Vec<Hex> = hexes
+                .iter()
+                .copied()
+                .filter(|&h| passable(&board, &m.terrain, h))
+                .collect();
             let imp = (hexes.len() - open.len()) * 100 / hexes.len();
             assert!((15..=25).contains(&imp), "impassable {imp}%");
             let mut seen = std::collections::HashSet::from([open[0]]);
@@ -156,7 +185,11 @@ fn eight_player_map_scale() {
     let m = generate(&settings(8, 42)).unwrap();
     let board = Board::new(m.radius);
     let total = board.hexes().len();
-    let open = board.hexes().iter().filter(|&&h| passable(&board, &m.terrain, h)).count();
+    let open = board
+        .hexes()
+        .iter()
+        .filter(|&&h| passable(&board, &m.terrain, h))
+        .count();
     assert!((1300..=1500).contains(&total), "{total}");
     assert!((1000..=1250).contains(&open), "{open}");
 }
@@ -172,7 +205,12 @@ fn neutral_garrisons_are_in_range_and_spawns_start_equal() {
                 continue;
             }
             match c.owner {
-                None => assert!((r.neutral_min..=r.neutral_max).contains(&c.troops), "{:?} {}", h, c.troops),
+                None => assert!(
+                    (r.neutral_min..=r.neutral_max).contains(&c.troops),
+                    "{:?} {}",
+                    h,
+                    c.troops
+                ),
                 Some(_) => assert_eq!(c.troops, r.starting_troops),
             }
         }
@@ -184,7 +222,12 @@ fn neutral_garrisons_are_in_range_and_spawns_start_equal() {
 #[test]
 fn neutral_land_produces_nothing_and_owned_land_exactly_one() {
     let mut st = state(2, 3);
-    let neutral = st.board.hexes().into_iter().find(|&h| passable(&st.board, &st.terrain, h) && st.cell(h).unwrap().owner.is_none()).unwrap();
+    let neutral = st
+        .board
+        .hexes()
+        .into_iter()
+        .find(|&h| passable(&st.board, &st.terrain, h) && st.cell(h).unwrap().owner.is_none())
+        .unwrap();
     let before_n = st.cell(neutral).unwrap().troops;
     let sp = first_owned(&st, 0);
     let before = st.cell(sp).unwrap().troops;
@@ -206,10 +249,23 @@ fn impassable_land_cannot_be_entered_or_owned() {
     let sp = first_owned(&st, 0);
     let target = open_neighbor(&st, sp);
     let i = st.board.index(target).unwrap();
-    st.terrain[i] = Some(Terrain { height: 0, kind: TerrainKind::Mountain });
+    st.terrain[i] = Some(Terrain {
+        height: 0,
+        kind: TerrainKind::Mountain,
+    });
     st.cell_mut(sp).troops = 30;
-    st.step(&act(0, Action::Move { from: sp, to: target, troops: 10 }));
-    assert!(st.last_events.iter().any(|e| matches!(e, Event::Rejected { player: 0, .. })));
+    st.step(&act(
+        0,
+        Action::Move {
+            from: sp,
+            to: target,
+            troops: 10,
+        },
+    ));
+    assert!(st
+        .last_events
+        .iter()
+        .any(|e| matches!(e, Event::Rejected { player: 0, .. })));
     assert_eq!(st.cell(sp).unwrap().troops, 31);
     for h in st.board.hexes() {
         if !passable(&st.board, &st.terrain, h) {
@@ -243,7 +299,14 @@ fn input_order_does_not_change_outcome() {
     let cmds: Vec<_> = (0..3u16)
         .map(|p| {
             let from = first_owned(&a, p);
-            (p, PlayerCommand::action(Action::Move { from, to: open_neighbor(&a, from), troops: 20 }))
+            (
+                p,
+                PlayerCommand::action(Action::Move {
+                    from,
+                    to: open_neighbor(&a, from),
+                    troops: 20,
+                }),
+            )
         })
         .collect();
     let mut rev = cmds.clone();
@@ -269,12 +332,29 @@ fn friendly_move_transfers_and_leaves_one() {
     let b = open_neighbor(&st, a);
     set(&mut st, a, Some(0), 20);
     set(&mut st, b, Some(0), 5);
-    st.step(&act(0, Action::Move { from: a, to: b, troops: 19 }));
+    st.step(&act(
+        0,
+        Action::Move {
+            from: a,
+            to: b,
+            troops: 19,
+        },
+    ));
     assert_eq!(st.cell(a).unwrap().troops, 2);
     assert_eq!(st.cell(b).unwrap().troops, 25);
     assert!(st.cell(b).unwrap().owner == Some(0));
-    st.step(&act(0, Action::Move { from: a, to: b, troops: st.cell(a).unwrap().troops }));
-    assert!(st.last_events.iter().any(|e| matches!(e, Event::Rejected { .. })));
+    st.step(&act(
+        0,
+        Action::Move {
+            from: a,
+            to: b,
+            troops: st.cell(a).unwrap().troops,
+        },
+    ));
+    assert!(st
+        .last_events
+        .iter()
+        .any(|e| matches!(e, Event::Rejected { .. })));
 }
 
 // ---------- combat ----------
@@ -318,7 +398,14 @@ fn wall_links_defense_and_cap() {
         set_height(&mut st, h, 0);
     }
     assert_eq!(st.defense_milli(a, 0), 2000);
-    let link = |x, y, en| PlayerCommand { management: vec![ManagementCommand::SetWallLink { wall_a: x, wall_b: y, enabled: en }], action: Action::NoOp };
+    let link = |x, y, en| PlayerCommand {
+        management: vec![ManagementCommand::SetWallLink {
+            wall_a: x,
+            wall_b: y,
+            enabled: en,
+        }],
+        action: Action::NoOp,
+    };
     st.step(&[(0, link(a, b, true))]);
     assert_eq!(st.wall_links(a), 1);
     assert_eq!(st.defense_milli(a, 0), 2500);
@@ -332,14 +419,22 @@ fn wall_links_defense_and_cap() {
     put_building(&mut st, e, Building::Wall);
     st.tick += 20;
     st.step(&[(0, link(a, e, true))]);
-    assert!(st.last_events.iter().any(|ev| matches!(ev, Event::Rejected { .. })));
+    assert!(st
+        .last_events
+        .iter()
+        .any(|ev| matches!(ev, Event::Rejected { .. })));
     assert_eq!(st.wall_links(a), 2);
     // cap: hill (+2) attacked from valley (-2) with 3x wall = 5.06 * 3 -> capped at 5.0
     set_height(&mut st, a, 2);
     assert_eq!(st.defense_milli(a, -2), 5000);
     // cooldown blocks immediate re-link
     st.step(&[(0, link(a, d, false))]);
-    assert!(st.last_events.iter().any(|ev| matches!(ev, Event::Rejected { .. })) || st.wall_links(a) == 1);
+    assert!(
+        st.last_events
+            .iter()
+            .any(|ev| matches!(ev, Event::Rejected { .. }))
+            || st.wall_links(a) == 1
+    );
 }
 
 #[test]
@@ -361,13 +456,23 @@ fn capture_transfers_buildings_and_breaks_links() {
     put_building(&mut st, village, Building::Village);
     st.cell_mut(farm).links[0] = Some(village);
     assert_eq!(st.supporting_farm(village), Some(farm));
-    st.step(&act(0, Action::Move { from: attacker, to: village, troops: 150 }));
+    st.step(&act(
+        0,
+        Action::Move {
+            from: attacker,
+            to: village,
+            troops: 150,
+        },
+    ));
     let v = st.cell(village).unwrap();
     assert_eq!(v.owner, Some(0));
     assert_eq!(v.building, Some(Building::Village));
     assert!(st.cell(farm).unwrap().links.iter().all(|l| l.is_none()));
     assert_eq!(st.supporting_farm(village), None);
-    assert!(st.last_events.iter().any(|e| matches!(e, Event::LinksBroken { .. })));
+    assert!(st
+        .last_events
+        .iter()
+        .any(|e| matches!(e, Event::LinksBroken { .. })));
 }
 
 #[test]
@@ -388,7 +493,14 @@ fn wall_links_break_on_capture() {
     st.cell_mut(b).links[0] = Some(a);
     set_height(&mut st, b, 0);
     set_height(&mut st, attacker, 0);
-    st.step(&act(0, Action::Move { from: attacker, to: b, troops: 299 }));
+    st.step(&act(
+        0,
+        Action::Move {
+            from: attacker,
+            to: b,
+            troops: 299,
+        },
+    ));
     assert_eq!(st.cell(b).unwrap().owner, Some(0));
     assert_eq!(st.cell(b).unwrap().building, Some(Building::Wall));
     assert_eq!(st.wall_links(a), 0);
@@ -450,14 +562,25 @@ fn enclosure_requires_all_boundaries_owned_by_capturer() {
     set_impassable(&mut st, n0);
     assert!(!st.is_enclosed(&[c], 0), "impassable breaks enclosure");
     st.settings.rules.impassable_breaks_encirclement = false;
-    assert!(st.is_enclosed(&[c], 0), "when configured, impassable is ignored");
-    let edge = st.board.hexes().into_iter().find(|h| h.q.abs().max(h.r.abs()).max((h.q + h.r).abs()) == st.board.radius).unwrap();
+    assert!(
+        st.is_enclosed(&[c], 0),
+        "when configured, impassable is ignored"
+    );
+    let edge = st
+        .board
+        .hexes()
+        .into_iter()
+        .find(|h| h.q.abs().max(h.r.abs()).max((h.q + h.r).abs()) == st.board.radius)
+        .unwrap();
     assert!(!st.is_enclosed(&[edge], 0), "map edge");
 }
 
 fn set_impassable(st: &mut State, h: Hex) {
     let i = st.board.index(h).unwrap();
-    st.terrain[i] = Some(Terrain { height: 0, kind: TerrainKind::Mountain });
+    st.terrain[i] = Some(Terrain {
+        height: 0,
+        kind: TerrainKind::Mountain,
+    });
 }
 
 #[test]
@@ -473,11 +596,29 @@ fn capture_surrenders_enclosed_enemy_component() {
     set(&mut st, x, None, 1);
     let f = faraway(&st, c);
     set(&mut st, f, Some(1), 3);
-    st.step(&act(0, Action::Move { from: c.neighbors()[1], to: x, troops: 30 }));
+    st.step(&act(
+        0,
+        Action::Move {
+            from: c.neighbors()[1],
+            to: x,
+            troops: 30,
+        },
+    ));
     assert_eq!(st.cell(x).unwrap().owner, Some(0));
     assert_eq!(st.cell(c).unwrap().owner, Some(0));
-    assert!(st.last_events.iter().any(|e| matches!(e, Event::Surrendered { capturer: 0, from: 1, .. })));
-    assert_eq!(st.cell(c).unwrap().troops, 2 + 1, "troops remain, plus production");
+    assert!(st.last_events.iter().any(|e| matches!(
+        e,
+        Event::Surrendered {
+            capturer: 0,
+            from: 1,
+            ..
+        }
+    )));
+    assert_eq!(
+        st.cell(c).unwrap().troops,
+        2 + 1,
+        "troops remain, plus production"
+    );
 }
 
 // ---------- buildings ----------
@@ -503,12 +644,36 @@ fn build_rules_terrain_spacing_and_leave_one_troop() {
     let f = faraway(&st, c);
     set(&mut st, f, Some(1), 3);
     set_height(&mut st, c, 0);
-    st.step(&act(0, Action::Build { at: c, building: Building::Farm }));
-    assert!(st.cell(c).unwrap().building.is_none(), "farm needs a valley");
+    st.step(&act(
+        0,
+        Action::Build {
+            at: c,
+            building: Building::Farm,
+        },
+    ));
+    assert!(
+        st.cell(c).unwrap().building.is_none(),
+        "farm needs a valley"
+    );
     set_height(&mut st, c, -1);
-    st.step(&act(0, Action::Build { at: c, building: Building::Farm }));
-    assert!(st.cell(c).unwrap().building.is_none(), "60 troops on hex is not enough: one must remain");
-    st.step(&act(0, Action::Build { at: c, building: Building::Farm }));
+    st.step(&act(
+        0,
+        Action::Build {
+            at: c,
+            building: Building::Farm,
+        },
+    ));
+    assert!(
+        st.cell(c).unwrap().building.is_none(),
+        "60 troops on hex is not enough: one must remain"
+    );
+    st.step(&act(
+        0,
+        Action::Build {
+            at: c,
+            building: Building::Farm,
+        },
+    ));
     assert_eq!(st.cell(c).unwrap().building, Some(Building::Farm));
     assert_eq!(st.cell(c).unwrap().troops, 62 - 60);
 }
@@ -522,7 +687,13 @@ fn farm_produces_resource_ten_ticks_after_completion() {
     set_height(&mut st, c, -2);
     let f = faraway(&st, c);
     set(&mut st, f, Some(1), 3);
-    st.step(&act(0, Action::Build { at: c, building: Building::Farm }));
+    st.step(&act(
+        0,
+        Action::Build {
+            at: c,
+            building: Building::Farm,
+        },
+    ));
     assert_eq!(st.resources[0], 0);
     for _ in 0..9 {
         st.step(&noop_all(2));
@@ -546,7 +717,14 @@ fn village_income_two_unsupported_three_supported() {
     put_building(&mut st, farm, Building::Farm);
     st.tick = 1;
     assert_eq!(st.income(village), 2);
-    let link = PlayerCommand { management: vec![ManagementCommand::SetFarmLink { farm, village, enabled: true }], action: Action::NoOp };
+    let link = PlayerCommand {
+        management: vec![ManagementCommand::SetFarmLink {
+            farm,
+            village,
+            enabled: true,
+        }],
+        action: Action::NoOp,
+    };
     st.step(&[(0, link)]);
     assert_eq!(st.income(village), 3);
     assert_eq!(st.income(farm), 1);
@@ -564,10 +742,25 @@ fn quarry_requires_hill_and_spacing() {
     }
     let f = faraway(&st, c);
     set(&mut st, f, Some(1), 3);
-    st.step(&act(0, Action::Build { at: c, building: Building::Quarry }));
+    st.step(&act(
+        0,
+        Action::Build {
+            at: c,
+            building: Building::Quarry,
+        },
+    ));
     assert_eq!(st.cell(c).unwrap().building, Some(Building::Quarry));
-    st.step(&act(0, Action::Build { at: other, building: Building::Quarry }));
-    assert!(st.cell(other).unwrap().building.is_none(), "needs 3 hexes of spacing");
+    st.step(&act(
+        0,
+        Action::Build {
+            at: other,
+            building: Building::Quarry,
+        },
+    ));
+    assert!(
+        st.cell(other).unwrap().building.is_none(),
+        "needs 3 hexes of spacing"
+    );
 }
 
 // ---------- fog ----------
@@ -579,11 +772,25 @@ fn scramble_hidden(st: &mut State, viewer: PlayerId) {
         if !mask[i] && st.cells[i].owner != Some(viewer) {
             st.cells[i].troops = st.cells[i].troops.wrapping_mul(7).wrapping_add(13);
             st.cells[i].building = Some(Building::Wall);
-            st.cells[i].owner = if st.cells[i].owner.is_some() { None } else { Some(1) };
+            st.cells[i].owner = if st.cells[i].owner.is_some() {
+                None
+            } else {
+                Some(1)
+            };
         }
     }
-    let far = st.board.hexes().into_iter().find(|&h| !mask[st.board.index(h).unwrap()]).unwrap();
-    st.last_events.push(Event::Moved { player: 1, from: far, to: far, troops: 99 });
+    let far = st
+        .board
+        .hexes()
+        .into_iter()
+        .find(|&h| !mask[st.board.index(h).unwrap()])
+        .unwrap();
+    st.last_events.push(Event::Moved {
+        player: 1,
+        from: far,
+        to: far,
+        troops: 99,
+    });
     st.resources[1] += 40;
 }
 
@@ -592,7 +799,10 @@ fn fog_leak_hidden_state_does_not_change_view() {
     let a = state(4, 21);
     let mut b = a.clone();
     scramble_hidden(&mut b, 0);
-    assert_eq!(serde_json::to_vec(&a.view(0)).unwrap(), serde_json::to_vec(&b.view(0)).unwrap());
+    assert_eq!(
+        serde_json::to_vec(&a.view(0)).unwrap(),
+        serde_json::to_vec(&b.view(0)).unwrap()
+    );
 }
 
 #[test]
@@ -604,9 +814,16 @@ fn fog_leak_hidden_actions_do_not_change_view() {
     let to = open_neighbor(&a, far);
     a.step(&noop_all(4));
     let mut cmds = noop_all(4);
-    cmds[3].1.action = Action::Move { from: far, to, troops: 5 };
+    cmds[3].1.action = Action::Move {
+        from: far,
+        to,
+        troops: 5,
+    };
     b.step(&cmds);
-    assert_eq!(serde_json::to_vec(&a.view(0)).unwrap(), serde_json::to_vec(&b.view(0)).unwrap());
+    assert_eq!(
+        serde_json::to_vec(&a.view(0)).unwrap(),
+        serde_json::to_vec(&b.view(0)).unwrap()
+    );
     assert_ne!(a.state_hash(), b.state_hash());
 }
 
@@ -615,11 +832,20 @@ fn view_omits_hidden_mutable_state_entirely() {
     let st = state(4, 21);
     let v = st.view(0);
     let own = first_owned(&st, 0);
-    assert!(v.visible_hexes.iter().all(|c| c.hex.distance(own) <= st.rules().fog_radius));
+    assert!(v
+        .visible_hexes
+        .iter()
+        .all(|c| c.hex.distance(own) <= st.rules().fog_radius));
     let json = serde_json::to_string(&v).unwrap();
     assert!(!json.contains("\"hidden\"") && !json.contains("redacted"));
-    assert!(v.public_players.iter().all(|p| p.alive && p.placement.is_none()));
-    assert!(v.visible_events.iter().all(|e| !matches!(e, Event::Rejected { player, .. } if *player != 0)));
+    assert!(v
+        .public_players
+        .iter()
+        .all(|p| p.alive && p.placement.is_none()));
+    assert!(v
+        .visible_events
+        .iter()
+        .all(|e| !matches!(e, Event::Rejected { player, .. } if *player != 0)));
 }
 
 // ---------- elimination, placement, replay ----------
@@ -631,13 +857,24 @@ fn scripted(st: &State, p: PlayerId) -> PlayerCommand {
         if c.owner != Some(p) || c.troops < 8 {
             continue;
         }
-        if let Some(t) = h.neighbors().into_iter().find(|&n| passable(&st.board, &st.terrain, n) && st.cell(n).unwrap().owner != Some(p)) {
+        if let Some(t) = h
+            .neighbors()
+            .into_iter()
+            .find(|&n| passable(&st.board, &st.terrain, n) && st.cell(n).unwrap().owner != Some(p))
+        {
             if best.map_or(true, |b| c.troops > b.2) {
                 best = Some((h, t, c.troops));
             }
         }
     }
-    PlayerCommand::action(best.map(|(from, to, t)| Action::Move { from, to, troops: t - 1 }).unwrap_or(Action::NoOp))
+    PlayerCommand::action(
+        best.map(|(from, to, t)| Action::Move {
+            from,
+            to,
+            troops: t - 1,
+        })
+        .unwrap_or(Action::NoOp),
+    )
 }
 
 fn run_scripted(seed: u64, ticks: u32) -> (State, Vec<TickCommands>, Vec<Vec<Event>>) {
@@ -647,7 +884,10 @@ fn run_scripted(seed: u64, ticks: u32) -> (State, Vec<TickCommands>, Vec<Vec<Eve
         if st.is_over() {
             break;
         }
-        let cmds: TickCommands = (0..4u16).filter(|&p| !st.eliminated[p as usize]).map(|p| (p, scripted(&st, p))).collect();
+        let cmds: TickCommands = (0..4u16)
+            .filter(|&p| !st.eliminated[p as usize])
+            .map(|p| (p, scripted(&st, p)))
+            .collect();
         st.step(&cmds);
         log.push(cmds);
         ev.push(st.last_events.clone());
@@ -674,7 +914,14 @@ fn eliminated_players_get_public_placement() {
     set(&mut st, f, Some(2), 10);
     set_height(&mut st, c, 0);
     set_height(&mut st, c.add(HEX_DIRECTIONS[0]), 0);
-    st.step(&act(0, Action::Move { from: c.add(HEX_DIRECTIONS[0]), to: c, troops: 45 }));
+    st.step(&act(
+        0,
+        Action::Move {
+            from: c.add(HEX_DIRECTIONS[0]),
+            to: c,
+            troops: 45,
+        },
+    ));
     assert!(st.eliminated[1]);
     assert_eq!(st.elim_place[1], Some((3, 3)));
     let v = st.view(2);
