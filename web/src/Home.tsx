@@ -6,11 +6,11 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
 import type { BotInfo, Leaderboard, MatchStatus, MatchSummary } from './api'
 import { api } from './api'
 import { PLAYER_COLORS } from './model'
+import { Standings } from './Standings'
 
 const LENGTHS = [
   { ticks: 500, label: 'Short', hint: '500 ticks' },
@@ -110,6 +110,8 @@ export function Home({ onOpen }: { onOpen: (id: string) => void }) {
         </Card>
       )}
 
+      <Standings board={board} />
+
       <div className="grid gap-6 lg:grid-cols-[minmax(0,26rem)_minmax(0,1fr)]">
         <Card>
           <CardHeader>
@@ -191,46 +193,6 @@ export function Home({ onOpen }: { onOpen: (id: string) => void }) {
         </Card>
 
         <div className="flex min-w-0 flex-col gap-6">
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2"><Trophy className="size-4 text-amber-300" />CPU leaderboard</CardTitle>
-              <CardDescription>Across {board?.games ?? 0} finished game{board?.games === 1 ? '' : 's'}. Score is the average normalized placement: 100% always first, 0% always last.</CardDescription>
-            </CardHeader>
-            <CardContent>
-              {!board || board.bots.length === 0 ? (
-                <p className="text-sm text-muted-foreground">No finished games yet. Create a few to see which CPU style comes out on top.</p>
-              ) : (
-                <Table>
-                  <TableHeader>
-                    <TableRow className="hover:bg-transparent">
-                      <TableHead>CPU</TableHead>
-                      <TableHead className="text-right">Seats</TableHead>
-                      <TableHead className="text-right">Wins</TableHead>
-                      <TableHead className="text-right">Avg place</TableHead>
-                      <TableHead className="w-40">Score</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {board.bots.map((r) => (
-                      <TableRow key={r.bot} className="hover:bg-transparent">
-                        <TableCell className="font-medium">{r.name}</TableCell>
-                        <TableCell className="text-right tabular-nums">{r.seats}</TableCell>
-                        <TableCell className="text-right tabular-nums">{r.wins}</TableCell>
-                        <TableCell className="text-right tabular-nums">{r.avg_place.toFixed(2)}</TableCell>
-                        <TableCell>
-                          <div className="flex items-center gap-2">
-                            <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-muted"><div className="h-full rounded-full bg-foreground" style={{ width: `${r.avg_normalized * 100}%` }} /></div>
-                            <span className="w-9 text-right text-xs tabular-nums">{Math.round(r.avg_normalized * 100)}%</span>
-                          </div>
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              )}
-            </CardContent>
-          </Card>
-
           <Card>
             <CardHeader>
               <CardTitle>Games</CardTitle>

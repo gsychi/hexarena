@@ -28,8 +28,22 @@ export interface MatchSummary {
   standings: Standing[]
 }
 
-export interface LeaderboardRow { bot: string; name: string; seats: number; wins: number; avg_place: number; avg_normalized: number }
-export interface Leaderboard { games: number; bots: LeaderboardRow[] }
+export interface LeaderboardRow {
+  rank: number
+  bot: string
+  name: string
+  elo: number
+  elo_change: number
+  peak_elo: number
+  games: number
+  seats: number
+  wins: number
+  win_rate: number
+  avg_place: number
+  avg_normalized: number
+  history: number[]
+}
+export interface Leaderboard { games: number; start_elo: number; k: number; bots: LeaderboardRow[] }
 
 export interface CreateMatch { bots: string[]; seed?: number; max_ticks: number; count: number }
 

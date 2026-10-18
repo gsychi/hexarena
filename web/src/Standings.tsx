@@ -1,0 +1,100 @@
+import { ArrowDownRight, ArrowUpRight, Minus, Trophy } from 'lucide-react'
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
+import type { Leaderboard, LeaderboardRow } from './api'
+
+function Sparkline({ values, start }: { values: number[]; start: number }) {
+  const w = 96, h = 26
+  if (values.length < 2) return <svg width={w} height={h} />
+  const lo = Math.min(start, ...values) - 4, hi = Math.max(start, ...values) + 4
+  const x = (i: number) => (i / (values.length - 1)) * (w - 2) + 1
+  const y = (v: number) => h - 1 - ((v - lo) / (hi - lo)) * (h - 2)
+  const pts = values.map((v, i) => `${x(i).toFixed(1)},${y(v).toFixed(1)}`).join(' ')
+  const up = values[values.length - 1] >= start
+  return (
+    <svg width={w} height={h} className="overflow-visible">
+      <line x1={0} x2={w} y1={y(start)} y2={y(start)} stroke="currentColor" strokeOpacity={0.18} strokeDasharray="2 3" />
+      <polyline points={pts} fill="none" stroke={up ? '#4ade80' : '#f87171'} strokeWidth={1.6} strokeLinejoin="round" />
+      <circle cx={x(values.length - 1)} cy={y(values[values.length - 1])} r={2.2} fill={up ? '#4ade80' : '#f87171'} />
+    </svg>
+  )
+}
+
+function Change({ d }: { d: number }) {
+  const r = Math.round(d)
+  if (r === 0) return <span className="inline-flex items-center text-xs text-muted-foreground"><Minus className="size-3" />0</span>
+  return r > 0
+    ? <span className="inline-flex items-center text-xs text-emerald-400"><ArrowUpRight className="size-3" />{r}</span>
+    : <span className="inline-flex items-center text-xs text-red-400"><ArrowDownRight className="size-3" />{-r}</span>
+}
+
+const medal = ['text-amber-300', 'text-zinc-300', 'text-orange-400']
+
+function Row({ r, start }: { r: LeaderboardRow; start: number }) {
+  return (
+    <TableRow className="hover:bg-muted/30">
+      <TableCell className="w-10 text-center font-semibold tabular-nums">
+        {r.rank <= 3 ? <Trophy className={`mx-auto size-4 ${medal[r.rank - 1]}`} /> : r.rank}
+      </TableCell>
+      <TableCell className="font-medium">{r.name}</TableCell>
+      <TableCell className="text-right">
+        <Tooltip>
+          <TooltipTrigger render={<span className="cursor-default text-base font-semibold tabular-nums" />}>{Math.round(r.elo)}</TooltipTrigger>
+          <TooltipContent>Peak {Math.round(r.peak_elo)}</TooltipContent>
+        </Tooltip>
+      </TableCell>
+      <TableCell className="w-14"><Change d={r.elo_change} /></TableCell>
+      <TableCell className="hidden md:table-cell"><Sparkline values={r.history} start={start} /></TableCell>
+      <TableCell className="text-right tabular-nums">{r.games}</TableCell>
+      <TableCell className="text-right tabular-nums">{r.wins}</TableCell>
+      <TableCell className="hidden text-right tabular-nums sm:table-cell">{Math.round(r.win_rate * 100)}%</TableCell>
+      <TableCell className="hidden text-right tabular-nums sm:table-cell">{r.avg_place.toFixed(2)}</TableCell>
+      <TableCell className="hidden w-36 lg:table-cell">
+        <div className="flex items-center gap-2">
+          <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-muted"><div className="h-full rounded-full bg-foreground" style={{ width: `${r.avg_normalized * 100}%` }} /></div>
+          <span className="w-9 text-right text-xs tabular-nums">{Math.round(r.avg_normalized * 100)}%</span>
+        </div>
+      </TableCell>
+    </TableRow>
+  )
+}
+
+export function Standings({ board }: { board: Leaderboard | null }) {
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2"><Trophy className="size-4 text-amber-300" />Standings</CardTitle>
+        <CardDescription>
+          Elo rating for each CPU style across {board?.games ?? 0} finished game{board?.games === 1 ? '' : 's'}. Everyone starts at {board?.start_elo ?? 1500}.
+          Each free-for-all counts as a head-to-head result between every pair of players, where the better place wins, and ratings update after every game (K = {board?.k ?? 32}).
+        </CardDescription>
+      </CardHeader>
+      <CardContent>
+        {!board || board.bots.length === 0 ? (
+          <p className="rounded-lg border border-dashed p-6 text-center text-sm text-muted-foreground">No finished games yet. Create a few below and the table fills in.</p>
+        ) : (
+          <Table>
+            <TableHeader>
+              <TableRow className="hover:bg-transparent">
+                <TableHead className="text-center">#</TableHead>
+                <TableHead>CPU</TableHead>
+                <TableHead className="text-right">Elo</TableHead>
+                <TableHead>Last</TableHead>
+                <TableHead className="hidden md:table-cell">Trend</TableHead>
+                <TableHead className="text-right">Games</TableHead>
+                <TableHead className="text-right">Wins</TableHead>
+                <TableHead className="hidden text-right sm:table-cell">Win %</TableHead>
+                <TableHead className="hidden text-right sm:table-cell">Avg place</TableHead>
+                <TableHead className="hidden lg:table-cell">Placement score</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {board.bots.map((r) => <Row key={r.bot} r={r} start={board.start_elo} />)}
+            </TableBody>
+          </Table>
+        )}
+      </CardContent>
+    </Card>
+  )
+}

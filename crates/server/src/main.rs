@@ -10,11 +10,14 @@ use hexarena_arena::{play, seat_names, viewer_json};
 use hexarena_protocol::PlayerId;
 use hexarena_sdk::{style, Style, ROSTER};
 use serde::{Deserialize, Serialize};
+use standings::{standings, SeatResult, K, START_ELO};
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
 use tokio::sync::Semaphore;
+
+mod standings;
 
 const MAX_PLAYERS: usize = 8;
 const MAX_BATCH: u32 = 20;
@@ -288,46 +291,38 @@ async fn replay(State(app): State<Shared>, Path(id): Path<String>) -> Response {
     artifact(app, id, "replay").await
 }
 
-#[derive(Serialize, Default)]
-struct BotRow {
-    bot: String,
-    name: String,
-    seats: u32,
-    wins: u32,
-    avg_place: f64,
-    avg_normalized: f64,
-}
-
 async fn leaderboard(State(app): State<Shared>) -> Json<serde_json::Value> {
     let matches = app.matches.lock().unwrap();
-    let mut rows: BTreeMap<String, BotRow> = BTreeMap::new();
-    let mut games = 0;
-    for m in matches.values().filter(|m| m.status == Status::Done) {
-        games += 1;
-        for s in &m.standings {
-            let r = rows.entry(s.bot.clone()).or_insert_with(|| BotRow {
-                bot: s.bot.clone(),
-                name: style(&s.bot)
-                    .map(|x| x.name.to_string())
-                    .unwrap_or_else(|| s.bot.clone()),
-                ..Default::default()
-            });
-            r.seats += 1;
-            r.wins += (s.place_start == 1 && s.place_end == 1) as u32;
-            r.avg_place += (s.place_start + s.place_end) as f64 / 2.0;
-            r.avg_normalized += s.normalized;
-        }
-    }
-    let mut out: Vec<BotRow> = rows
-        .into_values()
-        .map(|mut r| {
-            r.avg_place /= r.seats as f64;
-            r.avg_normalized /= r.seats as f64;
-            r
+    let mut done: Vec<&Summary> = matches
+        .values()
+        .filter(|m| m.status == Status::Done)
+        .collect();
+    done.sort_by(|a, b| a.created_at.cmp(&b.created_at).then(a.id.cmp(&b.id)));
+    let games: Vec<Vec<SeatResult>> = done
+        .iter()
+        .map(|m| {
+            m.standings
+                .iter()
+                .map(|s| SeatResult {
+                    bot: &s.bot,
+                    place: (s.place_start + s.place_end) as f64 / 2.0,
+                    normalized: s.normalized,
+                    won: s.place_start == 1 && s.place_end == 1,
+                })
+                .collect()
         })
         .collect();
-    out.sort_by(|a, b| b.avg_normalized.total_cmp(&a.avg_normalized));
-    Json(serde_json::json!({ "games": games, "bots": out }))
+    let rows = standings(&games, |id| {
+        style(id)
+            .map(|x| x.name.to_string())
+            .unwrap_or_else(|| id.to_string())
+    });
+    Json(serde_json::json!({
+        "games": done.len(),
+        "start_elo": START_ELO,
+        "k": K,
+        "bots": rows,
+    }))
 }
 
 #[tokio::main]
