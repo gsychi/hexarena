@@ -5,7 +5,9 @@ use hexarena_protocol::*;
 use hexarena_sdk::{roster, style, Style};
 use std::collections::HashMap;
 
-fn flags(args: &[String]) -> HashMap<String, String> {
+mod league;
+
+pub(crate) fn flags(args: &[String]) -> HashMap<String, String> {
     let mut m = HashMap::new();
     let mut i = 0;
     while i < args.len() {
@@ -18,7 +20,7 @@ fn flags(args: &[String]) -> HashMap<String, String> {
     m
 }
 
-fn get<T: std::str::FromStr>(f: &HashMap<String, String>, k: &str, d: T) -> T {
+pub(crate) fn get<T: std::str::FromStr>(f: &HashMap<String, String>, k: &str, d: T) -> T {
     f.get(k).and_then(|v| v.parse().ok()).unwrap_or(d)
 }
 
@@ -133,12 +135,13 @@ fn main() {
         Some("simulate") => simulate(flags(rest)),
         Some("report") => report(flags(rest)),
         Some("map") => map(flags(rest)),
+        Some("league") => league::main(rest),
         Some("verify") => rest.first().map(|p| verify(p)).unwrap_or(Err("usage: hexarena verify <replay.json>".into())),
         Some("export") => match (rest.first(), rest.get(1)) {
             (Some(a), Some(b)) => export(a, b),
             _ => Err("usage: hexarena export <replay.json> <viewer.json>".into()),
         },
-        _ => Err("usage: hexarena <simulate|report|map|verify|export> [--players N | --bots expander,raider,... --seed S --matches M --max-ticks T --out file]".into()),
+        _ => Err("usage: hexarena <simulate|report|map|verify|export|league> [--players N | --bots expander,raider,... --seed S --matches M --max-ticks T --out file]".into()),
     };
     if let Err(e) = res {
         eprintln!("error: {e}");

@@ -144,6 +144,7 @@ version = "0.1.0"
 dependencies = [
  "hexarena-arena",
  "hexarena-engine",
+ "hexarena-league",
  "hexarena-protocol",
  "hexarena-sdk",
  "serde",
@@ -155,6 +156,17 @@ name = "hexarena-engine"
 version = "0.1.0"
 dependencies = [
  "hexarena-protocol",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "hexarena-league"
+version = "0.1.0"
+dependencies = [
+ "hexarena-arena",
+ "hexarena-protocol",
+ "hexarena-sdk",
  "serde",
  "serde_json",
 ]

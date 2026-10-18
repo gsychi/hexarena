@@ -13,5 +13,6 @@ hexarena-protocol.workspace = true
 hexarena-engine.workspace = true
 hexarena-sdk.workspace = true
 hexarena-arena.workspace = true
+hexarena-league.workspace = true
 serde.workspace = true
 serde_json.workspace = true
