@@ -15,6 +15,9 @@ export type GameEvent =
 
 export interface Rules {
   version: string
+  max_ticks: number
+  /** Absent in v0 replays, which ended when one player was left. */
+  end_on_total_conquest?: boolean
   fog_radius: number
   starting_troops: number
   base_income: number

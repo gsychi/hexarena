@@ -26,9 +26,9 @@ cargo run --release -p hexarena-server       # game server on http://127.0.0.1:4
 cd web && pnpm install && pnpm dev           # start page on http://127.0.0.1:47231
 ```
 
-Open the start page, pick 2 to 8 CPU seats, a length and an optional seed, and create one game or a batch of up to 20 (consecutive seeds). Games run in the background on the Rust engine; when one finishes, click **Watch**. The leaderboard aggregates every finished game by CPU style. Games persist in `data/matches/` (override with `HEXARENA_DATA`; port with `HEXARENA_PORT`). If the server isn't running, the start page says so and the bundled sample match still plays.
+Open the start page, pick 2 to 8 CPU seats and an optional seed, and create one game or a batch of up to 20 (consecutive seeds). Games run in the background on the Rust engine; when one finishes, click **Watch**. The leaderboard aggregates every finished game played under the current rules version by CPU style. Games persist in `data/matches/` (override with `HEXARENA_DATA`; port with `HEXARENA_PORT`). If the server isn't running, the start page says so and the bundled sample match still plays.
 
-Server API: `GET /api/bots`, `GET|POST /api/matches` (`{"bots": ["raider", "warden"], "seed": 7, "max_ticks": 1500, "count": 5}`), `GET /api/matches/{id}`, `GET /api/matches/{id}/viewer`, `GET /api/matches/{id}/replay`, `GET /api/leaderboard`.
+Server API: `GET /api/bots`, `GET|POST /api/matches` (`{"bots": ["raider", "warden"], "seed": 7, "count": 5}`); every game runs to total conquest or the 3000-tick cutoff, `GET /api/matches/{id}`, `GET /api/matches/{id}/viewer`, `GET /api/matches/{id}/replay`, `GET /api/leaderboard`.
 
 ```bash
 cargo test                                   # engine, scoring, fog-leak, arena determinism tests
@@ -38,7 +38,18 @@ cargo run --release -p hexarena-cli -- verify /tmp/r.json
 cargo run --release -p hexarena-cli -- export /tmp/r.json web/public/sample-replay.json
 ```
 
-A match ends when one player is left or at the tick limit (1500 ticks in Rules v0), where survivors are ranked by land, then troops. The viewer opens at `?tick=end` or `?tick=N`, and `?zoom=N` starts zoomed in. Viewer exports store delta-encoded frames (`frame_encoding: "delta-v2"`), which keeps a full 1500-tick match around 1 MB.
+A match ends when one player owns every traversable hex (total conquest). Otherwise it is cut off at 3000 ticks (Rules v0.1), and survivors are ranked by land, then troops. Rules v0 replays, which ended when one player was left and ran for 1500 ticks, still verify. The viewer opens at `?tick=end` or `?tick=N`, and `?zoom=N` starts zoomed in. Viewer exports store delta-encoded frames (`frame_encoding: "delta-v2"`), so a 1500-tick match is roughly 1–2 MB.
+
+### How the built-in CPUs play
+
+Every CPU shares one strategy, tuned per style (attack margin, enemy bonus, building plan, gather cadence):
+
+- **Army.** The biggest stack is the army. On the style's gather cadence the rest of the land feeds troops to it, and every other gather goes to the hex bordering the most unclaimed land instead, so neutral ground keeps getting settled.
+- **Focus.** The army marches on the weakest rival it knows of (least land seen) and captures along the way. Everyone piling onto the weakest player is what lets free-for-alls actually finish.
+- **Grabs.** Every third tick, the best affordable capture from any hex goes first. Captures that touch more of the CPU's own land score higher, which keeps growth compact and closes off enclosed pockets.
+- **Buildings.** Built on the style's schedule, with Farm–Village and Wall links managed automatically.
+
+With the current roster, 20 seeds per lineup ended by total conquest about 90% of the time with 2 players, 85% with 3, 50% with 4, 25% with 5, 20% with 6, and 0% with 8. Bigger lobbies get bigger maps, and one action per tick limits how fast anyone can claim land.
 
 ## Deploy
 

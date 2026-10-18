@@ -2,7 +2,7 @@
 //! (free management commands plus at most one main action) each tick.
 
 pub use hexarena_protocol::*;
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 
 pub trait Bot {
     fn name(&self) -> &str;
@@ -53,7 +53,7 @@ pub const ROSTER: [Style; 4] = [
             Building::Quarry,
             Building::Wall,
         ],
-        gather_every: 8,
+        gather_every: 4,
     },
     Style {
         id: "homesteader",
@@ -69,7 +69,7 @@ pub const ROSTER: [Style; 4] = [
             Building::Village,
             Building::Quarry,
         ],
-        gather_every: 10,
+        gather_every: 5,
     },
     Style {
         id: "raider",
@@ -80,7 +80,7 @@ pub const ROSTER: [Style; 4] = [
         build_cap: 3,
         build_every: 30,
         kinds: &[Building::Village, Building::Farm],
-        gather_every: 5,
+        gather_every: 3,
     },
     Style {
         id: "warden",
@@ -97,9 +97,18 @@ pub const ROSTER: [Style; 4] = [
             Building::Farm,
             Building::Village,
         ],
-        gather_every: 12,
+        gather_every: 6,
     },
 ];
+
+/// Score for gaining any hex: it produces troops every tick and counts for placement.
+const LAND_VALUE: i64 = 40;
+/// Extra score per owned neighbour of a target hex.
+const HUG_VALUE: i64 = 8;
+/// Extra score for captures from the focus player.
+const FOCUS_BONUS: i64 = 40;
+/// Every Nth tick the best small grab from any hex goes before the army's move.
+const GRAB_EVERY: u32 = 3;
 
 pub fn style(id: &str) -> Option<&'static Style> {
     ROSTER.iter().find(|s| s.id == id)
@@ -112,6 +121,10 @@ pub struct Expander {
     seen: HashMap<Hex, VisibleHex>,
     next_kind: usize,
     last_build: u32,
+    /// Border hex that troops are being gathered toward for the next push.
+    staging: Option<Hex>,
+    /// The opponent everyone should be finishing off; see [`Expander::focus`].
+    focus_player: Option<PlayerId>,
 }
 
 impl Default for Expander {
@@ -132,6 +145,8 @@ impl Expander {
             seen: HashMap::new(),
             next_kind: 0,
             last_build: 0,
+            staging: None,
+            focus_player: None,
         }
     }
 
@@ -230,56 +245,178 @@ impl Expander {
         None
     }
 
-    fn attack(&self, view: &View, mine: &[&VisibleHex]) -> Option<Action> {
-        let me = view.you;
+    /// Expected attacker losses to take `target` from a hex at height `from_h`.
+    fn capture_cost(&self, view: &View, from_h: i8, target: Hex) -> Option<(u64, bool)> {
+        let t = terrain_at(view, target).filter(|t| t.passable())?;
+        let (owner, def, wall) = self
+            .seen
+            .get(&target)
+            .map(|v| (v.owner, v.troops, v.wall_milli))
+            .unwrap_or((None, 10, MILLI));
+        if owner == Some(view.you) {
+            return None;
+        }
+        let d = (self.rules.height_multiplier_milli(from_h, t.height) as u64 * wall as u64 / 1000)
+            .min(self.rules.maximum_total_defense_milli as u64);
+        let p = self.rules.attacker_exchange_win_milli as u64;
+        Some((def as u64 * d * (1000 - p) / p / 1000, owner.is_some()))
+    }
+
+    /// The best affordable capture from `c`, sending everything but one troop.
+    /// Captures that touch more of our land score higher, so growth stays compact and
+    /// pockets of enemy or neutral land get filled in (and enclosed) instead of skipped.
+    fn best_capture(&self, view: &View, c: &VisibleHex) -> Option<(i64, Action)> {
+        if c.troops < 2 {
+            return None;
+        }
+        let send = c.troops - 1;
+        let from_h = Self::height(view, c.hex);
         let mut best: Option<(i64, Action)> = None;
-        for c in mine {
-            if c.troops < 2 {
+        for nb in c.hex.neighbors() {
+            let Some((loss, enemy)) = self.capture_cost(view, from_h, nb) else {
+                continue;
+            };
+            if (send as u64) < loss * self.style.attack_margin_pct / 100 + 1 {
                 continue;
             }
-            let from_h = Self::height(view, c.hex);
-            for nb in c.hex.neighbors() {
-                let Some(t) = terrain_at(view, nb) else {
-                    continue;
+            let hugged = nb
+                .neighbors()
+                .iter()
+                .filter(|n| self.seen.get(n).is_some_and(|v| v.owner == Some(view.you)))
+                .count() as i64;
+            let def = self.seen.get(&nb).map_or(0, |v| v.troops as i64);
+            // Enemy troops destroyed count in our favour, so a bigger stack
+            // is willing to crush a smaller one instead of dodging it.
+            let score = LAND_VALUE + HUG_VALUE * hugged - loss as i64
+                + if enemy { self.style.enemy_bonus + def } else { 0 }
+                + if enemy && self.seen.get(&nb).and_then(|v| v.owner) == self.focus_player {
+                    FOCUS_BONUS
+                } else {
+                    0
                 };
-                if !t.passable() {
-                    continue;
-                }
-                let target = self.seen.get(&nb);
-                let (owner, def, wall) = target
-                    .map(|v| (v.owner, v.troops, v.wall_milli))
-                    .unwrap_or((None, 10, MILLI));
-                if owner == Some(me) {
-                    continue;
-                }
-                let d = (self.rules.height_multiplier_milli(from_h, t.height) as u64 * wall as u64
-                    / 1000)
-                    .min(self.rules.maximum_total_defense_milli as u64);
-                let p = self.rules.attacker_exchange_win_milli as u64;
-                let expected_loss = def as u64 * d * (1000 - p) / p / 1000;
-                let send = c.troops - 1;
-                if (send as u64) < expected_loss * self.style.attack_margin_pct / 100 + 1 {
-                    continue;
-                }
-                let score = -(expected_loss as i64)
-                    + if owner.is_some() {
-                        self.style.enemy_bonus
-                    } else {
-                        0
-                    };
-                if best.as_ref().map_or(true, |(s, _)| score > *s) {
-                    best = Some((
-                        score,
-                        Action::Move {
-                            from: c.hex,
-                            to: nb,
-                            troops: send,
-                        },
-                    ));
+            if best.as_ref().map_or(true, |(s, _)| score > *s) {
+                let action = Action::Move { from: c.hex, to: nb, troops: send };
+                best = Some((score, action));
+            }
+        }
+        best
+    }
+
+    /// One step from the army toward the nearest owned hex that borders land we could take.
+    fn advance(&self, view: &View, army: &VisibleHex) -> Option<Action> {
+        let owned = |h: &Hex| self.seen.get(h).is_some_and(|v| v.owner == Some(view.you));
+        let frontier = |h: Hex| {
+            h.neighbors()
+                .iter()
+                .any(|n| !owned(n) && terrain_at(view, *n).is_some_and(|t| t.passable()))
+        };
+        if frontier(army.hex) {
+            return None;
+        }
+        Self::step_toward(army, frontier, |h| owned(&h))
+    }
+
+    /// Moves the whole army one hex along the shortest path (through hexes accepted by
+    /// `through`) to the nearest hex satisfying `goal`. Ties follow neighbour order.
+    fn step_toward(
+        army: &VisibleHex,
+        goal: impl Fn(Hex) -> bool,
+        through: impl Fn(Hex) -> bool,
+    ) -> Option<Action> {
+        let mut first_step = HashMap::from([(army.hex, army.hex)]);
+        let mut queue = VecDeque::from([army.hex]);
+        while let Some(h) = queue.pop_front() {
+            if h != army.hex && goal(h) {
+                let to = first_step[&h];
+                return Some(Action::Move { from: army.hex, to, troops: army.troops - 1 });
+            }
+            for n in h.neighbors() {
+                if through(n) && !first_step.contains_key(&n) {
+                    let step = if h == army.hex { n } else { first_step[&h] };
+                    first_step.insert(n, step);
+                    queue.push_back(n);
                 }
             }
         }
-        best.map(|(_, a)| a)
+        None
+    }
+
+    /// The living opponent we have seen the least land of: everyone piling onto the
+    /// weakest player is what lets free-for-alls finish instead of stalemating.
+    fn focus(&self, view: &View) -> Option<PlayerId> {
+        let mut land: HashMap<PlayerId, usize> = HashMap::new();
+        for v in self.seen.values() {
+            if let Some(o) = v.owner.filter(|&o| o != view.you) {
+                *land.entry(o).or_default() += 1;
+            }
+        }
+        view.public_players
+            .iter()
+            .filter(|p| p.alive && p.id != view.you)
+            .filter_map(|p| land.get(&p.id).map(|&n| (n, p.id)))
+            .min()
+            .map(|(_, id)| id)
+    }
+
+    /// Marches the army toward the focus player's nearest known hex, as long as the
+    /// next step is a capture it can afford.
+    fn march(&self, view: &View, army: &VisibleHex, focus: PlayerId) -> Option<Action> {
+        let passable = |h: Hex| terrain_at(view, h).is_some_and(|t| t.passable());
+        let theirs = |h: Hex| self.seen.get(&h).is_some_and(|v| v.owner == Some(focus));
+        let step = Self::step_toward(army, theirs, passable)?;
+        let Action::Move { to, troops, .. } = step else {
+            return None;
+        };
+        let affordable = self
+            .capture_cost(view, Self::height(view, army.hex), to)
+            .map_or(true, |(loss, _)| troops as u64 > loss * self.style.attack_margin_pct / 100);
+        affordable.then_some(step)
+    }
+
+    /// The army is our biggest stack. It marches on the focus player, captures, or heads
+    /// for the border. On the style's gather cadence the rest of our land feeds troops to
+    /// it instead, alternating with the hex bordering the most unclaimed land so neutral
+    /// ground keeps getting settled.
+    fn army_action(&mut self, view: &View, mine: &[&VisibleHex]) -> Option<Action> {
+        let army = *mine.iter().max_by_key(|c| (c.troops, std::cmp::Reverse(c.hex)))?;
+        if army.troops < 2 {
+            return None;
+        }
+        let every = self.style.gather_every;
+        if mine.len() > 3 && view.tick % every == 0 {
+            let settle = (view.tick / every) % 2 == 1;
+            let target = settle
+                .then(|| self.settlement(view, mine))
+                .flatten()
+                .unwrap_or(army.hex);
+            self.staging = Some(target);
+            return Some(Action::Gather { target });
+        }
+        self.focus_player
+            .and_then(|f| self.march(view, army, f))
+            .or_else(|| self.best_capture(view, army).map(|(_, a)| a))
+            .or_else(|| self.advance(view, army))
+    }
+
+    /// The owned hex bordering the most unclaimed land, where settlers gather.
+    fn settlement(&self, view: &View, mine: &[&VisibleHex]) -> Option<Hex> {
+        let neutral = |h: &Hex| {
+            terrain_at(view, *h).is_some_and(|t| t.passable())
+                && self.seen.get(h).map_or(true, |v| v.owner.is_none())
+        };
+        mine.iter()
+            .map(|c| (c.hex.neighbors().iter().filter(|n| neutral(n)).count(), c.troops, c.hex))
+            .filter(|(n, _, _)| *n > 0)
+            .max_by_key(|&(n, t, h)| (n, t, std::cmp::Reverse(h)))
+            .map(|(_, _, h)| h)
+    }
+
+    /// Cheap grabs from any hex, used when the army has nothing to do.
+    fn opportunistic(&self, view: &View, mine: &[&VisibleHex]) -> Option<Action> {
+        mine.iter()
+            .filter_map(|c| self.best_capture(view, c))
+            .max_by_key(|(s, _)| *s)
+            .map(|(_, a)| a)
     }
 }
 
@@ -298,18 +435,14 @@ impl Bot for Expander {
             .filter(|c| c.owner == Some(view.you))
             .collect();
         let management = self.management(&mine);
+        self.focus_player = self.focus(view);
+        let grab_tick = view.tick % GRAB_EVERY == 1;
         let action = self
             .build(view, &mine)
-            .or_else(|| self.attack(view, &mine))
-            .unwrap_or_else(|| {
-                let rich = mine.iter().max_by_key(|c| c.troops);
-                match rich {
-                    Some(c) if view.tick % self.style.gather_every == 0 && mine.len() > 3 => {
-                        Action::Gather { target: c.hex }
-                    }
-                    _ => Action::NoOp,
-                }
-            });
+            .or_else(|| grab_tick.then(|| self.opportunistic(view, &mine)).flatten())
+            .or_else(|| self.army_action(view, &mine))
+            .or_else(|| self.opportunistic(view, &mine))
+            .unwrap_or(Action::NoOp);
         PlayerCommand { management, action }
     }
 }

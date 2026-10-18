@@ -951,6 +951,52 @@ fn rules_hash_is_stable_and_sensitive() {
     assert_ne!(r.hash(), r2.hash());
 }
 
+/// Player 0 eliminates player 1 on an otherwise unowned board.
+fn last_one_standing(rules: RulesConfig) -> State {
+    let mut s = settings(2, 24);
+    s.rules = rules;
+    let mut st = State::new(s, vec![]).unwrap();
+    clear_owners(&mut st);
+    let c = interior_open(&st);
+    let from = c.add(HEX_DIRECTIONS[0]);
+    set(&mut st, c, Some(1), 1);
+    set(&mut st, from, Some(0), 50);
+    set_height(&mut st, c, 0);
+    set_height(&mut st, from, 0);
+    st.step(&act(0, Action::Move { from, to: c, troops: 45 }));
+    assert!(st.eliminated[1]);
+    st
+}
+
+#[test]
+fn match_continues_until_one_player_owns_all_land() {
+    let mut st = last_one_standing(RulesConfig::default());
+    assert!(!st.is_over(), "neutral land is still unclaimed");
+    for h in st.board.hexes() {
+        if passable(&st.board, &st.terrain, h) {
+            set(&mut st, h, Some(0), 1);
+        }
+    }
+    st.step(&noop_all(2));
+    let r = st.result.clone().expect("total conquest ends the match");
+    assert!(r.final_tick < RulesConfig::default().max_ticks);
+    assert_eq!(r.placements[0].player, 0);
+}
+
+#[test]
+fn legacy_rules_end_on_last_player_standing() {
+    let rules = RulesConfig {
+        end_on_total_conquest: false,
+        ..RulesConfig::default()
+    };
+    assert!(last_one_standing(rules).is_over());
+}
+
+#[test]
+fn default_tick_limit_is_3000() {
+    assert_eq!(RulesConfig::default().max_ticks, 3000);
+}
+
 #[test]
 fn tick_limit_ranks_survivors() {
     let mut s = settings(2, 23);

@@ -838,12 +838,25 @@ impl State {
         self.mark_eliminations(&mut events);
         self.tick += 1;
         self.last_events = events;
-        let alive = (0..self.settings.players as usize)
-            .filter(|&p| !self.eliminated[p])
-            .count();
-        if alive <= 1 || self.tick >= self.rules().max_ticks {
+        if self.conqueror().is_some() || self.tick >= self.rules().max_ticks {
             self.result = Some(self.final_result());
         }
+    }
+
+    /// The player whose victory ends the match: with `end_on_total_conquest` the one
+    /// owning every traversable hex, otherwise the last player standing.
+    pub fn conqueror(&self) -> Option<PlayerId> {
+        let alive: Vec<PlayerId> = (0..self.settings.players)
+            .filter(|&p| !self.eliminated[p as usize])
+            .collect();
+        let [last] = alive[..] else {
+            return None;
+        };
+        if !self.rules().end_on_total_conquest {
+            return Some(last);
+        }
+        let passable = self.terrain.iter().flatten().filter(|t| t.passable()).count();
+        (self.hex_counts()[last as usize] as usize == passable).then_some(last)
     }
 
     /// Final standings: elimination order, then land, troops, resource, buildings.

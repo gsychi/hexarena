@@ -258,7 +258,14 @@ function MatchOver({ rep, onReplay, onClose }: { rep: ViewerReplay; onReplay: ()
   const ps = [...rep.result.placements].sort((a, b) => a.place_start - b.place_start || a.player - b.player)
   const survivors = ps.filter((p) => p.land > 0).length
   const winner = ps[0]
-  const reason = survivors <= 1 ? 'Last player standing' : `Tick limit reached (${rep.result.final_tick} ticks). Survivors ranked by land, then troops.`
+  const passable = rep.terrain.filter((t) => t?.kind === 'open').length
+  const tick = rep.result.final_tick
+  const reason =
+    winner.land === passable
+      ? `Conquered all ${passable} hexes at tick ${tick}.`
+      : survivors <= 1 && !rep.rules.end_on_total_conquest
+        ? 'Last player standing.'
+        : `Cut off at tick ${tick} before anyone took all the land. Survivors ranked by land, then troops.`
   const place = (p: Placement) => (p.place_start === p.place_end ? `#${p.place_start}` : `#${p.place_start}–${p.place_end}`)
   return (
     <div className="absolute inset-0 flex items-center justify-center bg-background/55 p-4 backdrop-blur-[2px]">
