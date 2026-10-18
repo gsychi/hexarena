@@ -7,6 +7,7 @@ pub fn splitmix(mut z: u64) -> u64 {
     z ^ (z >> 31)
 }
 
+#[derive(Clone, Debug)]
 pub struct Rng(u64);
 
 impl Rng {

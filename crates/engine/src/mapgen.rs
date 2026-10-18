@@ -194,6 +194,38 @@ fn open_within(board: &Board, terrain: &[Option<Terrain>], c: Hex, r: i32) -> us
     n
 }
 
+/// Expected attacker cost to take a hex, as a percentage of troops (integer).
+pub fn expected_capture_cost(rules: &hexarena_protocol::RulesConfig, garrison: u32, from_h: i8, to_h: i8) -> u32 {
+    let d = rules.defense_milli(from_h, to_h, None) as u64;
+    let p = rules.attacker_exchange_win_milli as u64;
+    (garrison as u64 * d * (1000 - p) / p / 1000) as u32
+}
+
+/// Count adjacent or two-step expansion targets the starting army can plausibly afford.
+pub fn affordable_expansions(board: &Board, terrain: &[Option<Terrain>], garrison: &[u32], spawn: Hex, rules: &hexarena_protocol::RulesConfig) -> usize {
+    let height = |h: Hex| board.index(h).and_then(|i| terrain[i]).map(|t| t.height).unwrap_or(0);
+    let budget = (rules.starting_troops.saturating_sub(1)) * 85 / 100;
+    let mut seen = std::collections::HashSet::new();
+    for n in spawn.neighbors() {
+        if !passable(board, terrain, n) {
+            continue;
+        }
+        let cost = expected_capture_cost(rules, garrison[board.index(n).unwrap()], height(spawn), height(n));
+        if cost <= budget {
+            seen.insert(n);
+        }
+        for n2 in n.neighbors() {
+            if n2 != spawn && passable(board, terrain, n2) && n2.distance(spawn) == 2 {
+                let c2 = cost + expected_capture_cost(rules, garrison[board.index(n2).unwrap()], height(n), height(n2));
+                if c2 <= budget {
+                    seen.insert(n2);
+                }
+            }
+        }
+    }
+    seen.len()
+}
+
 pub fn generate(s: &MatchSettings) -> Result<GeneratedMap, String> {
     let rules = &s.rules;
     if s.players < rules.min_players || s.players > rules.max_players {
@@ -206,7 +238,7 @@ pub fn generate(s: &MatchSettings) -> Result<GeneratedMap, String> {
     let board = Board::new(radius);
     let hexes = board.hexes();
     for attempt in 0..300u64 {
-        let tseed = splitmix(s.map_seed ^ splitmix(attempt));
+        let tseed = splitmix(s.terrain_seed ^ splitmix(attempt));
         let Some(terrain) = gen_terrain(&board, tseed, s) else {
             continue;
         };
@@ -215,11 +247,18 @@ pub fn generate(s: &MatchSettings) -> Result<GeneratedMap, String> {
             .copied()
             .filter(|&h| passable(&board, &terrain, h))
             .collect();
-        let min_dist = ((rules.spawn_min_distance_factor
-            * (open.len() as f64 / s.players as f64).sqrt())
-        .round() as i32)
-            .max(6);
         let mut rng = Rng::new(s.spawn_seed ^ splitmix(attempt.wrapping_add(77)));
+        let mut garrison = vec![0u32; board.slots()];
+        let gscale = 4.0 + radius as f64 * 0.3;
+        let mut grng = Rng::new(tseed ^ 0x6A09);
+        for &h in &open {
+            let (x, y) = planar(h);
+            let t = fbm(tseed ^ 0xD4, x, y, gscale, 3);
+            let base = rules.neutral_min as f64 + (rules.neutral_max - rules.neutral_min) as f64 * t;
+            let jitter = grng.range(0, 4) as i32 - 2;
+            garrison[board.index(h).unwrap()] = (base.round() as i32 + jitter).clamp(rules.neutral_min as i32, rules.neutral_max as i32) as u32;
+        }
+        let min_dist = rules.spawn_min_distance.max(6);
         let mut cands = open.clone();
         rng.shuffle(&mut cands);
         let mut spawns: Vec<Hex> = vec![];
@@ -227,50 +266,20 @@ pub fn generate(s: &MatchSettings) -> Result<GeneratedMap, String> {
             if spawns.len() == s.players as usize {
                 break;
             }
-            if spawns.iter().any(|p| p.distance(c) < min_dist)
-                || open_within(&board, &terrain, c, 4) < 14
-            {
+            if spawns.iter().any(|p| p.distance(c) < min_dist) || open_within(&board, &terrain, c, 4) < 14 {
                 continue;
             }
-            if has_two_independent_routes(&board, &terrain, c) {
+            if has_two_independent_routes(&board, &terrain, c) && affordable_expansions(&board, &terrain, &garrison, c, rules) >= 2 {
                 spawns.push(c);
             }
         }
         if spawns.len() != s.players as usize {
             continue;
         }
-        let mut garrison = vec![0u32; board.slots()];
-        let mut buildings = vec![None; board.slots()];
-        let gscale = 4.0 + radius as f64 * 0.3;
-        for &h in &open {
-            let (x, y) = planar(h);
-            let t = fbm(tseed ^ 0xD4, x, y, gscale, 3);
-            let g =
-                rules.garrison_min as f64 + (rules.garrison_max - rules.garrison_min) as f64 * t;
-            garrison[board.index(h).unwrap()] = g.round() as u32;
-        }
         for &sp in &spawns {
-            for &h in &open {
-                if h.distance(sp) <= 2 {
-                    garrison[board.index(h).unwrap()] = rules.garrison_min;
-                }
-            }
             garrison[board.index(sp).unwrap()] = 0;
         }
-        let mut sites: Vec<Hex> = open
-            .iter()
-            .copied()
-            .filter(|h| spawns.iter().all(|p| p.distance(*h) >= 4))
-            .collect();
-        rng.shuffle(&mut sites);
-        for &h in sites
-            .iter()
-            .take((rules.quarries_per_player * s.players as u32) as usize)
-        {
-            let i = board.index(h).unwrap();
-            buildings[i] = Some(Building::Quarry);
-            garrison[i] = (garrison[i] * 2).min(rules.garrison_max * 2);
-        }
+        let buildings = vec![None; board.slots()];
         rng.shuffle(&mut spawns);
         return Ok(GeneratedMap {
             radius,
