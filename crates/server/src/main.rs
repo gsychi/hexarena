@@ -308,6 +308,7 @@ async fn leaderboard(State(app): State<Shared>) -> Json<serde_json::Value> {
                     place: (s.place_start + s.place_end) as f64 / 2.0,
                     normalized: s.normalized,
                     won: s.place_start == 1 && s.place_end == 1,
+                    players: m.standings.len(),
                 })
                 .collect()
         })

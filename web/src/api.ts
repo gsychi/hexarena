@@ -39,6 +39,8 @@ export interface LeaderboardRow {
   seats: number
   wins: number
   win_rate: number
+  top_half: number
+  top_half_rate: number
   avg_place: number
   avg_normalized: number
   history: number[]

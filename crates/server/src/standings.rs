@@ -21,6 +21,8 @@ pub struct SeatResult<'a> {
     pub place: f64,
     pub normalized: f64,
     pub won: bool,
+    /// Lobby size, used for the top-half rate.
+    pub players: usize,
 }
 
 #[derive(Serialize, Default, Debug)]
@@ -34,7 +36,11 @@ pub struct BotStanding {
     pub games: u32,
     pub seats: u32,
     pub wins: u32,
+    /// Share of seats that finished first outright.
     pub win_rate: f64,
+    pub top_half: u32,
+    /// Share of seats whose average place is in the top half (`place <= N / 2`).
+    pub top_half_rate: f64,
     pub avg_place: f64,
     pub avg_normalized: f64,
     /// Rating after each of this style's most recent games, oldest first.
@@ -100,6 +106,7 @@ pub fn standings(games: &[Vec<SeatResult>], name: impl Fn(&str) -> String) -> Ve
             let r = rows.get_mut(s.bot).unwrap();
             r.seats += 1;
             r.wins += s.won as u32;
+            r.top_half += (s.place <= s.players as f64 / 2.0) as u32;
             r.avg_place += s.place;
             r.avg_normalized += s.normalized;
         }
@@ -109,7 +116,8 @@ pub fn standings(games: &[Vec<SeatResult>], name: impl Fn(&str) -> String) -> Ve
         .map(|mut r| {
             r.avg_place /= r.seats as f64;
             r.avg_normalized /= r.seats as f64;
-            r.win_rate = r.wins as f64 / r.games.max(1) as f64;
+            r.win_rate = r.wins as f64 / r.seats as f64;
+            r.top_half_rate = r.top_half as f64 / r.seats as f64;
             r
         })
         .collect();
@@ -130,6 +138,7 @@ mod tests {
             place,
             normalized: 0.0,
             won: place == 1.0,
+            players: 3,
         }
     }
 
@@ -144,6 +153,28 @@ mod tests {
         assert!((total - 3.0 * START_ELO).abs() < 1e-9);
         assert_eq!(t[0].rank, 1);
         assert_eq!(t[0].bot, "a");
+    }
+
+    #[test]
+    fn top_half_counts_places_up_to_half_the_lobby() {
+        let mut four: Vec<_> = [1.0, 2.0, 3.0, 4.0]
+            .iter()
+            .zip(["a", "b", "c", "d"])
+            .map(|(&p, b)| seat(b, p))
+            .collect();
+        four.iter_mut().for_each(|s| s.players = 4);
+        let mut five: Vec<_> = [1.0, 2.5, 2.5, 4.0, 5.0]
+            .iter()
+            .zip(["a", "b", "c", "d", "e"])
+            .map(|(&p, b)| seat(b, p))
+            .collect();
+        five.iter_mut().for_each(|s| s.players = 5);
+        let t = standings(&[four, five], |s| s.to_string());
+        let rate = |b: &str| t.iter().find(|r| r.bot == b).unwrap().top_half_rate;
+        assert_eq!(rate("a"), 1.0);
+        assert_eq!(rate("b"), 1.0);
+        assert_eq!(rate("c"), 0.5);
+        assert_eq!(rate("d"), 0.0);
     }
 
     #[test]

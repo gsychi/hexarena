@@ -48,7 +48,8 @@ function Row({ r, start }: { r: LeaderboardRow; start: number }) {
       <TableCell className="hidden md:table-cell"><Sparkline values={r.history} start={start} /></TableCell>
       <TableCell className="text-right tabular-nums">{r.games}</TableCell>
       <TableCell className="text-right tabular-nums">{r.wins}</TableCell>
-      <TableCell className="hidden text-right tabular-nums sm:table-cell">{Math.round(r.win_rate * 100)}%</TableCell>
+      <TableCell className="text-right tabular-nums">{Math.round(r.win_rate * 100)}%</TableCell>
+      <TableCell className="text-right tabular-nums">{Math.round(r.top_half_rate * 100)}%</TableCell>
       <TableCell className="hidden text-right tabular-nums sm:table-cell">{r.avg_place.toFixed(2)}</TableCell>
       <TableCell className="hidden w-36 lg:table-cell">
         <div className="flex items-center gap-2">
@@ -67,7 +68,7 @@ export function Standings({ board }: { board: Leaderboard | null }) {
         <CardTitle className="flex items-center gap-2"><Trophy className="size-4 text-amber-300" />Standings</CardTitle>
         <CardDescription>
           Elo rating for each CPU style across {board?.games ?? 0} finished game{board?.games === 1 ? '' : 's'}. Everyone starts at {board?.start_elo ?? 1500}.
-          Each free-for-all counts as a head-to-head result between every pair of players, where the better place wins, and ratings update after every game (K = {board?.k ?? 32}).
+          Each free-for-all counts as a head-to-head result between every pair of players, where the better place wins, and ratings update after every game (K = {board?.k ?? 32}). Win % and top half % are per seat; top half means finishing in the top half of the lobby (1st–2nd of 4, 1st–3rd of 6).
         </CardDescription>
       </CardHeader>
       <CardContent>
@@ -84,7 +85,8 @@ export function Standings({ board }: { board: Leaderboard | null }) {
                 <TableHead className="hidden md:table-cell">Trend</TableHead>
                 <TableHead className="text-right">Games</TableHead>
                 <TableHead className="text-right">Wins</TableHead>
-                <TableHead className="hidden text-right sm:table-cell">Win %</TableHead>
+                <TableHead className="text-right">Win %</TableHead>
+                <TableHead className="text-right">Top half %</TableHead>
                 <TableHead className="hidden text-right sm:table-cell">Avg place</TableHead>
                 <TableHead className="hidden lg:table-cell">Placement score</TableHead>
               </TableRow>
