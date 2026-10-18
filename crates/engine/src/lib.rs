@@ -23,6 +23,11 @@ impl Board {
     pub fn slots(&self) -> usize {
         (self.width() * self.width()) as usize
     }
+    /// The hex for a slot index (the inverse of [`Board::index`]).
+    pub fn hex_at(&self, i: usize) -> Hex {
+        let w = self.width() as usize;
+        Hex::new((i % w) as i32 - self.radius, (i / w) as i32 - self.radius)
+    }
     pub fn contains(&self, h: Hex) -> bool {
         h.q.abs() <= self.radius && h.r.abs() <= self.radius && (h.q + h.r).abs() <= self.radius
     }
@@ -593,21 +598,34 @@ impl State {
     }
 
     /// Connected component of `owner`-owned hexes containing `start`.
+    /// Sorted by `Hex` ordering.
     fn component(&self, start: Hex, owner: PlayerId) -> Vec<Hex> {
-        let mut seen = std::collections::BTreeSet::from([start]);
+        let mut seen = vec![false; self.board.slots()];
+        let mut out = vec![start];
+        seen[self.board.index(start).unwrap()] = true;
         let mut stack = vec![start];
         while let Some(c) = stack.pop() {
             for nb in c.neighbors() {
-                if self.cell(nb).is_some_and(|x| x.owner == Some(owner)) && seen.insert(nb) {
+                let Some(i) = self.board.index(nb) else { continue };
+                if !seen[i] && self.cells[i].owner == Some(owner) {
+                    seen[i] = true;
+                    out.push(nb);
                     stack.push(nb);
                 }
             }
         }
-        seen.into_iter().collect()
+        out.sort_unstable();
+        out
     }
 
     pub fn is_enclosed(&self, component: &[Hex], capturer: PlayerId) -> bool {
         let rules = self.rules();
+        let mut inside = vec![false; self.board.slots()];
+        for h in component {
+            if let Some(i) = self.board.index(*h) {
+                inside[i] = true;
+            }
+        }
         for &h in component {
             for nb in h.neighbors() {
                 if !self.board.contains(nb) {
@@ -619,7 +637,7 @@ impl State {
                     }
                     continue;
                 }
-                if component.contains(&nb) {
+                if inside[self.board.index(nb).unwrap()] {
                     continue;
                 }
                 if self.cell(nb).unwrap().owner != Some(capturer) {
@@ -898,12 +916,17 @@ impl State {
     pub fn visible_mask(&self, player: PlayerId) -> Vec<bool> {
         let r = self.rules().fog_radius;
         let mut mask = vec![false; self.board.slots()];
-        for h in self.board.hexes() {
-            if self.cell(h).unwrap().owner != Some(player) {
+        for (i, c) in self.cells.iter().enumerate() {
+            if c.owner != Some(player) {
                 continue;
             }
-            for n in self.board.hexes_within(h, r) {
-                mask[self.board.index(n).unwrap()] = true;
+            let h = self.board.hex_at(i);
+            for dq in -r..=r {
+                for dr in (-r).max(-dq - r)..=r.min(-dq + r) {
+                    if let Some(j) = self.board.index(Hex::new(h.q + dq, h.r + dr)) {
+                        mask[j] = true;
+                    }
+                }
             }
         }
         mask
@@ -955,12 +978,9 @@ impl State {
             .enumerate()
             .map(|(i, t)| if public || mask[i] { *t } else { None })
             .collect();
-        let visible_hexes = self
-            .board
-            .hexes()
-            .into_iter()
-            .filter(|&h| vis(h))
-            .map(|h| self.visible_cell(h))
+        let visible_hexes = (0..self.board.slots())
+            .filter(|&i| mask[i])
+            .map(|i| self.visible_cell(self.board.hex_at(i)))
             .collect();
         let visible_events = self
             .last_events
