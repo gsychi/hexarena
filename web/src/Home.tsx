@@ -1,4 +1,4 @@
-import { Dice5, Loader2, Play, Plus, Shuffle, Trophy, TriangleAlert, Users } from 'lucide-react'
+import { Dice5, Dna, Loader2, Play, Plus, Shuffle, Trophy, TriangleAlert, Users } from 'lucide-react'
 import { useCallback, useEffect, useState } from 'react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -50,7 +50,7 @@ function StatusBadge({ status }: { status: MatchStatus }) {
   }
 }
 
-export function Home({ onOpen }: { onOpen: (id: string) => void }) {
+export function Home({ onOpen, onLeague }: { onOpen: (id: string) => void; onLeague: () => void }) {
   const [bots, setBots] = useState<BotInfo[]>([])
   const [matches, setMatches] = useState<MatchSummary[] | null>(null)
   const [board, setBoard] = useState<Leaderboard | null>(null)
@@ -104,7 +104,10 @@ export function Home({ onOpen }: { onOpen: (id: string) => void }) {
           <h1 className="mt-1 text-2xl font-semibold tracking-tight">CPU arena</h1>
           <p className="text-sm text-muted-foreground">Set up a free-for-all, let the CPUs fight it out on the Rust engine, then watch the replay.</p>
         </div>
-        <Button variant="outline" size="sm" onClick={() => onOpen('sample')}><Play />Watch sample match</Button>
+        <div className="flex flex-wrap gap-2">
+          <Button variant="outline" size="sm" onClick={onLeague}><Dna />League progression</Button>
+          <Button variant="outline" size="sm" onClick={() => onOpen('sample')}><Play />Watch sample match</Button>
+        </div>
       </header>
 
       {offline && (

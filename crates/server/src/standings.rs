@@ -42,6 +42,9 @@ pub struct BotStanding {
     /// Share of seats whose average place is in the top half (`place <= N / 2`).
     pub top_half_rate: f64,
     pub avg_place: f64,
+    /// Average place stretched onto the 8-player scale (1 best, 8 worst), so lobbies of
+    /// every size compare like 8-player games.
+    pub avp8: f64,
     pub avg_normalized: f64,
     /// Rating after each of this style's most recent games, oldest first.
     pub history: Vec<f64>,
@@ -108,6 +111,7 @@ pub fn standings(games: &[Vec<SeatResult>], name: impl Fn(&str) -> String) -> Ve
             r.wins += s.won as u32;
             r.top_half += (s.place <= s.players as f64 / 2.0) as u32;
             r.avg_place += s.place;
+            r.avp8 += 1.0 + (s.place - 1.0) * 7.0 / (s.players as f64 - 1.0);
             r.avg_normalized += s.normalized;
         }
     }
@@ -115,6 +119,7 @@ pub fn standings(games: &[Vec<SeatResult>], name: impl Fn(&str) -> String) -> Ve
         .into_values()
         .map(|mut r| {
             r.avg_place /= r.seats as f64;
+            r.avp8 /= r.seats as f64;
             r.avg_normalized /= r.seats as f64;
             r.win_rate = r.wins as f64 / r.seats as f64;
             r.top_half_rate = r.top_half as f64 / r.seats as f64;

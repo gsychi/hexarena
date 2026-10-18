@@ -8,6 +8,7 @@ license.workspace = true
 hexarena-protocol.workspace = true
 hexarena-arena.workspace = true
 hexarena-sdk.workspace = true
+hexarena-league.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 axum = "0.8.9"

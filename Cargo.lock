@@ -193,6 +193,7 @@ version = "0.1.0"
 dependencies = [
  "axum",
  "hexarena-arena",
+ "hexarena-league",
  "hexarena-protocol",
  "hexarena-sdk",
  "serde",

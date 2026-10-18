@@ -50,7 +50,7 @@ function Row({ r, start }: { r: LeaderboardRow; start: number }) {
       <TableCell className="text-right tabular-nums">{r.wins}</TableCell>
       <TableCell className="text-right tabular-nums">{Math.round(r.win_rate * 100)}%</TableCell>
       <TableCell className="text-right tabular-nums">{Math.round(r.top_half_rate * 100)}%</TableCell>
-      <TableCell className="hidden text-right tabular-nums sm:table-cell">{r.avg_place.toFixed(2)}</TableCell>
+      <TableCell className="hidden text-right tabular-nums sm:table-cell">{r.avp8.toFixed(2)}</TableCell>
       <TableCell className="hidden w-36 lg:table-cell">
         <div className="flex items-center gap-2">
           <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-muted"><div className="h-full rounded-full bg-foreground" style={{ width: `${r.avg_normalized * 100}%` }} /></div>
@@ -87,7 +87,12 @@ export function Standings({ board }: { board: Leaderboard | null }) {
                 <TableHead className="text-right">Wins</TableHead>
                 <TableHead className="text-right">Win %</TableHead>
                 <TableHead className="text-right">Top half %</TableHead>
-                <TableHead className="hidden text-right sm:table-cell">Avg place</TableHead>
+                <TableHead className="hidden text-right sm:table-cell">
+                  <Tooltip>
+                    <TooltipTrigger render={<span className="cursor-help underline decoration-dotted underline-offset-4" />}>AVP (8p)</TooltipTrigger>
+                    <TooltipContent className="max-w-64">Average placement scored as if every game had 8 players: 1st is 1, last is 8, so 2nd of 4 counts as 3.33. Lower is better.</TooltipContent>
+                  </Tooltip>
+                </TableHead>
                 <TableHead className="hidden lg:table-cell">Placement score</TableHead>
               </TableRow>
             </TableHeader>

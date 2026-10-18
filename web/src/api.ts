@@ -45,12 +45,64 @@ export interface LeaderboardRow {
   top_half: number
   top_half_rate: number
   avg_place: number
+  avp8: number
   avg_normalized: number
   history: number[]
 }
 export interface Leaderboard { games: number; rules_version: string; start_elo: number; k: number; bots: LeaderboardRow[] }
 
 export interface CreateMatch { bots: string[]; seed?: number; count: number }
+
+export interface GateResult {
+  games: number
+  challenger_avp: number
+  champion_avp: number
+  gain: number
+  gain_se: number
+  promoted: boolean
+  secs: number
+}
+
+export interface Benchmark { games: number; avp: number; win_rate: number; top_half_rate: number }
+
+export interface Generation {
+  gen: number
+  id: string
+  parent: string | null
+  origin: string
+  note: string | null
+  created_at: number
+  params: Record<string, unknown>
+  changes: string[]
+  gate: GateResult | null
+  benchmark: Benchmark
+  elo: number
+}
+
+export interface Attempt {
+  n: number
+  at: number
+  id: string
+  origin: string
+  note: string | null
+  parent: string
+  changes: string[]
+  gate: GateResult
+  became: number | null
+}
+
+export interface League {
+  rules_version: string
+  started_at: number
+  updated_at: number
+  gate_config: { min_pairs: number; max_pairs: number; batch_pairs: number; min_gain: number; z_accept: number }
+  generations: Generation[]
+  attempts: Attempt[]
+  attempts_total: number
+  games_total: number
+  play_secs: number
+  elo: Record<string, number>
+}
 
 async function json<T>(res: Response): Promise<T> {
   if (!res.ok) {
@@ -65,6 +117,7 @@ export const api = {
   matches: () => fetch('/api/matches').then((r) => json<MatchSummary[]>(r)),
   match: (id: string) => fetch(`/api/matches/${id}`).then((r) => json<MatchSummary>(r)),
   leaderboard: () => fetch('/api/leaderboard').then((r) => json<Leaderboard>(r)),
+  league: () => fetch('/api/league').then((r) => json<League>(r)),
   create: (req: CreateMatch) =>
     fetch('/api/matches', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(req) }).then((r) => json<MatchSummary[]>(r)),
 }

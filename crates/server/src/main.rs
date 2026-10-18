@@ -8,7 +8,7 @@ use axum::routing::get;
 use axum::{Json, Router};
 use hexarena_arena::{play, seat_names, viewer_json};
 use hexarena_protocol::{PlayerId, RulesConfig};
-use hexarena_sdk::{roster, style, Style};
+use hexarena_sdk::Style;
 use serde::{Deserialize, Serialize};
 use standings::{standings, SeatResult, K, START_ELO};
 use std::collections::BTreeMap;
@@ -19,6 +19,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use tokio::sync::Semaphore;
 use tower_http::services::{ServeDir, ServeFile};
 
+mod league;
 mod standings;
 
 const MAX_PLAYERS: usize = 8;
@@ -92,6 +93,7 @@ struct CreateMatch {
 
 struct AppState {
     dir: PathBuf,
+    league_dir: PathBuf,
     matches: Mutex<BTreeMap<String, Summary>>,
     next_id: Mutex<u64>,
     workers: Semaphore,
@@ -127,7 +129,7 @@ impl AppState {
         self.matches.lock().unwrap().insert(s.id.clone(), s.clone());
     }
 
-    fn load(dir: PathBuf) -> AppState {
+    fn load(dir: PathBuf, league_dir: PathBuf) -> AppState {
         std::fs::create_dir_all(&dir).expect("create data dir");
         let mut matches = BTreeMap::new();
         for entry in std::fs::read_dir(&dir).unwrap().flatten() {
@@ -156,6 +158,7 @@ impl AppState {
             .unwrap_or(2);
         AppState {
             dir,
+            league_dir,
             matches: Mutex::new(matches),
             next_id: Mutex::new(next),
             workers: Semaphore::new(workers),
@@ -219,11 +222,18 @@ fn run_match(app: &AppState, mut summary: Summary, styles: Vec<Style>) -> Summar
     summary
 }
 
-async fn bots() -> Json<serde_json::Value> {
-    Json(serde_json::json!(roster()
-        .iter()
-        .map(|s| serde_json::json!({ "id": s.id, "name": s.name, "blurb": s.blurb }))
-        .collect::<Vec<_>>()))
+async fn bots(State(app): State<Shared>) -> Json<serde_json::Value> {
+    Json(serde_json::json!(league::bots(league::load(&app.league_dir).as_ref())))
+}
+
+async fn league_snapshot(State(app): State<Shared>) -> Response {
+    match league::load(&app.league_dir) {
+        Some(l) => Json(league::snapshot(l)).into_response(),
+        None => err(
+            StatusCode::NOT_FOUND,
+            "no league yet: start one with `hexarena league run`",
+        ),
+    }
 }
 
 async fn list(State(app): State<Shared>) -> Json<Vec<Summary>> {
@@ -239,10 +249,11 @@ async fn create(State(app): State<Shared>, Json(req): Json<CreateMatch>) -> Resp
             format!("pick 2 to {MAX_PLAYERS} CPU players"),
         );
     }
+    let current = league::load(&app.league_dir);
     let styles: Result<Vec<Style>, String> = req
         .bots
         .iter()
-        .map(|id| style(id).ok_or_else(|| format!("unknown bot '{id}'")))
+        .map(|id| league::resolve(id, current.as_ref()).ok_or_else(|| format!("unknown bot '{id}'")))
         .collect();
     let styles = match styles {
         Ok(s) => s,
@@ -361,11 +372,8 @@ async fn leaderboard(State(app): State<Shared>) -> Json<serde_json::Value> {
                 .collect()
         })
         .collect();
-    let rows = standings(&games, |id| {
-        style(id)
-            .map(|x| x.name.to_string())
-            .unwrap_or_else(|| id.to_string())
-    });
+    let current = league::load(&app.league_dir);
+    let rows = standings(&games, |id| league::display_name(id, current.as_ref()));
     Json(serde_json::json!({
         "games": done.len(),
         "rules_version": rules,
@@ -386,7 +394,8 @@ async fn main() {
     let port: u16 = env("HEXARENA_PORT")
         .or_else(|| env("PORT"))
         .unwrap_or(47240);
-    let app: Shared = Arc::new(AppState::load(PathBuf::from(&dir)));
+    let league_dir = std::env::var("HEXARENA_LEAGUE").unwrap_or_else(|_| "data/league".into());
+    let app: Shared = Arc::new(AppState::load(PathBuf::from(&dir), PathBuf::from(league_dir)));
     let mut router = Router::new()
         .route("/api/bots", get(bots))
         .route("/api/matches", get(list).post(create))
@@ -394,6 +403,7 @@ async fn main() {
         .route("/api/matches/{id}/viewer", get(viewer))
         .route("/api/matches/{id}/replay", get(replay))
         .route("/api/leaderboard", get(leaderboard))
+        .route("/api/league", get(league_snapshot))
         .route("/api/health", get(|| async { "ok" }))
         .with_state(app);
     if let Ok(web) = std::env::var("HEXARENA_WEB") {
