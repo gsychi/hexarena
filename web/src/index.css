@@ -1,0 +1,9 @@
+@import "tailwindcss";
+
+:root { color-scheme: dark; }
+html, body, #root { height: 100%; }
+body { margin: 0; background: #08090c; color: #c9ced8; font: 12px/1.35 ui-sans-serif, system-ui, sans-serif; }
+.panel { background: #101218; border: 1px solid #1c2029; border-radius: 8px; }
+.btn { background: #161a22; border: 1px solid #252b37; border-radius: 6px; padding: 3px 9px; color: #c9ced8; cursor: pointer; }
+.btn:hover { background: #1d222c; }
+.btn[data-on="true"] { background: #e8eaee; color: #0b0d11; border-color: #e8eaee; }
