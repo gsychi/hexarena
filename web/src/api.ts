@@ -14,10 +14,13 @@ export interface Standing {
 }
 
 export type MatchStatus = 'running' | 'done' | 'failed'
+export type Ending = 'conquest' | 'last_standing' | 'cutoff'
 
 export interface MatchSummary {
   id: string
   created_at: number
+  rules_version: string
+  ending: Ending | null
   status: MatchStatus
   error: string | null
   seed: number
@@ -45,9 +48,9 @@ export interface LeaderboardRow {
   avg_normalized: number
   history: number[]
 }
-export interface Leaderboard { games: number; start_elo: number; k: number; bots: LeaderboardRow[] }
+export interface Leaderboard { games: number; rules_version: string; start_elo: number; k: number; bots: LeaderboardRow[] }
 
-export interface CreateMatch { bots: string[]; seed?: number; max_ticks: number; count: number }
+export interface CreateMatch { bots: string[]; seed?: number; count: number }
 
 async function json<T>(res: Response): Promise<T> {
   if (!res.ok) {

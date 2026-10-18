@@ -12,13 +12,26 @@ import { api } from './api'
 import { PLAYER_COLORS } from './model'
 import { Standings } from './Standings'
 
-const LENGTHS = [
-  { ticks: 500, label: 'Short', hint: '500 ticks' },
-  { ticks: 1000, label: 'Medium', hint: '1000 ticks' },
-  { ticks: 1500, label: 'Full', hint: '1500 ticks' },
-]
 const BATCHES = [1, 5, 10, 20]
 const DEFAULT_LINEUP = ['expander', 'homesteader', 'raider', 'warden']
+
+function finish(m: MatchSummary) {
+  const at = `tick ${m.final_tick}`
+  switch (m.ending) {
+    case 'conquest':
+      return `${m.winner} conquered the map at ${at}`
+    case 'last_standing':
+      return `${m.winner} last standing at ${at}`
+    case 'cutoff':
+      return `cut off at ${at}`
+    case null:
+      return `ended at ${at} (${m.rules_version} rules)`
+    default: {
+      const never: never = m.ending
+      return never
+    }
+  }
+}
 
 function ago(ms: number) {
   const s = Math.max(0, Math.round((Date.now() - ms) / 1000))
@@ -44,7 +57,6 @@ export function Home({ onOpen }: { onOpen: (id: string) => void }) {
   const [offline, setOffline] = useState<string | null>(null)
   const [lineup, setLineup] = useState<string[]>(DEFAULT_LINEUP)
   const [seed, setSeed] = useState('')
-  const [ticks, setTicks] = useState(1500)
   const [count, setCount] = useState(1)
   const [creating, setCreating] = useState(false)
   const [createError, setCreateError] = useState<string | null>(null)
@@ -75,7 +87,7 @@ export function Home({ onOpen }: { onOpen: (id: string) => void }) {
     try {
       const s = seed.trim() === '' ? undefined : Number(seed)
       if (s !== undefined && (!Number.isSafeInteger(s) || s < 0)) throw new Error('Seed must be a whole number')
-      const made = await api.create({ bots: lineup, seed: s, max_ticks: ticks, count })
+      const made = await api.create({ bots: lineup, seed: s, count })
       setMatches((m) => [...made, ...(m ?? [])])
     } catch (e) {
       setCreateError(e instanceof Error ? e.message : String(e))
@@ -155,17 +167,9 @@ export function Home({ onOpen }: { onOpen: (id: string) => void }) {
               </div>
             </div>
 
-            <div className="space-y-2">
-              <Label>Length</Label>
-              <ToggleGroup variant="outline" size="sm" value={[String(ticks)]} onValueChange={(v) => v.length && setTicks(Number(v[v.length - 1]))}>
-                {LENGTHS.map((l) => (
-                  <ToggleGroupItem key={l.ticks} value={String(l.ticks)} className="px-3 data-pressed:bg-foreground data-pressed:text-background">
-                    {l.label} <span className="text-[10px] opacity-60">{l.hint}</span>
-                  </ToggleGroupItem>
-                ))}
-              </ToggleGroup>
-              <p className="text-[11px] text-muted-foreground">A game also ends early when only one player is left.</p>
-            </div>
+            <p className="text-[11px] text-muted-foreground">
+              Every game runs until one player owns every hex, with a cutoff at 3000 ticks. At the cutoff, survivors are ranked by land.
+            </p>
 
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
@@ -220,7 +224,7 @@ export function Home({ onOpen }: { onOpen: (id: string) => void }) {
                         ))}
                       </div>
                       <div className="mt-1 text-[11px] text-muted-foreground">
-                        seed {m.seed} · {m.status === 'done' ? `ended at tick ${m.final_tick}` : `up to ${m.max_ticks} ticks`} · {ago(m.created_at)}
+                        seed {m.seed} · {m.status === 'done' ? finish(m) : `up to ${m.max_ticks} ticks`} · {ago(m.created_at)}
                         {m.error && <span className="text-destructive"> · {m.error}</span>}
                       </div>
                     </div>

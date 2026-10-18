@@ -7,7 +7,7 @@ use axum::response::{IntoResponse, Response};
 use axum::routing::get;
 use axum::{Json, Router};
 use hexarena_arena::{play, seat_names, viewer_json};
-use hexarena_protocol::PlayerId;
+use hexarena_protocol::{PlayerId, RulesConfig};
 use hexarena_sdk::{style, Style, ROSTER};
 use serde::{Deserialize, Serialize};
 use standings::{standings, SeatResult, K, START_ELO};
@@ -25,7 +25,6 @@ const MAX_PLAYERS: usize = 8;
 const MAX_BATCH: u32 = 20;
 /// Refuse new games while this many are still queued or running.
 const MAX_RUNNING: usize = 100;
-const DEFAULT_MAX_TICKS: u32 = 1500;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -33,6 +32,18 @@ enum Status {
     Running,
     Done,
     Failed,
+}
+
+/// How a finished match ended.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+enum Ending {
+    /// One player owns every traversable hex.
+    Conquest,
+    /// Everyone else was eliminated (v0 rules only).
+    LastStanding,
+    /// The tick cutoff was reached first.
+    Cutoff,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -57,6 +68,11 @@ struct Standing {
 struct Summary {
     id: String,
     created_at: u64,
+    /// Games from before v0.1 have no version recorded.
+    #[serde(default = "legacy_rules")]
+    rules_version: String,
+    #[serde(default)]
+    ending: Option<Ending>,
     status: Status,
     error: Option<String>,
     seed: u64,
@@ -71,7 +87,6 @@ struct Summary {
 struct CreateMatch {
     bots: Vec<String>,
     seed: Option<u64>,
-    max_ticks: Option<u32>,
     count: Option<u32>,
 }
 
@@ -83,6 +98,10 @@ struct AppState {
 }
 
 type Shared = Arc<AppState>;
+
+fn legacy_rules() -> String {
+    "v0".into()
+}
 
 fn now_ms() -> u64 {
     SystemTime::now()
@@ -158,11 +177,21 @@ fn run_match(app: &AppState, mut summary: Summary, styles: Vec<&'static Style>) 
             serde_json::to_vec(&viewer).unwrap(),
         )
         .map_err(|e| e.to_string())?;
-        Ok(played.result())
+        let ending = if played.state.conqueror().is_some() {
+            if played.state.rules().end_on_total_conquest {
+                Ending::Conquest
+            } else {
+                Ending::LastStanding
+            }
+        } else {
+            Ending::Cutoff
+        };
+        Ok((played.result(), ending))
     });
     match outcome {
-        Ok(result) => {
+        Ok((result, ending)) => {
             summary.status = Status::Done;
+            summary.ending = Some(ending);
             summary.final_tick = Some(result.final_tick);
             summary.winner = result
                 .winner()
@@ -233,10 +262,7 @@ async fn create(State(app): State<Shared>, Json(req): Json<CreateMatch>) -> Resp
             "the arena is busy, try again once some games finish",
         );
     }
-    let max_ticks = req
-        .max_ticks
-        .unwrap_or(DEFAULT_MAX_TICKS)
-        .clamp(50, DEFAULT_MAX_TICKS);
+    let max_ticks = RulesConfig::default().max_ticks;
     let base_seed = req
         .seed
         .unwrap_or_else(|| now_ms().wrapping_mul(0x9E37_79B9_7F4A_7C15) >> 16);
@@ -252,6 +278,8 @@ async fn create(State(app): State<Shared>, Json(req): Json<CreateMatch>) -> Resp
         let summary = Summary {
             id,
             created_at: now_ms(),
+            rules_version: RulesConfig::default().version,
+            ending: None,
             status: Status::Running,
             error: None,
             seed: base_seed.wrapping_add(i as u64),
@@ -308,11 +336,14 @@ async fn replay(State(app): State<Shared>, Path(id): Path<String>) -> Response {
     artifact(app, id, "replay").await
 }
 
+/// Standings only count games played under the current rules, since the rules and
+/// the CPUs change together.
 async fn leaderboard(State(app): State<Shared>) -> Json<serde_json::Value> {
+    let rules = RulesConfig::default().version;
     let matches = app.matches.lock().unwrap();
     let mut done: Vec<&Summary> = matches
         .values()
-        .filter(|m| m.status == Status::Done)
+        .filter(|m| m.status == Status::Done && m.rules_version == rules)
         .collect();
     done.sort_by(|a, b| a.created_at.cmp(&b.created_at).then(a.id.cmp(&b.id)));
     let games: Vec<Vec<SeatResult>> = done
@@ -337,6 +368,7 @@ async fn leaderboard(State(app): State<Shared>) -> Json<serde_json::Value> {
     });
     Json(serde_json::json!({
         "games": done.len(),
+        "rules_version": rules,
         "start_elo": START_ELO,
         "k": K,
         "bots": rows,
