@@ -18,12 +18,12 @@ pub fn settings(players: u16, seed: u64) -> MatchSettings {
 }
 
 /// "Raider", "Raider 2", ... so duplicate styles stay distinguishable.
-pub fn seat_names(styles: &[&Style]) -> Vec<String> {
+pub fn seat_names(styles: &[Style]) -> Vec<String> {
     let mut seen: BTreeMap<&str, u32> = BTreeMap::new();
     styles
         .iter()
         .map(|s| {
-            let n = seen.entry(s.name).or_insert(0);
+            let n = seen.entry(s.name.as_str()).or_insert(0);
             *n += 1;
             if *n == 1 {
                 s.name.to_string()
@@ -53,13 +53,22 @@ impl Played {
     }
 }
 
-/// Plays one match with one CPU per seat, in seat order.
-pub fn play(seed: u64, styles: &[&Style], max_ticks: u32) -> Result<Played, String> {
+/// Plays one match with one CPU per seat, in seat order, recording a full replay.
+pub fn play(seed: u64, styles: &[Style], max_ticks: u32) -> Result<Played, String> {
+    run(seed, styles, max_ticks, true)
+}
+
+/// Plays one match without recording commands or events: the fast path for evaluation.
+pub fn play_result(seed: u64, styles: &[Style], max_ticks: u32) -> Result<MatchResult, String> {
+    run(seed, styles, max_ticks, false).map(|p| p.result())
+}
+
+fn run(seed: u64, styles: &[Style], max_ticks: u32, record: bool) -> Result<Played, String> {
     let s = settings(styles.len() as u16, seed);
     let mut st = State::new(s, seat_names(styles))?;
     let mut bots: Vec<Box<dyn Bot>> = styles
         .iter()
-        .map(|s| Box::new(Expander::new((*s).clone())) as Box<dyn Bot>)
+        .map(|s| Box::new(Expander::new(s.clone())) as Box<dyn Bot>)
         .collect();
     let (mut commands, mut events) = (vec![], vec![]);
     while !st.is_over() && st.tick < max_ticks {
@@ -68,8 +77,10 @@ pub fn play(seed: u64, styles: &[&Style], max_ticks: u32) -> Result<Played, Stri
             .map(|p| (p, bots[p as usize].act(&st.view(p))))
             .collect();
         st.step(&cmds);
-        commands.push(cmds);
-        events.push(st.last_events.clone());
+        if record {
+            commands.push(cmds);
+            events.push(st.last_events.clone());
+        }
     }
     Ok(Played {
         state: st,
@@ -156,11 +167,11 @@ fn visible_building(st: &State, h: Hex) -> (u32, [Option<Hex>; 3], u32) {
 mod tests {
     use super::*;
     use hexarena_engine::replay_state;
-    use hexarena_sdk::ROSTER;
+    use hexarena_sdk::roster;
 
     #[test]
     fn same_seed_and_lineup_replay_identically() {
-        let lineup: Vec<&Style> = ROSTER.iter().collect();
+        let lineup = roster();
         let a = play(42, &lineup, 300).unwrap().replay();
         let b = play(42, &lineup, 300).unwrap().replay();
         assert_eq!(a.checksum, b.checksum);
@@ -170,13 +181,14 @@ mod tests {
 
     #[test]
     fn duplicate_styles_get_numbered_names() {
-        let names = seat_names(&[&ROSTER[2], &ROSTER[0], &ROSTER[2]]);
+        let r = roster();
+        let names = seat_names(&[r[2].clone(), r[0].clone(), r[2].clone()]);
         assert_eq!(names, ["Raider", "Expander", "Raider 2"]);
     }
 
     #[test]
     fn viewer_has_one_frame_per_tick() {
-        let replay = play(3, &[&ROSTER[0], &ROSTER[1]], 120).unwrap().replay();
+        let replay = play(3, &roster()[..2], 120).unwrap().replay();
         let doc = viewer_json(&replay).unwrap();
         assert_eq!(
             doc["frames"].as_array().unwrap().len(),

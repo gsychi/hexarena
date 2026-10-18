@@ -2,6 +2,7 @@
 //! (free management commands plus at most one main action) each tick.
 
 pub use hexarena_protocol::*;
+use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, VecDeque};
 
 pub trait Bot {
@@ -17,12 +18,12 @@ fn terrain_at(view: &View, h: Hex) -> Option<Terrain> {
     view.public_terrain[((h.r + view.radius) * w + h.q + view.radius) as usize]
 }
 
-/// Tunable behaviour for the built-in CPU players.
-#[derive(Clone, Debug)]
-pub struct Style {
-    pub id: &'static str,
-    pub name: &'static str,
-    pub blurb: &'static str,
+/// Every tunable number behind a CPU. Serializable so the league can mutate, store and
+/// replay any generation. Fields added later must default to the behaviour before they
+/// existed, so older genomes keep playing the same way.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct BotParams {
     /// Attack only when sending at least this % of the expected loss.
     pub attack_margin_pct: u64,
     /// Score bonus for attacking an enemy hex instead of a neutral one.
@@ -32,93 +33,126 @@ pub struct Style {
     /// Minimum ticks between builds.
     pub build_every: u32,
     /// Build preference, cycled in order.
-    pub kinds: &'static [Building],
-    /// Gather troops toward the richest hex every N ticks.
+    pub kinds: Vec<Building>,
+    /// Gather troops toward the army every N ticks.
     pub gather_every: u32,
+    /// Score for gaining any hex: it produces troops every tick and counts for placement.
+    pub land_value: i64,
+    /// Extra score per owned neighbour of a target hex.
+    pub hug_value: i64,
+    /// Extra score for captures from the focus player.
+    pub focus_bonus: i64,
+    /// % of a destroyed enemy garrison counted in a capture's score.
+    pub kill_value_pct: i64,
+    /// Every Nth tick the best small grab from any hex goes before the army (0 = never).
+    pub grab_every: u32,
+    /// Every Nth gather feeds the hex bordering the most unclaimed land (0 = never).
+    pub settle_every: u32,
+    /// Whether the army marches on the weakest rival.
+    pub march: bool,
 }
 
-/// The built-in CPU roster. All are original to Hexarena.
-pub const ROSTER: [Style; 4] = [
-    Style {
-        id: "expander",
-        name: "Expander",
-        blurb: "Balanced. Grabs cheap land and builds a small economy.",
-        attack_margin_pct: 130,
-        enemy_bonus: 20,
-        build_cap: 8,
-        build_every: 12,
-        kinds: &[
-            Building::Farm,
-            Building::Village,
-            Building::Quarry,
-            Building::Wall,
-        ],
-        gather_every: 4,
-    },
-    Style {
-        id: "homesteader",
-        name: "Homesteader",
-        blurb: "Economy first. Farms, Villages and Quarries everywhere.",
-        attack_margin_pct: 150,
-        enemy_bonus: 0,
-        build_cap: 18,
-        build_every: 6,
-        kinds: &[
-            Building::Farm,
-            Building::Village,
-            Building::Village,
-            Building::Quarry,
-        ],
-        gather_every: 5,
-    },
-    Style {
-        id: "raider",
-        name: "Raider",
-        blurb: "Aggressive. Few buildings, hunts enemy borders.",
-        attack_margin_pct: 112,
-        enemy_bonus: 60,
-        build_cap: 3,
-        build_every: 30,
-        kinds: &[Building::Village, Building::Farm],
-        gather_every: 3,
-    },
-    Style {
-        id: "warden",
-        name: "Warden",
-        blurb: "Defensive. Linked Walls on the border, Quarries on hills.",
-        attack_margin_pct: 170,
-        enemy_bonus: 10,
-        build_cap: 14,
-        build_every: 9,
-        kinds: &[
-            Building::Wall,
-            Building::Quarry,
-            Building::Wall,
-            Building::Farm,
-            Building::Village,
-        ],
-        gather_every: 6,
-    },
-];
+impl Default for BotParams {
+    fn default() -> Self {
+        BotParams {
+            attack_margin_pct: 130,
+            enemy_bonus: 20,
+            build_cap: 8,
+            build_every: 12,
+            kinds: vec![Building::Farm, Building::Village, Building::Quarry, Building::Wall],
+            gather_every: 4,
+            land_value: 40,
+            hug_value: 8,
+            focus_bonus: 40,
+            kill_value_pct: 100,
+            grab_every: 3,
+            settle_every: 2,
+            march: true,
+        }
+    }
+}
 
-/// Score for gaining any hex: it produces troops every tick and counts for placement.
-const LAND_VALUE: i64 = 40;
-/// Extra score per owned neighbour of a target hex.
-const HUG_VALUE: i64 = 8;
-/// Extra score for captures from the focus player.
-const FOCUS_BONUS: i64 = 40;
-/// Every Nth tick the best small grab from any hex goes before the army's move.
-const GRAB_EVERY: u32 = 3;
+/// A named CPU: a preset of [`BotParams`].
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct Style {
+    pub id: String,
+    pub name: String,
+    pub blurb: String,
+    pub params: BotParams,
+}
 
-pub fn style(id: &str) -> Option<&'static Style> {
-    ROSTER.iter().find(|s| s.id == id)
+impl Style {
+    fn preset(id: &str, name: &str, blurb: &str, params: BotParams) -> Style {
+        Style { id: id.into(), name: name.into(), blurb: blurb.into(), params }
+    }
+}
+
+/// The hand-written CPU roster. All are original to Hexarena.
+pub fn roster() -> Vec<Style> {
+    use Building::*;
+    let base = BotParams::default();
+    vec![
+        Style::preset(
+            "expander",
+            "Expander",
+            "Balanced. Grabs cheap land and builds a small economy.",
+            base.clone(),
+        ),
+        Style::preset(
+            "homesteader",
+            "Homesteader",
+            "Economy first. Farms, Villages and Quarries everywhere.",
+            BotParams {
+                attack_margin_pct: 150,
+                enemy_bonus: 0,
+                build_cap: 18,
+                build_every: 6,
+                kinds: vec![Farm, Village, Village, Quarry],
+                gather_every: 5,
+                ..base.clone()
+            },
+        ),
+        Style::preset(
+            "raider",
+            "Raider",
+            "Aggressive. Few buildings, hunts enemy borders.",
+            BotParams {
+                attack_margin_pct: 112,
+                enemy_bonus: 60,
+                build_cap: 3,
+                build_every: 30,
+                kinds: vec![Village, Farm],
+                gather_every: 3,
+                ..base.clone()
+            },
+        ),
+        Style::preset(
+            "warden",
+            "Warden",
+            "Defensive. Linked Walls on the border, Quarries on hills.",
+            BotParams {
+                attack_margin_pct: 170,
+                enemy_bonus: 10,
+                build_cap: 14,
+                build_every: 9,
+                kinds: vec![Wall, Quarry, Wall, Farm, Village],
+                gather_every: 6,
+                ..base
+            },
+        ),
+    ]
+}
+
+pub fn style(id: &str) -> Option<Style> {
+    roster().into_iter().find(|s| s.id == id)
 }
 
 /// Rule-based CPU player driven by a [`Style`]. Uses only its View.
 pub struct Expander {
-    style: Style,
+    name: String,
+    p: BotParams,
     rules: RulesConfig,
-    seen: HashMap<Hex, VisibleHex>,
+    seen: Memory,
     next_kind: usize,
     last_build: u32,
     /// Border hex that troops are being gathered toward for the next push.
@@ -129,7 +163,42 @@ pub struct Expander {
 
 impl Default for Expander {
     fn default() -> Self {
-        Self::new(ROSTER[0].clone())
+        Self::new(roster().remove(0))
+    }
+}
+
+/// The last seen state of every hex, in a flat grid laid out like `public_terrain`.
+#[derive(Default)]
+struct Memory {
+    radius: i32,
+    cells: Vec<Option<VisibleHex>>,
+}
+
+impl Memory {
+    fn slot(&self, h: &Hex) -> Option<usize> {
+        let r = self.radius;
+        (h.q.abs() <= r && h.r.abs() <= r && (h.q + h.r).abs() <= r)
+            .then(|| ((h.r + r) * (2 * r + 1) + h.q + r) as usize)
+    }
+
+    fn get(&self, h: &Hex) -> Option<&VisibleHex> {
+        self.slot(h).and_then(|i| self.cells.get(i)?.as_ref())
+    }
+
+    fn insert(&mut self, radius: i32, c: &VisibleHex) {
+        if self.cells.is_empty() {
+            self.radius = radius;
+            self.cells = vec![None; ((2 * radius + 1) * (2 * radius + 1)) as usize];
+        }
+        let Some(i) = self.slot(&c.hex) else { return };
+        match &mut self.cells[i] {
+            Some(old) => old.clone_from(c),
+            empty => *empty = Some(c.clone()),
+        }
+    }
+
+    fn values(&self) -> impl Iterator<Item = &VisibleHex> {
+        self.cells.iter().flatten()
     }
 }
 
@@ -139,10 +208,15 @@ fn is_kind(c: &VisibleHex, k: Building) -> bool {
 
 impl Expander {
     pub fn new(style: Style) -> Self {
+        Self::with_params(style.id, style.params)
+    }
+
+    pub fn with_params(name: impl Into<String>, p: BotParams) -> Self {
         Expander {
-            style,
+            name: name.into(),
+            p,
             rules: RulesConfig::default(),
-            seen: HashMap::new(),
+            seen: Memory::default(),
             next_kind: 0,
             last_build: 0,
             staging: None,
@@ -196,12 +270,15 @@ impl Expander {
 
     fn build(&mut self, view: &View, mine: &[&VisibleHex]) -> Option<Action> {
         let buildings = mine.iter().filter(|c| c.building.is_some()).count();
-        if buildings >= self.style.build_cap || view.tick < self.last_build + self.style.build_every
+        if buildings >= self.p.build_cap || view.tick < self.last_build + self.p.build_every
         {
             return None;
         }
         let resource = view.own_economy.resource;
-        let kinds = self.style.kinds;
+        let kinds = self.p.kinds.clone();
+        if kinds.is_empty() {
+            return None;
+        }
         for off in 0..kinds.len() {
             let kind = kinds[(self.next_kind + off) % kinds.len()];
             let at = mine.iter().filter(|c| c.building.is_none()).find(|c| {
@@ -276,7 +353,7 @@ impl Expander {
             let Some((loss, enemy)) = self.capture_cost(view, from_h, nb) else {
                 continue;
             };
-            if (send as u64) < loss * self.style.attack_margin_pct / 100 + 1 {
+            if (send as u64) < loss * self.p.attack_margin_pct / 100 + 1 {
                 continue;
             }
             let hugged = nb
@@ -287,10 +364,10 @@ impl Expander {
             let def = self.seen.get(&nb).map_or(0, |v| v.troops as i64);
             // Enemy troops destroyed count in our favour, so a bigger stack
             // is willing to crush a smaller one instead of dodging it.
-            let score = LAND_VALUE + HUG_VALUE * hugged - loss as i64
-                + if enemy { self.style.enemy_bonus + def } else { 0 }
+            let score = self.p.land_value + self.p.hug_value * hugged - loss as i64
+                + if enemy { self.p.enemy_bonus + def * self.p.kill_value_pct / 100 } else { 0 }
                 + if enemy && self.seen.get(&nb).and_then(|v| v.owner) == self.focus_player {
-                    FOCUS_BONUS
+                    self.p.focus_bonus
                 } else {
                     0
                 };
@@ -369,7 +446,7 @@ impl Expander {
         };
         let affordable = self
             .capture_cost(view, Self::height(view, army.hex), to)
-            .map_or(true, |(loss, _)| troops as u64 > loss * self.style.attack_margin_pct / 100);
+            .map_or(true, |(loss, _)| troops as u64 > loss * self.p.attack_margin_pct / 100);
         affordable.then_some(step)
     }
 
@@ -382,9 +459,10 @@ impl Expander {
         if army.troops < 2 {
             return None;
         }
-        let every = self.style.gather_every;
+        let every = self.p.gather_every.max(1);
         if mine.len() > 3 && view.tick % every == 0 {
-            let settle = (view.tick / every) % 2 == 1;
+            let n = self.p.settle_every;
+            let settle = n > 0 && (view.tick / every) % n == n - 1;
             let target = settle
                 .then(|| self.settlement(view, mine))
                 .flatten()
@@ -393,6 +471,7 @@ impl Expander {
             return Some(Action::Gather { target });
         }
         self.focus_player
+            .filter(|_| self.p.march)
             .and_then(|f| self.march(view, army, f))
             .or_else(|| self.best_capture(view, army).map(|(_, a)| a))
             .or_else(|| self.advance(view, army))
@@ -422,12 +501,12 @@ impl Expander {
 
 impl Bot for Expander {
     fn name(&self) -> &str {
-        self.style.id
+        &self.name
     }
 
     fn act(&mut self, view: &View) -> PlayerCommand {
         for c in &view.visible_hexes {
-            self.seen.insert(c.hex, c.clone());
+            self.seen.insert(view.radius, c);
         }
         let mine: Vec<&VisibleHex> = view
             .visible_hexes
@@ -436,7 +515,8 @@ impl Bot for Expander {
             .collect();
         let management = self.management(&mine);
         self.focus_player = self.focus(view);
-        let grab_tick = view.tick % GRAB_EVERY == 1;
+        let g = self.p.grab_every;
+        let grab_tick = g > 0 && view.tick % g == 1 % g;
         let action = self
             .build(view, &mine)
             .or_else(|| grab_tick.then(|| self.opportunistic(view, &mine)).flatten())

@@ -8,7 +8,7 @@ use axum::routing::get;
 use axum::{Json, Router};
 use hexarena_arena::{play, seat_names, viewer_json};
 use hexarena_protocol::{PlayerId, RulesConfig};
-use hexarena_sdk::{style, Style, ROSTER};
+use hexarena_sdk::{roster, style, Style};
 use serde::{Deserialize, Serialize};
 use standings::{standings, SeatResult, K, START_ELO};
 use std::collections::BTreeMap;
@@ -163,7 +163,7 @@ impl AppState {
     }
 }
 
-fn run_match(app: &AppState, mut summary: Summary, styles: Vec<&'static Style>) -> Summary {
+fn run_match(app: &AppState, mut summary: Summary, styles: Vec<Style>) -> Summary {
     let outcome = play(summary.seed, &styles, summary.max_ticks).and_then(|played| {
         let replay = played.replay();
         let viewer = viewer_json(&replay)?;
@@ -220,7 +220,7 @@ fn run_match(app: &AppState, mut summary: Summary, styles: Vec<&'static Style>) 
 }
 
 async fn bots() -> Json<serde_json::Value> {
-    Json(serde_json::json!(ROSTER
+    Json(serde_json::json!(roster()
         .iter()
         .map(|s| serde_json::json!({ "id": s.id, "name": s.name, "blurb": s.blurb }))
         .collect::<Vec<_>>()))
@@ -239,7 +239,7 @@ async fn create(State(app): State<Shared>, Json(req): Json<CreateMatch>) -> Resp
             format!("pick 2 to {MAX_PLAYERS} CPU players"),
         );
     }
-    let styles: Result<Vec<&'static Style>, String> = req
+    let styles: Result<Vec<Style>, String> = req
         .bots
         .iter()
         .map(|id| style(id).ok_or_else(|| format!("unknown bot '{id}'")))
@@ -288,7 +288,7 @@ async fn create(State(app): State<Shared>, Json(req): Json<CreateMatch>) -> Resp
                 .iter()
                 .zip(&names)
                 .map(|(s, n)| Seat {
-                    bot: s.id.into(),
+                    bot: s.id.clone(),
                     name: n.clone(),
                 })
                 .collect(),

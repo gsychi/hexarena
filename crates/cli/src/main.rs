@@ -2,7 +2,7 @@ use hexarena_arena::{play, settings, viewer_json};
 use hexarena_engine::stats::BuildingReport;
 use hexarena_engine::{mapgen::generate, replay_state};
 use hexarena_protocol::*;
-use hexarena_sdk::{style, Style, ROSTER};
+use hexarena_sdk::{roster, style, Style};
 use std::collections::HashMap;
 
 fn flags(args: &[String]) -> HashMap<String, String> {
@@ -23,13 +23,13 @@ fn get<T: std::str::FromStr>(f: &HashMap<String, String>, k: &str, d: T) -> T {
 }
 
 /// `--bots a,b,c` picks one CPU style per seat; otherwise `--players N` Expanders.
-fn styles(f: &HashMap<String, String>) -> Result<Vec<&'static Style>, String> {
+fn styles(f: &HashMap<String, String>) -> Result<Vec<Style>, String> {
     match f.get("bots") {
         Some(list) => list
             .split(',')
             .map(|id| style(id.trim()).ok_or_else(|| format!("unknown bot '{id}'")))
             .collect(),
-        None => Ok(vec![&ROSTER[0]; get(f, "players", 4)]),
+        None => Ok(vec![roster().remove(0); get(f, "players", 4)]),
     }
 }
 
