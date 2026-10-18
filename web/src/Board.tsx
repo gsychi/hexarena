@@ -1,4 +1,7 @@
+import { Eye, EyeOff, Maximize2, ZoomIn, ZoomOut } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { Badge } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
 import type { Cell, Hex, ViewerReplay } from './model'
 import { HEIGHT_STYLE, HEX_DIRS, PLAYER_COLORS, PLAYER_MARKS, addHex, hexAt, hexIndex, onBoard } from './model'
 import { BUILDING_STYLE, drawBuilding } from './icons'
@@ -7,11 +10,18 @@ const SIZE = 22
 const toPx = (h: Hex) => ({ x: SIZE * Math.sqrt(3) * (h.q + h.r / 2), y: SIZE * 1.5 * h.r })
 
 function hexPath(ctx: CanvasRenderingContext2D, x: number, y: number, s: number) {
-  ctx.beginPath()
-  for (let i = 0; i < 6; i++) {
+  const pts = Array.from({ length: 6 }, (_, i) => {
     const a = (Math.PI / 180) * (60 * i - 30)
-    const px = x + s * Math.cos(a), py = y + s * Math.sin(a)
-    if (i === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py)
+    return [x + s * Math.cos(a), y + s * Math.sin(a)]
+  })
+  const r = s * 0.14
+  ctx.beginPath()
+  const mid = (i: number) => [(pts[i][0] + pts[(i + 1) % 6][0]) / 2, (pts[i][1] + pts[(i + 1) % 6][1]) / 2]
+  const m0 = mid(5)
+  ctx.moveTo(m0[0], m0[1])
+  for (let i = 0; i < 6; i++) {
+    const m = mid(i)
+    ctx.arcTo(pts[i][0], pts[i][1], m[0], m[1], r)
   }
   ctx.closePath()
 }
@@ -103,7 +113,7 @@ export function Board({ rep, cells, perspective, visible, selected, heightMode, 
     ctx.scale(cam.k, cam.k)
     const px = cam.k * SIZE
     const detail = px >= 13 ? 2 : px >= 7 ? 1 : 0
-    const s = SIZE - 0.8
+    const s = SIZE - 1.7
     const center = (i: number) => toPx(hexAt(rep.radius, i))
 
     for (const idx of all) {
@@ -128,18 +138,25 @@ export function Board({ rep, cells, perspective, visible, selected, heightMode, 
       ctx.fillStyle = hs.fill; ctx.fill()
       const hidden = fogged(idx)
       if (hidden) { hexPath(ctx, x, y, s); ctx.fillStyle = 'rgba(6,7,10,0.62)'; ctx.fill() }
-      hexPath(ctx, x, y, s)
-      ctx.strokeStyle = '#0a0c10'; ctx.lineWidth = 1.2; ctx.lineJoin = 'round'; ctx.stroke()
       const cell = cells.get(idx)
       if (!hidden && cell && cell.owner >= 0) {
-        hexPath(ctx, x, y, s - 1.5)
-        ctx.strokeStyle = PLAYER_COLORS[cell.owner % 8]; ctx.lineWidth = 2.2; ctx.stroke()
-        ctx.fillStyle = PLAYER_COLORS[cell.owner % 8] + '1a'; ctx.fill()
+        const col = PLAYER_COLORS[cell.owner % 8]
+        hexPath(ctx, x, y, s - 1.3)
+        ctx.fillStyle = col + '30'; ctx.fill()
+        ctx.save()
+        if (detail >= 1) { ctx.shadowColor = col; ctx.shadowBlur = 6 }
+        ctx.strokeStyle = col; ctx.lineWidth = 2.6; ctx.lineJoin = 'round'; ctx.stroke()
+        ctx.restore()
         if (detail >= 2) {
           ctx.fillStyle = PLAYER_COLORS[cell.owner % 8]
           ctx.font = '7px sans-serif'; ctx.textAlign = 'left'; ctx.textBaseline = 'top'
           ctx.fillText(PLAYER_MARKS[cell.owner % 8], x - SIZE * 0.78, y - SIZE * 0.5)
         }
+      }
+      if (!hidden && !heightMode && detail === 2 && (!cell || cell.owner < 0) && !(cell && cell.building > 0)) {
+        ctx.font = '600 10.5px Geist Variable, ui-sans-serif, sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'
+        ctx.fillStyle = 'rgba(255,255,255,0.88)'
+        ctx.fillText(String(cell ? cell.troops : rep.neutral[idx]), x, y + 1)
       }
       if (heightMode && detail >= 1) {
         ctx.fillStyle = hs.tag
@@ -196,9 +213,9 @@ export function Board({ rep, cells, perspective, visible, selected, heightMode, 
         }
         continue
       }
-      if (!heightMode && detail === 2 && troops > 0) {
-        ctx.font = '600 10px ui-monospace, monospace'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'
-        outlinedText(ctx, String(troops), x, hasB ? y + SIZE * 0.34 : y + 1, cell.owner >= 0 ? '#ffffff' : '#cfd3da')
+      if (!heightMode && detail === 2 && troops > 0 && (cell.owner >= 0 || hasB)) {
+        ctx.font = '600 10.5px Geist Variable, ui-sans-serif, sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'
+        outlinedText(ctx, String(troops), x, hasB ? y + SIZE * 0.34 : y + 1, '#ffffff')
       }
       if (!hasB) continue
       const supported = cell.building === 2 && cell.links[0] >= 0
@@ -270,7 +287,7 @@ export function Board({ rep, cells, perspective, visible, selected, heightMode, 
     const W = c.width, ext = SIZE * Math.sqrt(3) * (rep.radius + 1)
     const k = W / (2 * ext)
     ctx.clearRect(0, 0, W, W)
-    ctx.fillStyle = '#0b0d11'; ctx.fillRect(0, 0, W, W)
+    ctx.fillStyle = '#0e0e10'; ctx.fillRect(0, 0, W, W)
     for (const idx of all) {
       const t = rep.terrain[idx]!
       const { x, y } = toPx(hexAt(rep.radius, idx))
@@ -300,7 +317,7 @@ export function Board({ rep, cells, perspective, visible, selected, heightMode, 
   }
 
   return (
-    <div ref={wrap} className="relative h-full w-full overflow-hidden rounded-lg bg-[#0a0c10]">
+    <div ref={wrap} className="relative h-full w-full overflow-hidden rounded-xl border bg-card">
       <canvas
         ref={canvas}
         style={{ width: dims.w, height: dims.h, touchAction: 'none', cursor: 'grab' }}
@@ -316,15 +333,16 @@ export function Board({ rep, cells, perspective, visible, selected, heightMode, 
         }}
         onPointerUp={(e) => { if (drag.current && !drag.current.moved) pick(e); drag.current = null }}
       />
-      <div className="absolute left-3 top-3 text-[11px] tracking-[0.25em] text-neutral-400">HEXARENA</div>
-      <div className="absolute right-3 top-3 rounded-md border border-[#252b37] bg-[#101218cc] px-2 py-1 text-[11px]">
+      <div className="pointer-events-none absolute left-4 top-3.5 text-[11px] font-semibold tracking-[0.3em] text-muted-foreground">HEXARENA</div>
+      <Badge variant="outline" className="absolute right-3 top-3 gap-1.5 bg-background/80 backdrop-blur">
+        {perspective < 0 ? <Eye className="size-3" /> : <EyeOff className="size-3" />}
         {perspective < 0 ? 'God view, no fog' : `${rep.names[perspective]} fog`}
-      </div>
-      <canvas ref={mini} width={140} height={140} className="absolute bottom-3 right-3 rounded-md border border-[#252b37]" style={{ width: 120, height: 120 }} />
+      </Badge>
+      <canvas ref={mini} width={140} height={140} className="absolute bottom-3 right-3 rounded-lg border bg-background/80" style={{ width: 112, height: 112 }} />
       <div className="absolute bottom-3 left-3 flex gap-1">
-        <button className="btn" onClick={() => setCam((c) => ({ ...c, k: Math.min(7, c.k * 1.25) }))}>+</button>
-        <button className="btn" onClick={() => setCam((c) => ({ ...c, k: Math.max(0.25, c.k / 1.25) }))}>-</button>
-        <button className="btn" onClick={() => setCam({ x: 0, y: 0, k: fit(dims.w, dims.h) })}>Fit</button>
+        <Button variant="outline" size="icon-sm" onClick={() => setCam((c) => ({ ...c, k: Math.min(7, c.k * 1.25) }))}><ZoomIn /></Button>
+        <Button variant="outline" size="icon-sm" onClick={() => setCam((c) => ({ ...c, k: Math.max(0.25, c.k / 1.25) }))}><ZoomOut /></Button>
+        <Button variant="outline" size="icon-sm" onClick={() => setCam({ x: 0, y: 0, k: fit(dims.w, dims.h) })}><Maximize2 /></Button>
       </div>
     </div>
   )

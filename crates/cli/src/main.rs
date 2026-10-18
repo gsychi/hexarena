@@ -118,11 +118,13 @@ fn export(path: &str, out: &str) -> Result<(), String> {
     let replay = read_replay(path)?;
     let mut st = State::new(replay.settings(), replay.players.iter().map(|p| p.name.clone()).collect())?;
     let radius = st.board.radius;
+    let initial: Vec<u32> = st.cells.iter().map(|c| if c.owner.is_none() { c.troops } else { 0 }).collect();
     let frame = |st: &State| -> Vec<i32> {
         let mut v = vec![];
         for h in st.board.hexes() {
             let c = st.cell(h).unwrap();
-            if c.owner.is_none() && c.building.is_none() {
+            let i = st.board.index(h).unwrap();
+            if c.owner.is_none() && c.building.is_none() && c.troops == initial[i] {
                 continue;
             }
             let cell = st_visible(st, h);
@@ -150,7 +152,7 @@ fn export(path: &str, out: &str) -> Result<(), String> {
     let doc = serde_json::json!({
         "radius": radius, "fog": st.rules().fog_radius, "names": st.names, "rules": st.rules(),
         "terrain": st.terrain,
-        "neutral": st.board.hexes().iter().map(|&h| st.cell(h).unwrap().troops).collect::<Vec<_>>(),
+        "neutral": initial,
         "frames": frames, "events": events,
         "result": replay.result, "building_report": st.building_report(),
     });

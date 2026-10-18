@@ -60,16 +60,16 @@ export interface ViewerReplay {
 export const BUILDING_KEYS = ['farm', 'village', 'quarry', 'wall'] as const
 export const BUILDING_NAMES = ['Farm', 'Village', 'Quarry', 'Wall']
 
-export const PLAYER_COLORS = ['#3b82f6', '#ef4444', '#22c55e', '#f59e0b', '#a855f7', '#06b6d4', '#ec4899', '#e5e7eb']
+export const PLAYER_COLORS = ['#3b82f6', '#ef4444', '#facc15', '#22d3ee', '#e879f9', '#fb923c', '#a3e635', '#f4f4f5']
 export const PLAYER_MARKS = ['●', '■', '▲', '◆', '★', '✚', '⬟', '▼']
 
 /** Distinct height ramp: deep blue valleys, green plains, tan to rust hills. */
 export const HEIGHT_STYLE: Record<number, { fill: string; tag: string; label: string; name: string }> = {
-  [-2]: { fill: '#3a2a68', tag: '#c9b8ff', label: '−2', name: 'deep valley' },
-  [-1]: { fill: '#5a4a8c', tag: '#ddd0ff', label: '−1', name: 'valley' },
-  [0]: { fill: '#3e5c52', tag: '#c8e6da', label: '0', name: 'plain' },
-  [1]: { fill: '#7b818d', tag: '#f1f3f7', label: '+1', name: 'hill' },
-  [2]: { fill: '#aeb4c0', tag: '#20232b', label: '+2', name: 'high hill' },
+  [-2]: { fill: '#2a2446', tag: '#b9aef0', label: '−2', name: 'Deep valley' },
+  [-1]: { fill: '#3e3663', tag: '#cfc6fb', label: '−1', name: 'Valley' },
+  [0]: { fill: '#2f4a2e', tag: '#b7d3a8', label: '0', name: 'Plain' },
+  [1]: { fill: '#575b63', tag: '#e4e6ea', label: '+1', name: 'Hill' },
+  [2]: { fill: '#878a92', tag: '#f6f7f9', label: '+2', name: 'High hill' },
 }
 
 export const HEX_DIRS: Hex[] = [
