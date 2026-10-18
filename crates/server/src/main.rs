@@ -12,15 +12,19 @@ use hexarena_sdk::{style, Style, ROSTER};
 use serde::{Deserialize, Serialize};
 use standings::{standings, SeatResult, K, START_ELO};
 use std::collections::BTreeMap;
+use std::net::IpAddr;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
 use tokio::sync::Semaphore;
+use tower_http::services::{ServeDir, ServeFile};
 
 mod standings;
 
 const MAX_PLAYERS: usize = 8;
 const MAX_BATCH: u32 = 20;
+/// Refuse new games while this many are still queued or running.
+const MAX_RUNNING: usize = 100;
 const DEFAULT_MAX_TICKS: u32 = 1500;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -216,6 +220,19 @@ async fn create(State(app): State<Shared>, Json(req): Json<CreateMatch>) -> Resp
         Err(e) => return err(StatusCode::BAD_REQUEST, e),
     };
     let count = req.count.unwrap_or(1).clamp(1, MAX_BATCH);
+    let running = app
+        .matches
+        .lock()
+        .unwrap()
+        .values()
+        .filter(|m| m.status == Status::Running)
+        .count();
+    if running + count as usize > MAX_RUNNING {
+        return err(
+            StatusCode::TOO_MANY_REQUESTS,
+            "the arena is busy, try again once some games finish",
+        );
+    }
     let max_ticks = req
         .max_ticks
         .unwrap_or(DEFAULT_MAX_TICKS)
@@ -326,25 +343,35 @@ async fn leaderboard(State(app): State<Shared>) -> Json<serde_json::Value> {
     }))
 }
 
+fn env<T: std::str::FromStr>(key: &str) -> Option<T> {
+    std::env::var(key).ok().and_then(|v| v.parse().ok())
+}
+
 #[tokio::main]
 async fn main() {
     let dir = std::env::var("HEXARENA_DATA").unwrap_or_else(|_| "data/matches".into());
-    let port: u16 = std::env::var("HEXARENA_PORT")
-        .ok()
-        .and_then(|p| p.parse().ok())
+    let host: IpAddr = env("HEXARENA_HOST").unwrap_or(IpAddr::from([127, 0, 0, 1]));
+    let port: u16 = env("HEXARENA_PORT")
+        .or_else(|| env("PORT"))
         .unwrap_or(47240);
     let app: Shared = Arc::new(AppState::load(PathBuf::from(&dir)));
-    let router = Router::new()
+    let mut router = Router::new()
         .route("/api/bots", get(bots))
         .route("/api/matches", get(list).post(create))
         .route("/api/matches/{id}", get(one))
         .route("/api/matches/{id}/viewer", get(viewer))
         .route("/api/matches/{id}/replay", get(replay))
         .route("/api/leaderboard", get(leaderboard))
+        .route("/api/health", get(|| async { "ok" }))
         .with_state(app);
-    let listener = tokio::net::TcpListener::bind(("127.0.0.1", port))
+    if let Ok(web) = std::env::var("HEXARENA_WEB") {
+        let index = PathBuf::from(&web).join("index.html");
+        router = router.fallback_service(ServeDir::new(&web).fallback(ServeFile::new(index)));
+        println!("serving web app from {web}");
+    }
+    let listener = tokio::net::TcpListener::bind((host, port))
         .await
         .expect("bind");
-    println!("hexarena server on http://127.0.0.1:{port} (data in {dir})");
+    println!("hexarena server on http://{host}:{port} (data in {dir})");
     axum::serve(listener, router).await.unwrap();
 }

@@ -40,6 +40,10 @@ cargo run --release -p hexarena-cli -- export /tmp/r.json web/public/sample-repl
 
 A match ends when one player is left or at the tick limit (1500 ticks in Rules v0), where survivors are ranked by land, then troops. The viewer opens at `?tick=end` or `?tick=N`, and `?zoom=N` starts zoomed in. Viewer exports store delta-encoded frames (`frame_encoding: "delta-v2"`), which keeps a full 1500-tick match around 1 MB.
 
+## Deploy
+
+One container runs everything: `docker build -t hexarena . && docker run -p 8080:8080 -v hexarena-data:/data hexarena`. See [deploy/README.md](deploy/README.md) for Fly.io and bare-metal instructions.
+
 ## Rules summary (alpha-1, all numbers provisional)
 
 All balance values live in `RulesConfig` (`crates/protocol`). Each owned traversable hex yields exactly 1 troop per tick. Defender strength is scaled by target height (valleys cheap, hills costly). One action per player per tick: `Pass`, `Move`, or `Build` (Farm, Village, Quarry, Wall). Farm-Village links, Wall defense, and Quarry resource income are provisional mechanics.

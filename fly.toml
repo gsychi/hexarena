@@ -1,0 +1,31 @@
+# Fly.io config. From the repo root: fly launch --copy-config --no-deploy,
+# then: fly volumes create hexarena_data --size 1 && fly deploy
+app = "hexarena"
+primary_region = "iad"
+
+[build]
+  dockerfile = "Dockerfile"
+
+[env]
+  HEXARENA_HOST = "0.0.0.0"
+  HEXARENA_PORT = "8080"
+
+[[mounts]]
+  source = "hexarena_data"
+  destination = "/data"
+
+[http_service]
+  internal_port = 8080
+  force_https = true
+  auto_stop_machines = "stop"
+  auto_start_machines = true
+  min_machines_running = 0
+
+  [[http_service.checks]]
+    path = "/api/health"
+    interval = "30s"
+    timeout = "5s"
+
+[[vm]]
+  size = "shared-cpu-2x"
+  memory = "1gb"
