@@ -1,4 +1,4 @@
-import { ChevronFirst, ChevronLast, Link2, Mountain, Pause, Play, RotateCcw, SkipBack, SkipForward, Swords, Trophy } from 'lucide-react'
+import { ArrowLeft, ChevronFirst, ChevronLast, Link2, Loader2, Mountain, Pause, Play, RotateCcw, SkipBack, SkipForward, Swords, Trophy } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -18,13 +18,15 @@ import {
 
 const SPEEDS = [1, 2, 4, 8, 16]
 
-interface FeedItem { color: string; text: string; tick: number }
+interface FeedItem { color: string; text: string; tick: number; kind: number }
 
-function describe(e: GameEvent, names: string[]): { player: number; text: string } | null {
+const kindOf = (name: string) => BUILDING_KEYS.indexOf(name as typeof BUILDING_KEYS[number]) + 1
+
+function describe(e: GameEvent, names: string[]): { player: number; text: string; kind?: number } | null {
   switch (e.type) {
     case 'captured': return { player: e.player, text: `${names[e.player]} took ${e.previous_owner === null ? 'a neutral hex' : `a hex from ${names[e.previous_owner]}`}${e.building ? ` with its ${e.building}` : ''} (${e.troops_left} left)` }
     case 'repelled': return { player: e.attacker, text: `${names[e.attacker]} was repelled (${e.attackers_lost} lost)` }
-    case 'built': return { player: e.player, text: `${names[e.player]} built a ${e.building}` }
+    case 'built': return { player: e.player, text: `${names[e.player]} built a ${BUILDING_NAMES[kindOf(e.building) - 1]}`, kind: kindOf(e.building) }
     case 'eliminated': return { player: e.player, text: `${names[e.player]} was eliminated` }
     case 'surrendered': return { player: e.capturer, text: `${names[e.capturer]} encircled ${e.hexes.length} hex(es) of ${names[e.from]}` }
     case 'gathered': return { player: e.player, text: `${names[e.player]} gathered troops from ${e.sources} hexes` }
@@ -42,7 +44,7 @@ function SectionLabel({ children }: { children: React.ReactNode }) {
   return <div className="text-[10px] font-medium uppercase tracking-[0.14em] text-muted-foreground">{children}</div>
 }
 
-export default function App() {
+export function Viewer({ src, label, onBack }: { src: string; label: string; onBack: () => void }) {
   const [rep, setRep] = useState<ViewerReplay | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [tick, setTick] = useState(0)
@@ -56,8 +58,9 @@ export default function App() {
   const [hideEnd, setHideEnd] = useState(false)
 
   useEffect(() => {
-    fetch('/sample-replay.json')
-      .then((r) => r.json())
+    setRep(null); setError(null); setTick(0); setPlaying(false); setSelected(null)
+    fetch(src)
+      .then((r) => { if (!r.ok) throw new Error(`${r.status} ${r.statusText}`); return r.json() })
       .then((raw: ViewerReplay & { frame_encoding?: string }) => {
         const loaded = raw.frame_encoding === 'delta-v2' ? { ...raw, frames: decodeFrames(raw.frames) } : raw
         const want = new URLSearchParams(location.search).get('tick')
@@ -66,7 +69,7 @@ export default function App() {
         setRep(loaded)
       })
       .catch((e) => setError(String(e)))
-  }, [])
+  }, [src])
 
   useEffect(() => {
     if (!playing || !rep) return
@@ -79,27 +82,36 @@ export default function App() {
   const cells = useMemo(() => (rep ? frameCells(rep, tick) : new Map<number, Cell>()), [rep, tick])
   const visible = useMemo(() => (rep && perspective >= 0 ? visibleSet(rep, cells, perspective) : null), [rep, cells, perspective])
 
-  if (error) return <div className="p-6 text-destructive">Could not load replay: {error}</div>
-  if (!rep) return <div className="flex h-full items-center justify-center text-muted-foreground">Loading replay…</div>
+  if (error) return (
+    <div className="flex h-full flex-col items-center justify-center gap-3 p-6 text-center">
+      <div className="text-destructive">Could not load this replay: {error}</div>
+      <Button variant="outline" onClick={onBack}><ArrowLeft />Back to games</Button>
+    </div>
+  )
+  if (!rep) return <div className="flex h-full items-center justify-center gap-2 text-muted-foreground"><Loader2 className="size-4 animate-spin" />Loading replay…</div>
 
   const last = rep.frames.length - 1
   const r = rep.rules
   const stats = rep.names.map((_, p) => {
     let land = 0, troops = 0, income = 0
+    const built = [0, 0, 0, 0]
     for (const c of cells.values()) {
       if (c.owner !== p) continue
       land++; troops += c.troops; income += r.base_income
+      if (c.building > 0) built[c.building - 1]++
       if (c.building === 2) income += r.village.bonus + (c.links[0] >= 0 ? r.village.farm_bonus : 0)
     }
-    return { land, troops, income }
+    return { land, troops, income, built }
   })
+  const builtSoFar = [0, 0, 0, 0]
+  for (let t = 0; t <= tick; t++) for (const e of rep.events[t]) if (e.type === 'built') builtSoFar[kindOf(e.building) - 1]++
   const feed: FeedItem[] = []
   for (let t = tick; t >= Math.max(1, tick - 60) && feed.length < 14; t--)
     for (const e of rep.events[t]) {
       const at = eventHex(e)
       if (visible && at && !visible.has(hexIndex(rep.radius, at))) continue
       const d = describe(e, rep.names)
-      if (d) feed.push({ color: PLAYER_COLORS[d.player % 8], text: d.text, tick: t })
+      if (d) feed.push({ color: PLAYER_COLORS[d.player % 8], text: d.text, tick: t, kind: d.kind ?? 0 })
     }
   const knows = (p: number) => perspective < 0 || perspective === p
   const final = tick === last && perspective < 0
@@ -107,21 +119,20 @@ export default function App() {
   const sidebar = (
     <div className="flex flex-col gap-3">
       <div className="px-1">
-        <SectionLabel>Replay · rules {r.version}</SectionLabel>
+        <Button variant="ghost" size="sm" className="-ml-2 mb-1" onClick={onBack}><ArrowLeft />All games</Button>
+        <SectionLabel>{label} · rules {r.version}</SectionLabel>
         <div className="mt-1 truncate text-sm font-medium">{rep.names.join(' vs ')}</div>
         <div className="text-xs text-muted-foreground">{rep.names.length}-player free-for-all · radius {rep.radius}</div>
       </div>
 
-      <Tabs value={String(perspective)} onValueChange={(v) => setPerspective(Number(v))}>
-        <TabsList className="h-auto w-full flex-wrap">
-          <TabsTrigger value="-1" className="data-active:bg-foreground data-active:text-background">God view</TabsTrigger>
-          {rep.names.map((n, p) => (
-            <TabsTrigger key={p} value={String(p)} className="data-active:bg-foreground data-active:text-background">
-              <span className="size-2 rounded-full" style={{ background: PLAYER_COLORS[p % 8] }} />{n.replace('Player ', 'P')}
-            </TabsTrigger>
-          ))}
-        </TabsList>
-      </Tabs>
+      <div className="flex flex-wrap gap-1 rounded-lg bg-muted p-1">
+        <Button size="xs" variant={perspective < 0 ? 'default' : 'ghost'} onClick={() => setPerspective(-1)}>God view</Button>
+        {rep.names.map((n, p) => (
+          <Button key={p} size="xs" variant={perspective === p ? 'default' : 'ghost'} onClick={() => setPerspective(p)}>
+            <span className="size-2 rounded-full" style={{ background: PLAYER_COLORS[p % 8] }} />{n.replace('Player ', 'P')}
+          </Button>
+        ))}
+      </div>
 
       <Card size="sm" className="gap-0 py-2">
         <CardContent className="px-2">
@@ -153,6 +164,27 @@ export default function App() {
         </CardContent>
       </Card>
 
+      <Card size="sm" className="gap-2 py-3">
+        <CardHeader className="flex items-center justify-between">
+          <CardTitle className="text-sm">Buildings standing</CardTitle>
+          {perspective < 0 && <span className="text-[11px] text-muted-foreground">{builtSoFar.reduce((a, b) => a + b, 0)} built so far</span>}
+        </CardHeader>
+        <CardContent className="space-y-1.5">
+          <div className="grid grid-cols-[1fr_repeat(4,2.75rem)] items-center gap-1 text-[11px] text-muted-foreground">
+            <span />
+            {BUILDING_NAMES.map((n, i) => <span key={n} className="flex justify-center" title={n}><BuildingIcon kind={i + 1} size={20} /></span>)}
+          </div>
+          {rep.names.map((n, p) => (
+            <div key={p} className="grid grid-cols-[1fr_repeat(4,2.75rem)] items-center gap-1 text-xs">
+              <span className="truncate"><span className="mr-2 inline-block size-2 rounded-full" style={{ background: PLAYER_COLORS[p % 8] }} />{n}</span>
+              {stats[p].built.map((c, i) => (
+                <span key={i} className={`text-center tabular-nums ${knows(p) && c > 0 ? 'font-medium text-foreground' : 'text-muted-foreground'}`}>{knows(p) ? c : '—'}</span>
+              ))}
+            </div>
+          ))}
+        </CardContent>
+      </Card>
+
       <Tabs value={tab} onValueChange={(v) => setTab(String(v))}>
         <TabsList className="w-full">
           <TabsTrigger value="events"><Swords />Battles</TabsTrigger>
@@ -167,9 +199,9 @@ export default function App() {
               {feed.length === 0 ? <div className="text-xs text-muted-foreground">No visible fighting yet. Press play.</div> : (
                 <ul className="space-y-2">
                   {feed.map((f, i) => (
-                    <li key={i} className="flex gap-2 text-xs leading-snug">
-                      <span className="mt-1 size-2 shrink-0 rounded-full" style={{ background: f.color }} />
-                      <span>{f.text} <span className="text-muted-foreground">· t{f.tick}</span></span>
+                    <li key={i} className={`flex gap-2 text-xs leading-snug ${f.kind ? 'items-center rounded-md bg-muted/40 py-0.5 pr-1' : ''}`}>
+                      {f.kind ? <BuildingIcon kind={f.kind} size={18} /> : <span className="mt-1 size-2 shrink-0 rounded-full" style={{ background: f.color }} />}
+                      <span>{f.kind ? <span style={{ color: f.color }}>{f.text}</span> : f.text} <span className="text-muted-foreground">· t{f.tick}</span></span>
                     </li>
                   ))}
                 </ul>
@@ -188,7 +220,7 @@ export default function App() {
     <div className="flex h-full flex-col gap-3 bg-background p-3 text-foreground lg:flex-row">
       <div className="flex min-h-0 flex-1 flex-col gap-3">
         <div className="relative min-h-0 flex-1">
-          <Board rep={rep} cells={cells} perspective={perspective} visible={visible} selected={selected} heightMode={heightMode}
+          <Board rep={rep} cells={cells} perspective={perspective} visible={visible} selected={selected} heightMode={heightMode} tick={tick}
             onSelect={(i) => { setSelected(i); if (i !== null) setTab('hex') }} />
           {tick === last && !hideEnd && <MatchOver rep={rep} onReplay={() => { setTick(0); setPlaying(true) }} onClose={() => setHideEnd(true)} />}
         </div>

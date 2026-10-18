@@ -2,9 +2,9 @@ import { Eye, EyeOff, Maximize2, ZoomIn, ZoomOut } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { HEIGHT_STYLE, HEX_DIRS, PLAYER_COLORS, PLAYER_MARKS, addHex, hexAt, hexIndex, onBoard } from './model'
+import { BUILDING_KEYS, HEIGHT_STYLE, HEX_DIRS, PLAYER_COLORS, PLAYER_MARKS, addHex, hexAt, hexIndex, onBoard } from './model'
 import type { Cell, Hex, Rules, ViewerReplay } from './model'
-import { BUILDING_STYLE, drawBuilding, drawHeightMark } from './icons'
+import { BUILDING_STYLE, drawBuilding, drawHeightMark, drawPlot } from './icons'
 import type { Pips } from './icons'
 
 const SIZE = 22
@@ -84,10 +84,14 @@ interface Props {
   visible: Set<number> | null
   selected: number | null
   heightMode: boolean
+  tick: number
   onSelect: (idx: number | null) => void
 }
 
-export function Board({ rep, cells, perspective, visible, selected, heightMode, onSelect }: Props) {
+/** How long a newly built hex keeps its highlight ring. */
+const NEW_BUILD_TICKS = 40
+
+export function Board({ rep, cells, perspective, visible, selected, heightMode, tick, onSelect }: Props) {
   const wrap = useRef<HTMLDivElement>(null)
   const canvas = useRef<HTMLCanvasElement>(null)
   const mini = useRef<HTMLCanvasElement>(null)
@@ -95,6 +99,13 @@ export function Board({ rep, cells, perspective, visible, selected, heightMode, 
   const [dims, setDims] = useState({ w: 800, h: 600 })
   const drag = useRef<{ x: number; y: number; moved: boolean } | null>(null)
   const all = useMemo(() => Array.from({ length: (2 * rep.radius + 1) ** 2 }, (_, i) => i).filter((i) => rep.terrain[i]), [rep])
+  const recentBuilds = useMemo(() => {
+    const out: { idx: number; kind: number; age: number }[] = []
+    for (let t = tick; t >= Math.max(0, tick - NEW_BUILD_TICKS + 1); t--)
+      for (const e of rep.events[t] ?? [])
+        if (e.type === 'built') out.push({ idx: hexIndex(rep.radius, e.at), kind: BUILDING_KEYS.indexOf(e.building as typeof BUILDING_KEYS[number]) + 1, age: tick - t })
+    return out
+  }, [rep, tick])
   const fit = (w: number, h: number) => Math.min(w, h) / (SIZE * Math.sqrt(3) * (2 * rep.radius + 2))
 
   useEffect(() => {
@@ -181,6 +192,25 @@ export function Board({ rep, cells, perspective, visible, selected, heightMode, 
     const seen = (i: number) => !fogged(i)
     const emphasized = (i: number) => rel.hexes.has(i)
 
+    for (const [idx, cell] of cells) {
+      if (cell.building === 0 || !seen(idx)) continue
+      const { x, y } = center(idx)
+      const ps = detail === 0 ? s * 0.9 : s * 0.8
+      drawPlot(ctx, cell.building, x, y, ps, () => hexPath(ctx, x, y, ps), idx)
+    }
+
+    for (const b of recentBuilds) {
+      if (!seen(b.idx) || cells.get(b.idx)?.building !== b.kind) continue
+      const { x, y } = center(b.idx)
+      const fade = 1 - b.age / NEW_BUILD_TICKS
+      const col = BUILDING_STYLE[b.kind - 1].color
+      ctx.save()
+      ctx.globalAlpha = 0.35 + 0.65 * fade
+      ctx.shadowColor = col; ctx.shadowBlur = 14 * fade + 4
+      hexPath(ctx, x, y, s + 1.5 + 3 * (1 - fade)); ctx.strokeStyle = col; ctx.lineWidth = 2.6; ctx.stroke()
+      ctx.restore()
+    }
+
     if (detail >= 2) {
       for (const [idx, cell] of cells) {
         if (!seen(idx) || cell.building === 0) continue
@@ -219,13 +249,7 @@ export function Board({ rep, cells, perspective, visible, selected, heightMode, 
       const { x, y } = center(idx)
       const hasB = cell.building > 0
       const troops = cell.troops
-      if (detail === 0) {
-        if (hasB) {
-          ctx.fillStyle = BUILDING_STYLE[cell.building - 1].color
-          ctx.beginPath(); ctx.arc(x, y, SIZE * 0.34, 0, Math.PI * 2); ctx.fill()
-        }
-        continue
-      }
+      if (detail === 0) continue
       const flat = rep.terrain[idx]?.height === 0
       if (!heightMode && detail === 2 && troops > 0 && (cell.owner >= 0 || hasB)) {
         ctx.font = `600 ${hasB ? 9.5 : 10.5}px Geist Variable, ui-sans-serif, sans-serif`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'
@@ -267,7 +291,7 @@ export function Board({ rep, cells, perspective, visible, selected, heightMode, 
       const { x, y } = center(selected)
       hexPath(ctx, x, y, s + 1); ctx.strokeStyle = '#fff'; ctx.lineWidth = 3; ctx.stroke()
     }
-  }, [rep, cells, visible, cam, dims, selected, all, perspective, heightMode, rel])
+  }, [rep, cells, visible, cam, dims, selected, all, perspective, heightMode, rel, recentBuilds])
 
   useEffect(() => {
     const c = mini.current!

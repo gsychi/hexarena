@@ -89,6 +89,59 @@ export function drawBuilding(ctx: CanvasRenderingContext2D, kind: number, x: num
   ctx.restore()
 }
 
+/**
+ * Fills the building's plot: `path` must trace the plot outline. Each kind has
+ * its own ground texture so buildings read from a zoomed-out board.
+ */
+export function drawPlot(ctx: CanvasRenderingContext2D, kind: number, x: number, y: number, s: number, path: () => void, seed: number) {
+  const st = BUILDING_STYLE[kind - 1]
+  ctx.save()
+  path(); ctx.fillStyle = 'rgba(8,9,12,0.72)'; ctx.fill()
+  path(); ctx.fillStyle = st.color + '30'; ctx.fill()
+  ctx.clip()
+  ctx.beginPath()
+  ctx.lineCap = 'round'
+  switch (kind) {
+    case 1:
+      for (let d = -s * 1.4; d <= s * 1.4; d += s * 0.24) { ctx.moveTo(x - s, y + d + s * 0.35); ctx.lineTo(x + s, y + d - s * 0.35) }
+      ctx.strokeStyle = st.color + '88'; ctx.lineWidth = s * 0.09; ctx.stroke()
+      break
+    case 2:
+      for (let row = -3; row <= 3; row++)
+        for (let col = -3; col <= 3; col++) {
+          const cx = x + (col + (row % 2 ? 0.5 : 0)) * s * 0.36, cy = y + row * s * 0.3
+          ctx.moveTo(cx + s * 0.16, cy); ctx.arc(cx, cy, s * 0.16, 0, Math.PI)
+        }
+      ctx.strokeStyle = st.color + '70'; ctx.lineWidth = s * 0.06; ctx.stroke()
+      break
+    case 3: {
+      let r = seed * 2654435761 >>> 0
+      const rand = () => ((r = (r * 1103515245 + 12345) >>> 0) / 4294967296)
+      for (let i = 0; i < 7; i++) {
+        const a = rand() * Math.PI * 2, len = s * (0.3 + rand() * 0.5)
+        const sx = x + (rand() - 0.5) * s * 1.2, sy = y + (rand() - 0.5) * s * 1.2
+        ctx.moveTo(sx, sy); ctx.lineTo(sx + Math.cos(a) * len, sy + Math.sin(a) * len)
+        ctx.lineTo(sx + Math.cos(a + 0.9) * len * 0.6, sy + Math.sin(a + 0.9) * len * 0.6)
+      }
+      ctx.strokeStyle = st.color + '80'; ctx.lineWidth = s * 0.06; ctx.lineJoin = 'round'; ctx.stroke()
+      break
+    }
+    case 4:
+      for (let row = -4; row <= 4; row++) {
+        const yy = y + row * s * 0.26
+        ctx.moveTo(x - s, yy); ctx.lineTo(x + s, yy)
+        for (let col = -4; col <= 4; col++) {
+          const xx = x + (col + (row % 2 ? 0.5 : 0)) * s * 0.42
+          ctx.moveTo(xx, yy); ctx.lineTo(xx, yy + s * 0.26)
+        }
+      }
+      ctx.strokeStyle = st.color + '55'; ctx.lineWidth = s * 0.05; ctx.stroke()
+      break
+  }
+  ctx.restore()
+  path(); ctx.strokeStyle = st.color + 'd0'; ctx.lineWidth = Math.max(1, s * 0.07); ctx.stroke()
+}
+
 /** Up chevrons for hills, down chevrons for valleys; plains draw nothing. */
 export function drawHeightMark(ctx: CanvasRenderingContext2D, height: number, x: number, y: number, size: number) {
   const n = Math.abs(height)
