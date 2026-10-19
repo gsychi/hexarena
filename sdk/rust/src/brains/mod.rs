@@ -10,6 +10,7 @@
 pub mod predator;
 pub mod relay;
 pub mod ridgeline;
+pub mod warren;
 
 use crate::process::ProcessBot;
 use crate::{Bot, BotParams, Expander, Style, KNOB_LOG};
@@ -19,7 +20,7 @@ use std::collections::BTreeMap;
 pub const DEFAULT: &str = "expander";
 
 /// Every brain id [`build`] accepts.
-pub const BRAINS: &[&str] = &[DEFAULT, "relay", "predator", "ridgeline"];
+pub const BRAINS: &[&str] = &[DEFAULT, "relay", "predator", "ridgeline", "warren"];
 
 /// The bot that plays `style`, or an error naming an unknown brain.
 pub fn build(style: Style) -> Result<Box<dyn Bot>, String> {
@@ -31,6 +32,7 @@ pub fn build(style: Style) -> Result<Box<dyn Bot>, String> {
         "relay" => Ok(Box::new(relay::Relay::new(style))),
         "predator" => Ok(Box::new(predator::Predator::new(style))),
         "ridgeline" => Ok(Box::new(ridgeline::Ridgeline::new(style))),
+        "warren" => Ok(Box::new(warren::Warren::new(style))),
         other => Err(format!(
             "unknown brain '{other}' (known: {})",
             BRAINS.join(", ")
