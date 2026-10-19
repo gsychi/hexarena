@@ -672,3 +672,10 @@ unfinished. Batch 7 limits Walls to 16–30 and varies economy scale and timing.
   preserves its robust low-action economy while avoiding a 78-Wall defensive sink.
 - Economy: 36 Villages and 16 early contact Walls; most conservative Relay in the batch.
 - Result and replay lesson: pending 50-game sample.
+
+### gecko-v1 — Gecko
+
+- Hypothesis: a depth-three 120-site lattice can reach decisive income if late Walls are
+  bounded at 30, enough to hold key contacts without starving the build geometry.
+- Economy: deep maximum lattice followed by a modest late wall shell.
+- Result and replay lesson: pending 50-game sample.
