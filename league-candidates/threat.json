@@ -1,0 +1,24 @@
+{
+  "attack_margin_pct": 130,
+  "enemy_bonus": 20,
+  "build_cap": 8,
+  "build_every": 12,
+  "kinds": [
+    "farm",
+    "village",
+    "quarry",
+    "wall"
+  ],
+  "gather_every": 4,
+  "land_value": 44,
+  "hug_value": 7,
+  "focus_bonus": 40,
+  "kill_value_pct": 80,
+  "grab_every": 3,
+  "settle_every": 1,
+  "march": false,
+  "threat_min": 5,
+  "counter_margin_pct": 110,
+  "defend_gather": 0,
+  "defend_range": 0
+}

@@ -50,6 +50,17 @@ pub struct BotParams {
     pub settle_every: u32,
     /// Whether the army marches on the weakest rival.
     pub march: bool,
+    /// Visible enemy stacks of at least this many troops that could take one of our
+    /// bordering hexes count as threats (0 = ignore threats; disables the genes below).
+    pub threat_min: u32,
+    /// Strike the biggest threat from our strongest adjacent hex, before anything else,
+    /// when sending at least this % of the expected loss (0 = never).
+    pub counter_margin_pct: u64,
+    /// Gathers feed the threatened hex: 0 = never, 1 = on the gather cadence,
+    /// 2 = every tick while a threat stands.
+    pub defend_gather: u32,
+    /// The army walks to the threatened hex when it is at most this far away (0 = never).
+    pub defend_range: u32,
 }
 
 impl Default for BotParams {
@@ -68,8 +79,20 @@ impl Default for BotParams {
             grab_every: 3,
             settle_every: 2,
             march: true,
+            threat_min: 0,
+            counter_margin_pct: 0,
+            defend_gather: 0,
+            defend_range: 0,
         }
     }
+}
+
+/// A visible enemy stack that could capture one of our hexes.
+#[derive(Clone, Copy)]
+struct Threat {
+    stack: Hex,
+    /// Our bordering hex the stack can take most cheaply.
+    target: Hex,
 }
 
 /// A named CPU: a preset of [`BotParams`].
@@ -159,6 +182,8 @@ pub struct Expander {
     staging: Option<Hex>,
     /// The opponent everyone should be finishing off; see [`Expander::focus`].
     focus_player: Option<PlayerId>,
+    /// This tick's most dangerous enemy stack on our border, if threats are watched.
+    threat: Option<Threat>,
 }
 
 impl Default for Expander {
@@ -221,6 +246,7 @@ impl Expander {
             last_build: 0,
             staging: None,
             focus_player: None,
+            threat: None,
         }
     }
 
@@ -333,10 +359,70 @@ impl Expander {
         if owner == Some(view.you) {
             return None;
         }
-        let d = (self.rules.height_multiplier_milli(from_h, t.height) as u64 * wall as u64 / 1000)
+        Some((self.fight_loss(from_h, t.height, def, wall), owner.is_some()))
+    }
+
+    /// Expected attacker losses against `def` troops at height `to_h` behind `wall`.
+    fn fight_loss(&self, from_h: i8, to_h: i8, def: u32, wall: u32) -> u64 {
+        let d = (self.rules.height_multiplier_milli(from_h, to_h) as u64 * wall as u64 / 1000)
             .min(self.rules.maximum_total_defense_milli as u64);
         let p = self.rules.attacker_exchange_win_milli as u64;
-        Some((def as u64 * d * (1000 - p) / p / 1000, owner.is_some()))
+        def as u64 * d * (1000 - p) / p / 1000
+    }
+
+    /// The visible enemy stack with the most troops to spare after taking one of our
+    /// bordering hexes. Only enemy hexes are scanned, each against its six neighbours.
+    fn find_threat(&self, view: &View) -> Option<Threat> {
+        if self.p.threat_min == 0 {
+            return None;
+        }
+        let mut best: Option<(u64, Threat)> = None;
+        for e in &view.visible_hexes {
+            if e.owner.map_or(true, |o| o == view.you) || e.troops < self.p.threat_min {
+                continue;
+            }
+            let eh = Self::height(view, e.hex);
+            let weakest = e
+                .hex
+                .neighbors()
+                .into_iter()
+                .filter_map(|n| {
+                    let v = self.seen.get(&n).filter(|v| v.owner == Some(view.you))?;
+                    Some((self.fight_loss(eh, Self::height(view, n), v.troops, v.wall_milli), n))
+                })
+                .min();
+            let Some((loss, target)) = weakest else { continue };
+            let spare = e.troops as u64;
+            if spare <= loss {
+                continue;
+            }
+            let excess = spare - loss;
+            if best.as_ref().map_or(true, |(b, _)| excess > *b) {
+                best = Some((excess, Threat { stack: e.hex, target }));
+            }
+        }
+        best.map(|(_, t)| t)
+    }
+
+    /// Crushes the threatening stack from our strongest hex next to it, if affordable.
+    fn counter(&self, view: &View, t: Threat) -> Option<Action> {
+        let m = self.p.counter_margin_pct;
+        if m == 0 {
+            return None;
+        }
+        let from = t
+            .stack
+            .neighbors()
+            .into_iter()
+            .filter_map(|n| self.seen.get(&n).filter(|v| v.owner == Some(view.you)))
+            .max_by_key(|v| (v.troops, std::cmp::Reverse(v.hex)))?;
+        if from.troops < 2 {
+            return None;
+        }
+        let send = from.troops - 1;
+        let (loss, _) = self.capture_cost(view, Self::height(view, from.hex), t.stack)?;
+        ((send as u64) >= loss * m / 100 + 1)
+            .then_some(Action::Move { from: from.hex, to: t.stack, troops: send })
     }
 
     /// The best affordable capture from `c`, sending everything but one troop.
@@ -460,7 +546,15 @@ impl Expander {
             return None;
         }
         let every = self.p.gather_every.max(1);
-        if mine.len() > 3 && view.tick % every == 0 {
+        let gather_tick = view.tick % every == 0;
+        let defend = self.threat.filter(|_| {
+            self.p.defend_gather >= 2 || (self.p.defend_gather == 1 && gather_tick)
+        });
+        if let (Some(t), true) = (defend, mine.len() > 3) {
+            self.staging = Some(t.target);
+            return Some(Action::Gather { target: t.target });
+        }
+        if mine.len() > 3 && gather_tick {
             let n = self.p.settle_every;
             let settle = n > 0 && (view.tick / every) % n == n - 1;
             let target = settle
@@ -469,6 +563,15 @@ impl Expander {
                 .unwrap_or(army.hex);
             self.staging = Some(target);
             return Some(Action::Gather { target });
+        }
+        if let Some(t) = self.threat.filter(|t| {
+            let d = army.hex.distance(t.target);
+            d > 0 && d <= self.p.defend_range as i32 && army.hex.distance(t.stack) > 1
+        }) {
+            let owned = |h: Hex| self.seen.get(&h).is_some_and(|v| v.owner == Some(view.you));
+            if let Some(step) = Self::step_toward(army, |h| h == t.target, owned) {
+                return Some(step);
+            }
         }
         self.focus_player
             .filter(|_| self.p.march)
@@ -515,10 +618,13 @@ impl Bot for Expander {
             .collect();
         let management = self.management(&mine);
         self.focus_player = self.focus(view);
+        self.threat = self.find_threat(view);
         let g = self.p.grab_every;
         let grab_tick = g > 0 && view.tick % g == 1 % g;
         let action = self
-            .build(view, &mine)
+            .threat
+            .and_then(|t| self.counter(view, t))
+            .or_else(|| self.build(view, &mine))
             .or_else(|| grab_tick.then(|| self.opportunistic(view, &mine)).flatten())
             .or_else(|| self.army_action(view, &mine))
             .or_else(|| self.opportunistic(view, &mine))

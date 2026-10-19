@@ -25,6 +25,10 @@ const GENES: &[Gene] = &[
     Gene { name: "kill_value_pct", min: 0, max: 200, get: |p| p.kill_value_pct, set: |p, v| p.kill_value_pct = v },
     Gene { name: "grab_every", min: 0, max: 10, get: |p| p.grab_every as i64, set: |p, v| p.grab_every = v as u32 },
     Gene { name: "settle_every", min: 0, max: 6, get: |p| p.settle_every as i64, set: |p, v| p.settle_every = v as u32 },
+    Gene { name: "threat_min", min: 0, max: 80, get: |p| p.threat_min as i64, set: |p, v| p.threat_min = v as u32 },
+    Gene { name: "counter_margin_pct", min: 0, max: 260, get: |p| p.counter_margin_pct as i64, set: |p, v| p.counter_margin_pct = v as u64 },
+    Gene { name: "defend_gather", min: 0, max: 2, get: |p| p.defend_gather as i64, set: |p, v| p.defend_gather = v as u32 },
+    Gene { name: "defend_range", min: 0, max: 12, get: |p| p.defend_range as i64, set: |p, v| p.defend_range = v as u32 },
 ];
 
 const KINDS: [Building; 4] = [Building::Farm, Building::Village, Building::Quarry, Building::Wall];
