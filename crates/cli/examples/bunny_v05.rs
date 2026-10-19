@@ -134,18 +134,20 @@ fn number(value: &Value) -> i32 {
 }
 
 fn main() {
+    let args: Vec<String> = std::env::args().skip(1).collect();
+    let all = args.iter().any(|arg| arg == "--all");
     println!(
         "match,bot,place,death,killer,builds,farms,villages,quarries,walls,\
          land1000,prod1000,troops1000,land3000,prod3000,troops3000,\
          land5000,prod5000,troops5000,land7000,prod7000,troops7000,\
          land9000,prod9000,troops9000"
     );
-    for path in std::env::args().skip(1) {
-        study(Path::new(&path));
+    for path in args.iter().filter(|arg| !arg.starts_with("--")) {
+        study(Path::new(path), all);
     }
 }
 
-fn study(path: &Path) {
+fn study(path: &Path, all: bool) {
     let viewer: Value =
         serde_json::from_slice(&std::fs::read(path).expect("read viewer")).expect("viewer JSON");
     let summary_path = path
@@ -189,7 +191,7 @@ fn study(path: &Path) {
 
     for seat in summary["seats"].as_array().unwrap() {
         let bot = seat["bot"].as_str().unwrap();
-        if !bot.starts_with("snowshoe-v") {
+        if !all && !bot.starts_with("snowshoe-v") {
             continue;
         }
         let player = summary["seats"]
