@@ -124,9 +124,24 @@ Village is ringed by six 30-troop Farms (+7/tick per 180 troops, ~26-tick paybac
 the interior site with the best income per troop (own partners count 1, empty partner
 sites 0.5). Adopt the live rules. One probe: lattice seats placed 2,3,5 vs v1-style
 seats 1,6,7; 135-286 builds by t1000, then the interior is full.
+**Gate: PROMOTED as g18, +1.12 ± 0.36 vs g17 (16 games, avp 2.94 vs 4.06), closed 14/16.**
+Arena: ~283 builds/game (72 Farms, 91 Villages, 118 Walls, 2 Quarries), avg place 2.00.
 
 ### burrow-v6 — Long Tunnels
 Debug counters on a v5 game: the leading Burrow banked 4.5M troops on ~500 hexes by
 t8000 and had no thumper on 7800 of 8750 ticks; its biggest spare stack (74k) never
 found a launch pad within the 8-hex reach. Hypothesis: reach 40 converts the bank into
 land. Probes (3 seeds, 3 vs 3): avp 3.78 vs 4.22; one game conquered outright at t7440.
+**Gate: rejected, -0.35 ± 0.23 vs g18 (16 games).** A thumper roaming 40 hexes leaves its
+home thin; gate games close around t6000, before the bank matters.
+
+Local candidates against v5/v6 not shipped (3 probe seeds each, 3 vs 3):
+- v5 + 3.5x garrisons: avp 4.78 vs 3.44 (worse).
+- v6 + hunt the weakest rival from t4000: 4.22 vs 4.11 (even; the hunter always won,
+  its other seats died early).
+- v5 + builds pre-empt captures scoring < 120: 5.0 vs 4.22 (worse: land beats lattice).
+
+### burrow-v7 — Spring Planting
+Hypothesis: raising the thumper at t1000 steals actions while the lattice is still
+filling; from t2000 the thumper launches from a bigger economy. Probes: avp 4.33 vs
+4.44, won 2 of 3 games outright.
