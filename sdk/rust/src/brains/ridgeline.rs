@@ -7,7 +7,9 @@
 //! by mountains, water and the map edge are cheap to hold. Captures split the attacking
 //! hex's troops so both it and the new hex stay out of reach, are only sent when they
 //! can't plausibly bounce, and prefer ground that shortens the exposed border or makes an
-//! enemy pocket surrender. Spare actions relay interior stacks toward short border hexes.
+//! enemy pocket surrender. A capture whose new hex would be left too thin to hold is not
+//! made at all, and troops get cheaper the more of them we bank per hex. Spare actions
+//! relay interior stacks toward short border hexes.
 
 use crate::{Action, Bot, Hex, PlayerCommand, PlayerId, RulesConfig, Style, View, MILLI};
 use std::collections::VecDeque;
@@ -75,6 +77,16 @@ struct Capture {
     send: u32,
 }
 
+/// How the land we don't own hangs together this tick.
+struct Seal {
+    /// Hexes of small, enemy-free regions that taking this hex would cut off from the
+    /// rest of the map behind our land, mountains, water and the map edge.
+    cuts: Vec<u32>,
+    /// Hexes already inside such a region: nobody else can reach them without first
+    /// taking our land, so they can wait.
+    pocket: Vec<bool>,
+}
+
 /// Tunables, read once from the genome's knobs.
 struct Knobs {
     /// Standard deviations (x10) of bad dice every capture must survive.
@@ -95,13 +107,28 @@ struct Knobs {
     margin_pct: u64,
     /// Weight of the source hex's lost safety against the new hex's land.
     drop_w: i64,
+    /// Captures leaving the new hex less safe (milli) than this are skipped.
+    safe_min: i64,
     supply_every: u32,
+    /// Score per hex of backyard a capture seals off.
+    seal: i64,
+    /// Largest region (hexes) that counts as a backyard.
+    seal_max: u32,
+    /// Score lost for taking a hex that is already in our backyard.
+    backyard: i64,
+    /// Over the last this many ticks, race for land that only has to last until the cutoff.
+    sprint: u32,
     /// Safety gain (milli) a supply move must buy on its cadence tick.
     supply_min: i64,
     /// Captures scoring below `bar - 500` give the tick to supply or regrouping.
     min_score: i64,
     /// Gathers are allowed before this tick while no enemy touches our land.
     gather_until: u32,
+    /// Score a capture we can't afford yet must beat the best affordable one by before
+    /// the tick stages troops onto its launch hex instead (0 = never stage).
+    stage: i64,
+    /// Score lost per troop the launch hex is short of a blocked capture.
+    short_cost: i64,
 }
 
 impl Knobs {
@@ -111,19 +138,26 @@ impl Knobs {
             sure_x10: k("sure_x10", 30) as u64,
             land: k("land", 100),
             enemy: k("enemy", 30),
-            hug: k("hug", 25),
+            hug: k("hug", 40),
             open: k("open", 15),
             height: k("height", 10),
             cost_pct: k("cost_pct", 100),
-            wealth: k("wealth", 0) as u64,
+            wealth: k("wealth", 30) as u64,
             enclose: k("enclose", 100),
             guard: k("guard", 20) as u64,
-            margin_pct: k("margin_pct", 100) as u64,
+            margin_pct: k("margin_pct", 600) as u64,
             drop_w: k("drop_w", 100),
+            safe_min: k("safe_min", 300),
             supply_every: k("supply_every", 3) as u32,
+            seal: k("seal", 0),
+            seal_max: k("seal_max", 40) as u32,
+            backyard: k("backyard", 0),
+            sprint: k("sprint", 0) as u32,
             supply_min: k("supply_min", 200),
-            min_score: k("bar", 0) - 500,
+            min_score: k("bar", 500) - 500,
             gather_until: k("gather_until", 600) as u32,
+            stage: k("stage", 0),
+            short_cost: k("short_cost", 0),
         }
     }
 }
@@ -257,8 +291,87 @@ impl Ridgeline {
         gain
     }
 
-    fn best_capture(&self, geo: &Geometry, me: PlayerId, mine: &[usize]) -> Option<Capture> {
+    /// Articulation points of the land we don't own (Tarjan, iterative). Enemy hexes
+    /// root the search first, so regions that hold an enemy are never a backyard.
+    fn seal(&self, geo: &Geometry, me: PlayerId) -> Seal {
+        let slots = geo.passable.len();
+        let open = |i: usize| geo.passable[i] && !self.owned(i, me);
+        let mut cuts = vec![0u32; slots];
+        let mut pocket = vec![false; slots];
+        let mut disc = vec![0u32; slots];
+        let mut low = vec![0u32; slots];
+        let mut size = vec![1u32; slots];
+        let mut parent = vec![usize::MAX; slots];
+        let mut timer = 0u32;
+        let mut roots: Vec<usize> = (0..slots).filter(|&i| open(i) && self.enemy(i, me)).collect();
+        roots.extend((0..slots).filter(|&i| open(i) && !self.enemy(i, me)));
+        let mut stack: Vec<(usize, usize)> = vec![];
+        let mut comp: Vec<usize> = vec![];
+        for root in roots {
+            if disc[root] != 0 {
+                continue;
+            }
+            comp.clear();
+            let mut has_enemy = false;
+            timer += 1;
+            disc[root] = timer;
+            low[root] = timer;
+            stack.push((root, 0));
+            while let Some(top) = stack.last_mut() {
+                let (v, it) = *top;
+                if it < geo.nbrs[v].len() {
+                    top.1 += 1;
+                    let w = geo.nbrs[v][it];
+                    if !open(w) {
+                        continue;
+                    }
+                    if disc[w] == 0 {
+                        parent[w] = v;
+                        timer += 1;
+                        disc[w] = timer;
+                        low[w] = timer;
+                        stack.push((w, 0));
+                    } else if w != parent[v] {
+                        low[v] = low[v].min(disc[w]);
+                    }
+                    continue;
+                }
+                stack.pop();
+                comp.push(v);
+                has_enemy |= self.enemy(v, me);
+                if v == root {
+                    continue;
+                }
+                let p = parent[v];
+                low[p] = low[p].min(low[v]);
+                size[p] += size[v];
+                if low[v] >= disc[p] && size[v] <= self.k.seal_max && p != root {
+                    cuts[p] += size[v];
+                }
+            }
+            if !has_enemy && comp.len() as u32 <= self.k.seal_max {
+                for &c in &comp {
+                    pocket[c] = true;
+                    cuts[c] = 0;
+                }
+            }
+        }
+        Seal { cuts, pocket }
+    }
+
+    /// The best capture. While `sprinting` nothing needs to be held past the cutoff, so
+    /// every capture sends just enough to be sure and safety is ignored.
+    fn best_capture(
+        &self,
+        geo: &Geometry,
+        me: PlayerId,
+        mine: &[usize],
+        sprinting: bool,
+        seal: Option<&Seal>,
+    ) -> (Option<Capture>, Option<Capture>) {
         let mut best: Option<Capture> = None;
+        // Best capture the pad can't afford yet; `send` holds the troops it is short.
+        let mut blocked: Option<Capture> = None;
         // A troop is worth less the more of them we already hold per hex.
         let bank: u64 = mine.iter().map(|&i| self.seen[i].unwrap().troops as u64).sum();
         let per_hex = bank / mine.len().max(1) as u64;
@@ -284,11 +397,21 @@ impl Ridgeline {
                 let defense = self.defense(geo, s, t, tc.wall_milli) as u32;
                 let (mean, sd) = self.loss_stats(tc.troops, defense);
                 let need = (mean + sd * self.k.sure_x10 / 10).div_ceil(1000) + 1;
-                if need > avail {
-                    continue;
-                }
                 let loss = mean.div_ceil(1000);
                 let want_t = self.want(geo, me, t, s);
+                if need > avail {
+                    if self.k.stage > 0 {
+                        let full = need.max(want_t.map_or(0, |w| loss + w));
+                        let short = full + 1 - troops.min(full + 1);
+                        let score = self.capture_gain(geo, me, t, tc, seal)
+                            - loss as i64 * cost_milli / 1000
+                            - short as i64 * self.k.short_cost;
+                        if blocked.map_or(true, |b| (score, std::cmp::Reverse(t)) > (b.score, std::cmp::Reverse(b.to))) {
+                            blocked = Some(Capture { score, from: s, to: t, send: short as u32 });
+                        }
+                    }
+                    continue;
+                }
                 let want_s = self.want(geo, me, s, t);
                 let mut cands = [0u64; 12];
                 for (f, c) in cands.iter_mut().enumerate().take(9) {
@@ -307,15 +430,14 @@ impl Ridgeline {
                         pick = (v, st, send);
                     }
                 }
-                let (v, st, send) = pick;
-                let hugged = geo.nbrs[t].iter().filter(|&&n| self.owned(n, me)).count() as i64;
-                let exposed = geo.nbrs[t].len() as i64 - hugged;
-                let mut gain = self.k.land;
-                if tc.owner.is_some() {
-                    gain += self.k.enemy + self.k.enclose * self.enclosure_gain(geo, t, me);
+                if sprinting {
+                    pick = (1_000_000, 1000, need);
                 }
-                gain += self.k.hug * hugged - self.k.open * exposed
-                    + self.k.height * geo.height[t] as i64;
+                let (v, st, send) = pick;
+                if st < self.k.safe_min {
+                    continue;
+                }
+                let gain = self.capture_gain(geo, me, t, tc, seal);
                 let score = gain * st / 1000 + (v / 1000 - st) * self.k.land / 1000
                     - loss as i64 * cost_milli / 1000;
                 let better = best.as_ref().map_or(true, |b| {
@@ -327,7 +449,49 @@ impl Ridgeline {
                 }
             }
         }
-        best
+        (best, blocked)
+    }
+
+    /// Score of holding `t` once taken, before troop costs.
+    fn capture_gain(&self, geo: &Geometry, me: PlayerId, t: usize, tc: Cell, seal: Option<&Seal>) -> i64 {
+        let hugged = geo.nbrs[t].iter().filter(|&&n| self.owned(n, me)).count() as i64;
+        let exposed = geo.nbrs[t].len() as i64 - hugged;
+        let mut gain = self.k.land;
+        if tc.owner.is_some() {
+            gain += self.k.enemy + self.k.enclose * self.enclosure_gain(geo, t, me);
+        }
+        gain += self.k.hug * hugged - self.k.open * exposed + self.k.height * geo.height[t] as i64;
+        if let Some(seal) = seal {
+            gain += self.k.seal * seal.cuts[t] as i64;
+            if seal.pocket[t] {
+                gain -= self.k.backyard;
+            }
+        }
+        gain
+    }
+
+    /// Walks the nearest spare stack one step toward `pad` (or gathers onto it while
+    /// nobody touches our land early on).
+    fn stage_to(&self, geo: &Geometry, me: PlayerId, pad: usize, calm: bool) -> Option<Action> {
+        if calm {
+            return Some(Action::Gather { target: geo.hexes[pad] });
+        }
+        let mut prev = vec![usize::MAX; geo.passable.len()];
+        prev[pad] = pad;
+        let mut queue = VecDeque::from([pad]);
+        while let Some(c) = queue.pop_front() {
+            if c != pad && self.spare(geo, me, c) >= 2 {
+                let troops = self.spare(geo, me, c) as u32;
+                return Some(Action::Move { from: geo.hexes[c], to: geo.hexes[prev[c]], troops });
+            }
+            for &n in &geo.nbrs[c] {
+                if prev[n] == usize::MAX && self.owned(n, me) {
+                    prev[n] = c;
+                    queue.push_back(n);
+                }
+            }
+        }
+        None
     }
 
     /// Spare troops on own hex `i` beyond what it wants to keep.
@@ -407,27 +571,9 @@ impl Ridgeline {
             }
         }
         let (_, pad) = cheapest?;
-        if !contact && tick < self.k.gather_until {
-            return Some(Action::Gather { target: geo.hexes[pad] });
-        }
-        // A Gather would strip every far border hex down to one troop, so instead walk
-        // the nearest spare stack one step toward the pad.
-        let mut prev = vec![usize::MAX; geo.passable.len()];
-        prev[pad] = pad;
-        let mut queue = VecDeque::from([pad]);
-        while let Some(c) = queue.pop_front() {
-            if c != pad && self.spare(geo, me, c) >= 2 {
-                let troops = self.spare(geo, me, c) as u32;
-                return Some(Action::Move { from: geo.hexes[c], to: geo.hexes[prev[c]], troops });
-            }
-            for &n in &geo.nbrs[c] {
-                if prev[n] == usize::MAX && self.owned(n, me) {
-                    prev[n] = c;
-                    queue.push_back(n);
-                }
-            }
-        }
-        None
+        // Once enemies touch us a Gather would strip every far border hex down to one
+        // troop, so stage single stacks instead.
+        self.stage_to(geo, me, pad, !contact && tick < self.k.gather_until)
     }
 }
 
@@ -464,11 +610,24 @@ impl Bot for Ridgeline {
                 mine.push(i);
             }
         }
+        let sprinting = view.tick + self.k.sprint >= self.rules.max_ticks;
+        let seal = (self.k.seal > 0 || self.k.backyard > 0).then(|| self.seal(&geo, me));
         let supply = self.supply(&geo, me, &mine);
-        let capture = self.best_capture(&geo, me, &mine).filter(|c| c.score >= self.k.min_score);
-        let supply_tick = self.k.supply_every > 0 && view.tick % self.k.supply_every == 0;
+        let (capture, blocked) = self.best_capture(&geo, me, &mine, sprinting, seal.as_ref());
+        let capture = capture.filter(|c| sprinting || c.score >= self.k.min_score);
+        let supply_tick =
+            !sprinting && self.k.supply_every > 0 && view.tick % self.k.supply_every == 0;
+        let floor = capture.map_or(self.k.min_score, |c| c.score);
+        let staging = blocked
+            .filter(|b| !sprinting && mine.len() > 1 && b.score >= floor + self.k.stage)
+            .and_then(|b| {
+                let contact =
+                    mine.iter().any(|&s| geo.nbrs[s].iter().any(|&n| self.enemy(n, me)));
+                self.stage_to(&geo, me, b.from, !contact && view.tick < self.k.gather_until)
+            });
         let action = match (supply, capture) {
             (Some((gain, a)), _) if supply_tick && gain >= self.k.supply_min => a,
+            _ if staging.is_some() => staging.unwrap(),
             (_, Some(c)) => {
                 Action::Move { from: geo.hexes[c.from], to: geo.hexes[c.to], troops: c.send }
             }
