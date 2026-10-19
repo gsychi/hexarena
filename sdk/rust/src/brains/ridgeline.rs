@@ -137,6 +137,20 @@ struct Knobs {
     late_safe_min: i64,
     late_min_score: i64,
     late_sure_x10: u64,
+    /// From `late_from` on, play the sprint (captures need only be sure, not safe) (0/1).
+    late_sprint: bool,
+    /// While sprinting, a capture sends at least this % of the pad's spare troops so the
+    /// army rolls forward with it.
+    send_pct: u64,
+    /// Late enemy-hex bonus, replacing `enemy`.
+    late_enemy: i64,
+    /// From `late_from` on, Gather toward the cheapest target when no capture is ready (0/1).
+    late_gather: bool,
+    /// Tick the late phase began.
+    late_at: Option<u32>,
+    /// Bonus for an enemy hex of a rival we know `n` hexes of: `focus * 50 / n`, so the
+    /// last hexes of a dying rival come first.
+    focus: i64,
 }
 
 impl Knobs {
@@ -171,6 +185,12 @@ impl Knobs {
             late_safe_min: k("late_safe_min", 0),
             late_min_score: k("late_bar", 500) - 500,
             late_sure_x10: k("late_sure_x10", 20) as u64,
+            late_sprint: k("late_sprint", 0) > 0,
+            send_pct: k("send_pct", 0) as u64,
+            late_enemy: k("late_enemy", 30),
+            late_gather: k("late_gather", 0) > 0,
+            late_at: None,
+            focus: k("focus", 0),
         }
     }
 
@@ -179,6 +199,8 @@ impl Knobs {
         self.safe_min = self.late_safe_min;
         self.min_score = self.late_min_score;
         self.sure_x10 = self.late_sure_x10;
+        self.enemy = self.late_enemy;
+        self.late_at = Some(self.late_from);
         self.late_from = 0;
     }
 }
@@ -192,6 +214,8 @@ pub struct Ridgeline {
     geo: Option<Geometry>,
     /// Last seen state of every slot.
     seen: Vec<Option<Cell>>,
+    /// Hexes we last saw each rival own.
+    land_of: Vec<u32>,
 }
 
 impl Ridgeline {
@@ -203,6 +227,7 @@ impl Ridgeline {
             k: Knobs::read(&style),
             geo: None,
             seen: vec![],
+            land_of: vec![],
         }
     }
 
@@ -455,7 +480,7 @@ impl Ridgeline {
                     }
                 }
                 if sprinting {
-                    pick = (1_000_000, 1000, need);
+                    pick = (1_000_000, 1000, need.max(avail * self.k.send_pct / 100).min(avail));
                 }
                 let (v, st, send) = pick;
                 if st < self.k.safe_min {
@@ -481,8 +506,12 @@ impl Ridgeline {
         let hugged = geo.nbrs[t].iter().filter(|&&n| self.owned(n, me)).count() as i64;
         let exposed = geo.nbrs[t].len() as i64 - hugged;
         let mut gain = self.k.land;
-        if tc.owner.is_some() {
+        if let Some(o) = tc.owner {
             gain += self.k.enemy + self.k.enclose * self.enclosure_gain(geo, t, me);
+            if self.k.focus > 0 {
+                let n = self.land_of.get(o as usize).copied().unwrap_or(0).max(1) as i64;
+                gain += self.k.focus * 50 / n;
+            }
         }
         gain += self.k.hug * hugged - self.k.open * exposed + self.k.height * geo.height[t] as i64;
         if let Some(seal) = seal {
@@ -597,7 +626,8 @@ impl Ridgeline {
         let (_, pad) = cheapest?;
         // Once enemies touch us a Gather would strip every far border hex down to one
         // troop, so stage single stacks instead.
-        self.stage_to(geo, me, pad, !contact && tick < self.k.gather_until)
+        let late_gather = self.k.late_gather && self.k.late_at.is_some();
+        self.stage_to(geo, me, pad, late_gather || (!contact && tick < self.k.gather_until))
     }
 }
 
@@ -641,7 +671,16 @@ impl Bot for Ridgeline {
                 mine.push(i);
             }
         }
-        let sprinting = view.tick + self.k.sprint >= self.rules.max_ticks;
+        if self.k.focus > 0 {
+            self.land_of = vec![0; 16];
+            for o in self.seen.iter().flatten().filter_map(|c| c.owner) {
+                if let Some(n) = self.land_of.get_mut(o as usize) {
+                    *n += 1;
+                }
+            }
+        }
+        let sprinting = view.tick + self.k.sprint >= self.rules.max_ticks
+            || (self.k.late_sprint && self.k.late_at.is_some());
         let seal = (self.k.seal > 0 || self.k.backyard > 0).then(|| self.seal(&geo, me));
         let supply = self.supply(&geo, me, &mine);
         let (capture, blocked) = self.best_capture(&geo, me, &mine, sprinting, seal.as_ref());
