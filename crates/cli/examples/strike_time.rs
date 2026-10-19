@@ -66,6 +66,10 @@ fn main() {
     let (mut worst_cpu, mut worst_wall, mut total_cpu, mut moves) = (0u64, 0u64, 0u64, 0u64);
     let mut over = 0u64;
     let mut hist = [0u64; 8];
+    // A move over budget is replayed at once on the same view: if the replay is fast the
+    // first reading was the machine, not the move. Replays cost the game nothing but can
+    // nudge a bot's cadence state, so the game may drift after one.
+    let (mut confirmed, mut worst_confirmed) = (0u64, 0u64);
     for g in 0..games {
         let seed = seed0 + g;
         let mut styles: Vec<Style> = (0..8).map(|i| if i < timed { bot.clone() } else { base.clone() }).collect();
@@ -102,6 +106,16 @@ fn main() {
                         }
                         if c > 5_000_000 {
                             over += 1;
+                            let r0 = thread_cpu_ns();
+                            let _ = bots[p as usize].act(&view);
+                            let again = thread_cpu_ns() - r0;
+                            eprintln!("    replayed: cpu {:.3} ms", again as f64 / 1e6);
+                            worst_confirmed = worst_confirmed.max(again.min(c));
+                            if again > 5_000_000 {
+                                confirmed += 1;
+                            }
+                        } else {
+                            worst_confirmed = worst_confirmed.max(c);
                         }
                         hist[((c / 500_000) as usize).min(7)] += 1;
                     }
@@ -121,4 +135,8 @@ fn main() {
         total_cpu as f64 / 1e6 / moves.max(1) as f64
     );
     println!("cpu histogram (0.5 ms bins): {hist:?}");
+    println!(
+        "over 5 ms on the replay too: {confirmed}; worst move counting a fast replay as the move's cost: {:.3} ms",
+        worst_confirmed as f64 / 1e6
+    );
 }
