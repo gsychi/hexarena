@@ -77,7 +77,7 @@ export interface LeaderboardRow {
   slowest_ms?: number | null
   timed_games?: number
 }
-export interface Leaderboard { games: number; rules_version: string; start_elo: number; k: number; top?: number; rated_games?: number; retired?: Record<string, string>; anchors?: string[]; anchor_elo?: number; bots: LeaderboardRow[]; retired_bots?: LeaderboardRow[] }
+export interface Leaderboard { games: number; rules_version: string; start_elo: number; top?: number; rated_games?: number; retired?: Record<string, string>; anchors?: string[]; anchor_elo?: number; bots: LeaderboardRow[]; retired_bots?: LeaderboardRow[] }
 
 export interface ProfileGame {
   id: string
