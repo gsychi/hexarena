@@ -29,6 +29,7 @@ struct Knobs {
     opening_land: usize,
     guard: u64,
     hold_pct: u64,
+    forward_pct: u64,
     neutral: i64,
     enemy: i64,
     space: i64,
@@ -39,6 +40,15 @@ struct Knobs {
     prey: i64,
     revenge: i64,
     counter_bonus: i64,
+    finish_tick: u32,
+    finish_alive: usize,
+    finish_ratio_pct: i64,
+    finish_bonus: i64,
+    hunt_value: i64,
+    lookahead_value: i64,
+    relay_floor: u64,
+    relay_patience: i64,
+    allow_gather: bool,
     peace_until: u32,
     build_mode: i64,
     build_every: u32,
@@ -59,6 +69,7 @@ impl Knobs {
             opening_land: k("opening_land", 5).max(0) as usize,
             guard: k("guard", 12).max(0) as u64,
             hold_pct: k("hold_pct", 25).max(0) as u64,
+            forward_pct: k("forward_pct", 50).clamp(0, 100) as u64,
             neutral: k("neutral", 120),
             enemy: k("enemy", 35),
             space: k("space", 9),
@@ -69,6 +80,15 @@ impl Knobs {
             prey: k("prey", 90),
             revenge: k("revenge", 18),
             counter_bonus: k("counter_bonus", 0),
+            finish_tick: k("finish_tick", 1800).max(0) as u32,
+            finish_alive: k("finish_alive", 4).max(1) as usize,
+            finish_ratio_pct: k("finish_ratio_pct", 110).max(100),
+            finish_bonus: k("finish_bonus", 0),
+            hunt_value: k("hunt_value", 0),
+            lookahead_value: k("lookahead_value", 0),
+            relay_floor: k("relay_floor", 1).max(1) as u64,
+            relay_patience: k("relay_patience", 1000).max(0),
+            allow_gather: k("allow_gather", 1) != 0,
             peace_until: k("peace_until", 500).max(0) as u32,
             build_mode: k("build_mode", 0),
             build_every: k("build_every", 11).max(1) as u32,
@@ -311,6 +331,61 @@ impl Mosaic {
         land
     }
 
+    /// Whether to enter dedicated closeout play, the survivor to hunt, and public-terrain
+    /// distance to its last known land. Distances remain useful after fog hides the target:
+    /// captures that shorten the route keep the front moving toward the survivor.
+    fn finish_context(&self, view: &View, land: &[i64]) -> (bool, Option<PlayerId>, Vec<u16>) {
+        let me = view.you as usize;
+        let living = view
+            .public_players
+            .iter()
+            .filter(|player| player.alive)
+            .count();
+        let target = view
+            .public_players
+            .iter()
+            .filter(|player| player.alive && player.id != view.you)
+            .min_by_key(|player| {
+                (
+                    land.get(player.id as usize).copied().unwrap_or(0),
+                    player.id,
+                )
+            })
+            .map(|player| player.id);
+        let ours = land.get(me).copied().unwrap_or(0);
+        let rival_max = view
+            .public_players
+            .iter()
+            .filter(|player| player.alive && player.id != view.you)
+            .map(|player| land.get(player.id as usize).copied().unwrap_or(0))
+            .max()
+            .unwrap_or(0);
+        let largest = ours >= 50 && ours * 100 >= rival_max * self.k.finish_ratio_pct;
+        let finishing = target.is_some()
+            && (living <= self.k.finish_alive || view.tick >= self.k.finish_tick || largest);
+
+        let mut distance = vec![u16::MAX; self.seen.len()];
+        if finishing {
+            let mut queue = VecDeque::new();
+            for (i, cell) in self.seen.iter().enumerate() {
+                if cell.as_ref().and_then(|cell| cell.owner) == target {
+                    distance[i] = 0;
+                    queue.push_back(i);
+                }
+            }
+            while let Some(i) = queue.pop_front() {
+                let next = distance[i].saturating_add(1);
+                for &n in &self.neighbors[i] {
+                    if distance[n] == u16::MAX {
+                        distance[n] = next;
+                        queue.push_back(n);
+                    }
+                }
+            }
+        }
+        (finishing, target, distance)
+    }
+
     fn political_value(
         &self,
         view: &View,
@@ -427,6 +502,9 @@ impl Mosaic {
         to: usize,
         land: &[i64],
         leader: Option<PlayerId>,
+        finishing: bool,
+        finish_target: Option<PlayerId>,
+        hunt_distance: &[u16],
     ) -> Bid {
         let me = view.you;
         let loss = self.loss(from, to);
@@ -438,7 +516,7 @@ impl Mosaic {
             .filter(|player| player.alive)
             .count();
         let endgame = living <= 3 || view.tick >= 2200;
-        let target_hold = if opening || endgame {
+        let target_hold = if opening {
             0
         } else {
             self.reserve(to, from, me)
@@ -458,8 +536,15 @@ impl Mosaic {
         let available = (source.troops as u64).saturating_sub(1 + source_hold);
         let short = need.saturating_sub(available);
         let send = if short == 0 {
-            // Interior launch pads transfer all surplus; exposed pads preserve their reserve.
-            available.max(need).min(source.troops as u64 - 1) as u32
+            let source_exposed = self.neighbors[from]
+                .iter()
+                .any(|&n| n != to && !self.own[n]);
+            let forward = if source_exposed {
+                self.k.forward_pct
+            } else {
+                100
+            };
+            (need + (available - need) * forward / 100).min(source.troops as u64 - 1) as u32
         } else {
             0
         };
@@ -473,6 +558,15 @@ impl Mosaic {
                 - loss as i64 * self.k.cost / 100;
         if let Some(owner) = owner {
             score += self.political_value(view, owner, land, leader);
+            if finishing {
+                score += if Some(owner) == finish_target {
+                    self.k.finish_bonus
+                } else {
+                    -self.k.finish_bonus / 2
+                };
+            }
+        } else if finishing && hunt_distance[to] != u16::MAX {
+            score -= self.k.hunt_value * hunt_distance[to] as i64;
         }
         if self.exposed_until[to] >= view.tick {
             score += self.k.counter_bonus;
@@ -483,6 +577,20 @@ impl Mosaic {
             .all(|&n| n == to || self.own[n] || !self.terrain[n].is_some_and(|t| t.passable()))
         {
             score += self.k.hug * 3;
+        }
+        if send > 0 && self.k.lookahead_value != 0 {
+            let survivors = send as u64 - loss.min(send as u64);
+            let followups = self.neighbors[to]
+                .iter()
+                .copied()
+                .filter(|&n| !self.own[n] && n != from && self.seen[n].is_some())
+                .filter(|&n| {
+                    let next_loss = self.loss(to, n);
+                    survivors
+                        > next_loss * margin / 100 + self.k.margin_abs + self.reserve(n, to, me)
+                })
+                .count() as i64;
+            score += self.k.lookahead_value * followups;
         }
         Bid {
             score,
@@ -495,6 +603,7 @@ impl Mosaic {
 
     fn bids(&self, view: &View) -> (Option<Bid>, Option<Bid>) {
         let land = self.land_counts(view.public_players.len());
+        let (finishing, finish_target, hunt_distance) = self.finish_context(view, &land);
         let leader = land
             .iter()
             .enumerate()
@@ -511,7 +620,16 @@ impl Mosaic {
                 if self.own[to] || self.seen[to].is_none() {
                     continue;
                 }
-                let bid = self.bid(view, from, to, &land, leader);
+                let bid = self.bid(
+                    view,
+                    from,
+                    to,
+                    &land,
+                    leader,
+                    finishing,
+                    finish_target,
+                    &hunt_distance,
+                );
                 if bid.short == 0 {
                     if ready.is_none_or(|best| {
                         (bid.score, bid.send, std::cmp::Reverse(bid.to))
@@ -661,27 +779,25 @@ impl Mosaic {
     }
 
     /// Move a remote interior stack one friendly step toward a blocked launch pad.
-    fn logistics(&self, pad: usize) -> Option<Action> {
+    fn logistics(&self, pad: usize, short: u64, me: PlayerId) -> Option<Action> {
         let mut parent = vec![usize::MAX; self.own.len()];
         let mut distance = vec![u32::MAX; self.own.len()];
         let mut queue = VecDeque::from([pad]);
         parent[pad] = pad;
         distance[pad] = 0;
-        let mut source: Option<usize> = None;
+        let mut source: Option<(u64, usize, u64)> = None;
         while let Some(i) = queue.pop_front() {
             if i != pad {
-                let troops = self.seen[i].as_ref().map_or(0, |cell| cell.troops);
-                if troops >= self.k.logistics_min
-                    && source.is_none_or(|s| {
-                        (troops / distance[i].max(1), std::cmp::Reverse(i))
-                            > (
-                                self.seen[s].as_ref().map_or(0, |cell| cell.troops)
-                                    / distance[s].max(1),
-                                std::cmp::Reverse(s),
-                            )
-                    })
-                {
-                    source = Some(i);
+                let troops = self.seen[i].as_ref().map_or(0, |cell| cell.troops) as u64;
+                let spare = troops.saturating_sub(1 + self.reserve(i, usize::MAX, me));
+                if spare >= self.k.relay_floor {
+                    let value = spare.min(short.max(1)) * 1000 / distance[i].max(1) as u64;
+                    if source.is_none_or(|best| {
+                        (value, spare, std::cmp::Reverse(i))
+                            > (best.0, best.2, std::cmp::Reverse(best.1))
+                    }) {
+                        source = Some((value, i, spare));
+                    }
                 }
             }
             for &n in &self.neighbors[i] {
@@ -692,12 +808,11 @@ impl Mosaic {
                 }
             }
         }
-        let from = source?;
-        let troops = self.seen[from].as_ref()?.troops.saturating_sub(1);
-        (troops > 0).then(|| Action::Move {
+        let (_, from, troops) = source?;
+        Some(Action::Move {
             from: self.hexes[from],
             to: self.hexes[parent[from]],
-            troops,
+            troops: troops as u32,
         })
     }
 }
@@ -711,15 +826,31 @@ impl Bot for Mosaic {
         self.remember(view);
         let management = self.management();
         let (ready, blocked) = self.bids(view);
+        let relay = blocked.filter(|blocked_bid| {
+            ready
+                .is_none_or(|ready_bid| blocked_bid.score > ready_bid.score + self.k.relay_patience)
+        });
         let wave_pad = blocked.or(ready);
         let charging = self.k.wave_cycle > 0
             && view.tick % self.k.wave_cycle < self.k.wave_charge.min(self.k.wave_cycle)
             && self.own.iter().filter(|owned| **owned).count() > self.k.opening_land;
         let action = if charging && wave_pad.is_some() {
-            let pad = wave_pad.expect("checked above").from;
-            self.logistics(pad).unwrap_or(Action::Gather {
-                target: self.hexes[pad],
-            })
+            let bid = wave_pad.expect("checked above");
+            self.logistics(bid.from, bid.short, view.you)
+                .or_else(|| {
+                    self.k.allow_gather.then(|| Action::Gather {
+                        target: self.hexes[bid.from],
+                    })
+                })
+                .unwrap_or(Action::NoOp)
+        } else if let Some(bid) = relay {
+            self.logistics(bid.from, bid.short, view.you)
+                .or_else(|| {
+                    self.k.allow_gather.then(|| Action::Gather {
+                        target: self.hexes[bid.from],
+                    })
+                })
+                .unwrap_or(Action::NoOp)
         } else if let Some(build) = self.build(view) {
             self.last_build = view.tick;
             self.build_actions += 1;
@@ -731,9 +862,13 @@ impl Bot for Mosaic {
                 troops: bid.send,
             }
         } else if let Some(bid) = blocked {
-            self.logistics(bid.from).unwrap_or(Action::Gather {
-                target: self.hexes[bid.from],
-            })
+            self.logistics(bid.from, bid.short, view.you)
+                .or_else(|| {
+                    self.k.allow_gather.then(|| Action::Gather {
+                        target: self.hexes[bid.from],
+                    })
+                })
+                .unwrap_or(Action::NoOp)
         } else {
             Action::NoOp
         };

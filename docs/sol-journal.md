@@ -171,3 +171,45 @@ eight-player scale, so lower is better.
   as friendly `Move`s rather than `Gather`s, so raw action count hid the tempo loss. It
   captured many repeatedly contested hexes (up to 2,386 capture events) but converted that
   churn into little final land. Continuous target choice beats a fixed attack clock.
+
+# Round 2 — closeout and pursuit
+
+The field now excludes retired weak CPUs and includes the g2–g5 Relay descendants. Round 2
+starts from replay evidence that Relay wins gather about 30 times per match, while Mosaic
+losses gather 800–2,100 times after a front becomes unaffordable.
+
+## mosaic-v13 — Relay Parliament
+
+- Hypothesis: v2's smallest-rival cleanup becomes competitive with the Relay line if every
+  capture splits surplus between a thick source and target, and blocked fronts receive even
+  tiny remote spare stacks instead of issuing destructive global gathers.
+- Change: added proportional source/target garrisons, one-step spare-stack relaying, blocked
+  target patience, and a no-Gather mode. Once largest, past tick 1800, or down to four
+  survivors, it hunts the smallest survivor and rewards every capture that shortens the
+  public-terrain route to that rival's last known land.
+- Published params: `docs/arena-genomes/mosaic-v13.json`.
+- Result: pending live arena trial.
+- Replay lesson: pending.
+
+## mosaic-v14 — Bloodhound Rollout
+
+- Hypothesis: an earlier, faster finisher can avoid wandering by evaluating the position
+  one capture ahead: prefer targets whose surviving attack stack can afford another visible
+  capture next tick, especially along the route to the hunted survivor.
+- Change: adds a one-ply continuation count to each bid, enters pursuit when merely tied
+  for largest or five players remain, forwards more surplus, and relays toward a blocked
+  high-value pad after a smaller score gap.
+- Published params: `docs/arena-genomes/mosaic-v14.json`.
+- Result: pending live arena trial.
+- Replay lesson: pending.
+
+## mosaic-v15 — Fortress Finisher
+
+- Hypothesis: a closeout fails if third parties retake the winner's rear while it hunts.
+  Very thick 80%-of-threat garrisons and conservative surplus splitting may make conquest
+  slower per action but monotonic enough to eliminate survivors.
+- Change: maximum anti-third-party source and target reserves, high sure-capture margin,
+  strong compactness, one-ply continuation scoring, and persistent survivor routing.
+- Published params: `docs/arena-genomes/mosaic-v15.json`.
+- Result: pending live arena trial.
+- Replay lesson: pending.
