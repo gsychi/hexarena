@@ -84,6 +84,15 @@ struct Knobs {
     /// Troops a tick a Quarry adds to each adjacent Village (the frozen binary can't read
     /// it from newer live rules, so it is a knob).
     quarry_village: u64,
+    /// Build an affordable Quarry before any discounted lattice sites around it (0/1).
+    quarry_first: bool,
+    /// Fewest useful empty neighbours required by a quarry-first site.
+    quarry_sites: usize,
+    /// Prefer discounted Villages before Farms, and never build a Farm that feeds no
+    /// existing Village (0/1).
+    village_first: bool,
+    /// Quarry score bonus per useful neighbour when the cluster touches the board edge.
+    edge_cluster: u64,
     /// Walls on enemy-facing border hexes from this tick (0 = never).
     wall_from: u32,
     /// Fewest ticks between two Walls.
@@ -122,6 +131,10 @@ impl Knobs {
             quarry: k("quarry", 0) > 0,
             quarry_min_x10: k("quarry_min_x10", 20) as u64,
             quarry_village: k("quarry_village", 0) as u64,
+            quarry_first: k("quarry_first", 0) > 0,
+            quarry_sites: k("quarry_sites", 2) as usize,
+            village_first: k("village_first", 0) > 0,
+            edge_cluster: k("edge_cluster", 0) as u64,
             wall_from: k("wall_from", 0) as u32,
             wall_gap: k("wall_gap", 4) as u32,
             wall_cap: k("wall_cap", 60) as usize,
@@ -271,6 +284,8 @@ impl Pangolin {
         let cost = |b: Building, i: usize| self.rules.build_cost(b, near_quarry(i)).troops;
         let fut = self.k.future_pct * 10;
         let mut best: Option<(u64, usize, Building)> = None;
+        let mut best_quarry: Option<(u64, usize)> = None;
+        let mut best_discounted_village: Option<(u64, usize)> = None;
         for i in 0..slots {
             if site[i] != Site::Empty || depth[i] < self.k.depth || depth[i] == u32::MAX {
                 continue;
@@ -288,8 +303,11 @@ impl Pangolin {
             } else if self.farmable(m, i) {
                 let partners =
                     m.nbrs[i].iter().filter(|&&n| site[n] == Site::Empty && m.colour(n) == vclass).count() as u64;
-                let rate = 1000 * self.rules.village.farm_bonus as u64 * count(Building::Village) + fut * partners;
-                options.push((Building::Farm, rate));
+                let villages = count(Building::Village);
+                if !self.k.village_first || villages > 0 {
+                    let rate = 1000 * self.rules.village.farm_bonus as u64 * villages + fut * partners;
+                    options.push((Building::Farm, rate));
+                }
             } else if self.k.quarry && self.quarry_ok(m, i) {
                 let close = (0..slots).any(|j| {
                     site[j] == Site::Mine(Building::Quarry)
@@ -310,6 +328,28 @@ impl Pangolin {
                         .sum();
                     let c = cost(Building::Quarry, i) as u64;
                     let qv = self.k.quarry_village;
+                    let useful = m.nbrs[i]
+                        .iter()
+                        .filter(|&&n| {
+                            site[n] == Site::Empty
+                                && (m.colour(n) == vclass || self.farmable(m, n))
+                        })
+                        .count();
+                    if self.k.quarry_first
+                        && useful >= self.k.quarry_sites
+                        && troops[i] >= c as u32 + 1
+                    {
+                        let edge = m.nbrs[i].len() < 6
+                            || m.nbrs[i].iter().any(|&n| m.nbrs[n].len() < 6);
+                        let score = saved * 10
+                            + qv * useful as u64 * fut
+                            + if edge { self.k.edge_cluster * useful as u64 } else { 0 };
+                        if best_quarry.is_none_or(|x| {
+                            (score, std::cmp::Reverse(i)) > (x.0, std::cmp::Reverse(x.1))
+                        }) {
+                            best_quarry = Some((score, i));
+                        }
+                    }
                     if qv > 0 {
                         let vsites = m.nbrs[i]
                             .iter()
@@ -329,10 +369,28 @@ impl Pangolin {
                     continue;
                 }
                 let roi = rate / c.max(1) as u64;
+                if self.k.village_first
+                    && b == Building::Village
+                    && near_quarry(i)
+                    && best_discounted_village.is_none_or(|x| {
+                        (roi, std::cmp::Reverse(i)) > (x.0, std::cmp::Reverse(x.1))
+                    })
+                {
+                    best_discounted_village = Some((roi, i));
+                }
                 if roi >= self.k.min_roi && best.is_none_or(|x| (roi, std::cmp::Reverse(i)) > (x.0, std::cmp::Reverse(x.1))) {
                     best = Some((roi, i, b));
                 }
             }
+        }
+        if let Some((score, i)) = best_quarry {
+            return Some((self.k.rush_roi.max(score / cost(Building::Quarry, i).max(1) as u64), Action::Build {
+                at: m.hexes[i],
+                building: Building::Quarry,
+            }));
+        }
+        if let Some((roi, i)) = best_discounted_village {
+            return Some((roi, Action::Build { at: m.hexes[i], building: Building::Village }));
         }
         best.map(|(roi, i, b)| (roi, Action::Build { at: m.hexes[i], building: b }))
     }

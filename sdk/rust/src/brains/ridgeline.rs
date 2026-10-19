@@ -137,6 +137,10 @@ struct Knobs {
     late_safe_min: i64,
     late_min_score: i64,
     late_sure_x10: u64,
+    /// Tick the late phase began.
+    late_at: Option<u32>,
+    /// In the late phase, gather toward the best capture every this many ticks.
+    push_gather: u32,
 }
 
 impl Knobs {
@@ -171,14 +175,17 @@ impl Knobs {
             late_safe_min: k("late_safe_min", 0),
             late_min_score: k("late_bar", 500) - 500,
             late_sure_x10: k("late_sure_x10", 20) as u64,
+            late_at: None,
+            push_gather: k("push_gather", 0) as u32,
         }
     }
 
-    fn go_late(&mut self) {
+    fn go_late(&mut self, tick: u32) {
         self.margin_pct = self.late_margin_pct;
         self.safe_min = self.late_safe_min;
         self.min_score = self.late_min_score;
         self.sure_x10 = self.late_sure_x10;
+        self.late_at = Some(tick);
         self.late_from = 0;
     }
 }
@@ -627,7 +634,7 @@ impl Bot for Ridgeline {
         }
         self.win = self.rules.attacker_win_milli(view.tick);
         if self.k.late_from > 0 && view.tick >= self.k.late_from {
-            self.k.go_late();
+            self.k.go_late(view.tick);
         }
         let geo = self.geo.take().unwrap_or_else(|| Geometry::new(view));
         if self.seen.is_empty() {

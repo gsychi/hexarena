@@ -22,7 +22,7 @@ use std::collections::BTreeMap;
 pub const DEFAULT: &str = "expander";
 
 /// Every brain id [`build`] accepts.
-pub const BRAINS: &[&str] = &[DEFAULT, "relay", "predator", "ridgeline", "pangolin"];
+pub const BRAINS: &[&str] = &[DEFAULT, "relay", "predator", "ridgeline", "pangolin", "keystone"];
 
 /// The bot that plays `style`, or an error naming an unknown brain.
 pub fn build(style: Style) -> Result<Box<dyn Bot>, String> {
@@ -35,6 +35,7 @@ pub fn build(style: Style) -> Result<Box<dyn Bot>, String> {
         "predator" => Ok(Box::new(Settler::wrap(Box::new(predator::Predator::new(style.clone())), &style))),
         "ridgeline" => Ok(Box::new(Settler::wrap(Box::new(ridgeline::Ridgeline::new(style.clone())), &style))),
         "pangolin" => Ok(Box::new(pangolin::Pangolin::new(style))),
+        "keystone" => Ok(Box::new(pangolin::Pangolin::new(style))),
         other => Err(format!(
             "unknown brain '{other}' (known: {})",
             BRAINS.join(", ")

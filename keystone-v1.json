@@ -1,0 +1,15 @@
+{
+  "brain": "keystone",
+  "knobs": {
+    "build_from": 100,
+    "late_from": 4500,
+    "quarry": 1,
+    "quarry_village": 1,
+    "quarry_first": 1,
+    "quarry_sites": 2,
+    "village_first": 1,
+    "edge_cluster": 200,
+    "wall_from": 3000,
+    "wall_gap": 2
+  }
+}
