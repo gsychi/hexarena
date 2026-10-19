@@ -73,11 +73,11 @@ impl Knobs {
             cost_per_100: k("cost_per_100", 40),
             enclose_value: k("enclose_value", 100),
             calm_gather: k("calm_gather", 1),
-            patience_pct: k("patience_pct", 100),
-            commit_pct: k("commit_pct", 50),
+            patience_pct: k("patience_pct", 150),
+            commit_pct: k("commit_pct", 0),
             relay_plans: k("relay_plans", 16),
             relay_depth: k("relay_depth", 12),
-            gather_risk: k("gather_risk", 3),
+            gather_risk: k("gather_risk", 6),
             defend_value: k("defend_value", 80),
         }
     }
