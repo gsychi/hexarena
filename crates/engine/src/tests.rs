@@ -627,20 +627,35 @@ fn capture_surrenders_enclosed_enemy_component() {
 fn build_costs_and_quarry_discounts_match_spec_examples() {
     let r = RulesConfig::default();
     let v = r.build_cost(Building::Village, true);
-    assert_eq!((v.troops, v.resource), (57, 0));
+    assert_eq!((v.troops, v.resource), (72, 0));
     let w = r.build_cost(Building::Wall, true);
-    assert_eq!((w.troops, w.resource), (25, 0));
+    assert_eq!((w.troops, w.resource), (20, 0));
     let f = r.build_cost(Building::Farm, true);
-    assert_eq!((f.troops, f.resource), (38, 0));
-    assert_eq!(r.build_cost(Building::Village, false).troops, 75);
+    assert_eq!((f.troops, f.resource), (18, 0));
+    assert_eq!(r.build_cost(Building::Village, false).troops, 120);
+    assert_eq!(r.build_cost(Building::Farm, false).troops, 30);
     for b in Building::ALL {
         assert_eq!(r.base_cost(b).1, 0, "{b:?} costs troops only");
     }
 }
 
+fn stormy() -> RulesConfig {
+    RulesConfig {
+        storm_start: 3000,
+        storm_end: 9000,
+        storm_decay_pct: 25,
+        ..RulesConfig::default()
+    }
+}
+
+#[test]
+fn storm_is_off_by_default() {
+    assert_eq!(RulesConfig::default().storm_radius(9000, 21, 0), None);
+}
+
 #[test]
 fn storm_closes_from_the_edge_to_the_innermost_passable_ring() {
-    let r = RulesConfig::default();
+    let r = stormy();
     assert_eq!(r.storm_radius(3000, 21, 0), None);
     assert_eq!(r.storm_radius(3001, 21, 0), None, "rounds up, so the edge holds a moment");
     assert_eq!(r.storm_radius(6000, 21, 0), Some(11));
@@ -651,6 +666,7 @@ fn storm_closes_from_the_edge_to_the_innermost_passable_ring() {
 #[test]
 fn storm_drains_troops_then_turns_the_hex_neutral() {
     let mut st = state(2, 20);
+    st.settings.rules = stormy();
     clear_owners(&mut st);
     let edge = st
         .board
@@ -680,6 +696,33 @@ fn storm_drains_troops_then_turns_the_hex_neutral() {
 }
 
 #[test]
+fn every_adjacent_farm_boosts_a_village_without_links() {
+    let mut st = state(2, 21);
+    clear_owners(&mut st);
+    let v = interior_open(&st);
+    set(&mut st, v, Some(0), 1);
+    put_building(&mut st, v, Building::Village);
+    let f = faraway(&st, v);
+    set(&mut st, f, Some(1), 3);
+    st.tick = 1;
+    assert_eq!(st.income(v), 2);
+    for (i, d) in HEX_DIRECTIONS.iter().take(3).enumerate() {
+        let farm = v.add(*d);
+        set(&mut st, farm, Some(0), 1);
+        put_building(&mut st, farm, Building::Farm);
+        assert_eq!(st.income(v), 3 + i as u32, "{} farms", i + 1);
+    }
+    let farm = v.add(HEX_DIRECTIONS[0]);
+    assert_eq!(st.building_links(farm), vec![v]);
+    assert!(st
+        .validate_management(
+            0,
+            &ManagementCommand::SetFarmLink { farm, village: v, enabled: true }
+        )
+        .is_err());
+}
+
+#[test]
 fn overtime_raises_attacker_odds_up_to_the_cap() {
     let r = RulesConfig::default();
     assert_eq!(r.attacker_win_milli(0), 470);
@@ -699,10 +742,10 @@ fn build_rules_terrain_spacing_and_leave_one_troop() {
     let mut st = state(2, 17);
     clear_owners(&mut st);
     let c = interior_open(&st);
-    set(&mut st, c, Some(0), 49);
+    set(&mut st, c, Some(0), 29);
     let f = faraway(&st, c);
     set(&mut st, f, Some(1), 3);
-    set_height(&mut st, c, 0);
+    set_height(&mut st, c, 1);
     st.step(&act(
         0,
         Action::Build {
@@ -712,8 +755,9 @@ fn build_rules_terrain_spacing_and_leave_one_troop() {
     ));
     assert!(
         st.cell(c).unwrap().building.is_none(),
-        "farm needs a valley"
+        "no farms on hills"
     );
+    assert!(RulesConfig::default().terrain_allowed(Building::Farm, 0), "plains are fine");
     set_height(&mut st, c, -1);
     st.step(&act(
         0,
@@ -724,7 +768,7 @@ fn build_rules_terrain_spacing_and_leave_one_troop() {
     ));
     assert!(
         st.cell(c).unwrap().building.is_none(),
-        "50 troops on hex is not enough: one must remain"
+        "30 troops on hex is not enough: one must remain"
     );
     st.step(&act(
         0,
@@ -734,7 +778,7 @@ fn build_rules_terrain_spacing_and_leave_one_troop() {
         },
     ));
     assert_eq!(st.cell(c).unwrap().building, Some(Building::Farm));
-    assert_eq!(st.cell(c).unwrap().troops, 52 - 50);
+    assert_eq!(st.cell(c).unwrap().troops, 32 - 30);
 }
 
 #[test]
@@ -762,8 +806,9 @@ fn farm_alone_makes_only_base_income_and_no_resource() {
 }
 
 #[test]
-fn village_income_two_unsupported_three_supported() {
+fn linked_farm_rules_boost_only_the_linked_village() {
     let mut st = state(2, 19);
+    st.settings.rules.farm.adjacent_boost = false;
     clear_owners(&mut st);
     let c = interior_open(&st);
     let (village, farm) = (c, c.add(HEX_DIRECTIONS[0]));

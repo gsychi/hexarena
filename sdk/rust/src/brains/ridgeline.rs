@@ -600,6 +600,9 @@ impl Bot for Ridgeline {
     }
 
     fn act(&mut self, view: &View) -> PlayerCommand {
+        if let Some(r) = &view.rules {
+            self.rules = r.clone();
+        }
         self.win = self.rules.attacker_win_milli(view.tick);
         let geo = self.geo.take().unwrap_or_else(|| Geometry::new(view));
         if self.seen.is_empty() {

@@ -412,6 +412,9 @@ impl Bot for Predator {
     }
 
     fn act(&mut self, view: &View) -> PlayerCommand {
+        if let Some(r) = &view.rules {
+            self.rules = r.clone();
+        }
         self.win = self.rules.attacker_win_milli(view.tick);
         self.remember(view);
         let me = view.you;

@@ -107,7 +107,7 @@ export function Viewer({ src, label, onBack }: { src: string; label: string; onB
       if (c.owner !== p) continue
       land++; troops += c.troops; income += r.base_income
       if (c.building > 0) built[c.building - 1]++
-      if (c.building === 2) income += r.village.bonus + (c.links[0] >= 0 ? r.village.farm_bonus : 0)
+      if (c.building === 2) income += r.village.bonus + c.links.filter((l) => l >= 0).length * r.village.farm_bonus
     }
     return { land, troops, income, built }
   })
@@ -396,8 +396,12 @@ function BuildingDetail({ rep, c, wallLinks }: { rep: ViewerReplay; c: Cell; wal
       <BuildingIcon kind={c.building} size={36} pips={buildingPips(c, r)} />
       <div className="space-y-0.5">
         <div className="font-medium">{BUILDING_NAMES[c.building - 1]}</div>
-        {c.building === 1 && <div className="text-muted-foreground"><Link2 className="mr-1 inline size-3" />{linked}/{r.farm.sockets} Villages supported, +{r.village.farm_bonus}/tick each · {cd}{usesResource(r) && <><br />+1 Resource in {c.remaining} ticks</>}</div>}
-        {c.building === 2 && <div className="text-muted-foreground">{c.links[0] >= 0 ? <><span className="text-foreground">{r.base_income + r.village.bonus + r.village.farm_bonus}/tick</span> · supported by a Farm</> : <><span className="text-foreground">{r.base_income + r.village.bonus}/tick</span> · unsupported, a Farm link adds +{r.village.farm_bonus}</>}</div>}
+        {c.building === 1 && (r.farm.adjacent_boost
+          ? <div className="text-muted-foreground"><Link2 className="mr-1 inline size-3" />Boosting {linked} adjacent Village{linked === 1 ? '' : 's'} by +{r.village.farm_bonus}/tick each</div>
+          : <div className="text-muted-foreground"><Link2 className="mr-1 inline size-3" />{linked}/{r.farm.sockets} Villages supported, +{r.village.farm_bonus}/tick each · {cd}{usesResource(r) && <><br />+1 Resource in {c.remaining} ticks</>}</div>)}
+        {c.building === 2 && (r.farm.adjacent_boost
+          ? <div className="text-muted-foreground"><span className="text-foreground">{r.base_income + r.village.bonus + linked * r.village.farm_bonus}/tick</span> · {linked} adjacent Farm{linked === 1 ? '' : 's'}, each adds +{r.village.farm_bonus}</div>
+          : <div className="text-muted-foreground">{c.links[0] >= 0 ? <><span className="text-foreground">{r.base_income + r.village.bonus + r.village.farm_bonus}/tick</span> · supported by a Farm</> : <><span className="text-foreground">{r.base_income + r.village.bonus}/tick</span> · unsupported, a Farm link adds +{r.village.farm_bonus}</>}</div>)}
         {c.building === 3 && <div className="text-muted-foreground">{usesResource(r) ? <>+1 Resource in {c.remaining} ticks<br />Adjacent builds: −{r.quarry.troop_discount_pct}% troops, −{r.quarry.resource_discount} Resource</> : <>Adjacent Farms, Villages and Walls cost {r.quarry.troop_discount_pct}% fewer troops</>}</div>}
         {c.building === 4 && <div className="text-muted-foreground">{wallLinks}/{r.wall.max_links} links · <span className="text-foreground">{(r.wall.defense_milli_by_links[wallLinks ?? 0] / 1000).toFixed(1)}× wall</span> · {cd}</div>}
       </div>

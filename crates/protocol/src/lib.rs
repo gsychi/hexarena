@@ -156,6 +156,11 @@ pub struct FarmRules {
     pub allowed_heights: Vec<i8>,
     pub sockets: u8,
     pub relink_cooldown: u32,
+    /// Every adjacent friendly Farm boosts a Village by `village.farm_bonus`, with no
+    /// links or sockets (v0.5 onward). When false, a Farm boosts only the Villages it
+    /// links, up to `sockets` of them, one Farm per Village.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub adjacent_boost: bool,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -164,7 +169,7 @@ pub struct VillageRules {
     pub resource_cost: u32,
     /// Extra troops per tick on its own hex.
     pub bonus: u32,
-    /// Additional troops per tick while supported by a Farm.
+    /// Additional troops per tick for each Farm supporting it.
     pub farm_bonus: u32,
 }
 
@@ -260,7 +265,7 @@ fn is_zero(v: &u32) -> bool {
 impl Default for RulesConfig {
     fn default() -> Self {
         RulesConfig {
-            version: "v0.4".into(),
+            version: "v0.5".into(),
             min_players: 2,
             max_players: 8,
             map_radius_factor: 7.5,
@@ -282,22 +287,23 @@ impl Default for RulesConfig {
             overtime_start: 3000,
             overtime_win_milli_per_1000: 60,
             overtime_max_win_milli: 850,
-            storm_start: 3000,
-            storm_end: 9000,
-            storm_decay_pct: 25,
+            storm_start: 0,
+            storm_end: 0,
+            storm_decay_pct: 0,
             height_factor_milli: 1500,
             maximum_total_defense_milli: 5000,
             extractor_period: 10,
             extractor_output: 0,
             farm: FarmRules {
-                troop_cost: 50,
+                troop_cost: 30,
                 resource_cost: 0,
-                allowed_heights: vec![-2, -1],
+                allowed_heights: vec![-2, -1, 0],
                 sockets: 3,
                 relink_cooldown: 10,
+                adjacent_boost: true,
             },
             village: VillageRules {
-                troop_cost: 75,
+                troop_cost: 120,
                 resource_cost: 0,
                 bonus: 1,
                 farm_bonus: 1,
@@ -308,7 +314,7 @@ impl Default for RulesConfig {
                 allowed_heights: vec![1, 2],
                 min_friendly_distance: 3,
                 discount_radius: 1,
-                troop_discount_pct: 25,
+                troop_discount_pct: 40,
                 resource_discount: 0,
             },
             wall: WallRules {
@@ -569,6 +575,10 @@ pub struct View {
     /// [`RulesConfig::storm_radius`]); `None` while the whole board is safe.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub storm_radius: Option<i32>,
+    /// The match's rules, sent with the tick-0 view only. Bots should play by these
+    /// rather than the defaults they were compiled with.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rules: Option<RulesConfig>,
 }
 
 pub type FixedPoints = FixedScore;

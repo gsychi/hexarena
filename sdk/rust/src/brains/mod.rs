@@ -10,9 +10,11 @@
 pub mod predator;
 pub mod relay;
 pub mod ridgeline;
+pub mod settler;
 pub mod warren;
 
 use crate::process::ProcessBot;
+use settler::Settler;
 use crate::{Bot, BotParams, Expander, Style, KNOB_LOG};
 use std::collections::BTreeMap;
 
@@ -29,9 +31,9 @@ pub fn build(style: Style) -> Result<Box<dyn Bot>, String> {
     }
     match style.params.brain.as_str() {
         DEFAULT => Ok(Box::new(Expander::new(style))),
-        "relay" => Ok(Box::new(relay::Relay::new(style))),
-        "predator" => Ok(Box::new(predator::Predator::new(style))),
-        "ridgeline" => Ok(Box::new(ridgeline::Ridgeline::new(style))),
+        "relay" => Ok(Box::new(Settler::wrap(Box::new(relay::Relay::new(style.clone())), &style))),
+        "predator" => Ok(Box::new(Settler::wrap(Box::new(predator::Predator::new(style.clone())), &style))),
+        "ridgeline" => Ok(Box::new(Settler::wrap(Box::new(ridgeline::Ridgeline::new(style.clone())), &style))),
         "warren" => Ok(Box::new(warren::Warren::new(style))),
         other => Err(format!(
             "unknown brain '{other}' (known: {})",

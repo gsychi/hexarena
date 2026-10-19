@@ -326,7 +326,7 @@ export function LeaguePage({ onBack, onOpen }: { onBack: () => void; onOpen: (id
                 <CardDescription>
                   Every bot at the time it appeared and its current Elo (K = 32, tripled for a bot's first 20 games so new versions settle fast; start 1500). Amber: league generations. Violet: versions published to the arena, hollow once retired.
                   Grey: rejected league challengers, rated on league games only. The green step line is the frontier, the best Elo anything has reached so far. Dashed lines are the roster CPUs.
-                  Arena versions outside the top {arena?.top ?? board?.top ?? 20} are retired after {arena?.trial_games ?? 12} games (red line).
+                  Arena versions outside the top {arena?.top ?? board?.top ?? 20} are retired once rated, after {arena?.trial_games ?? 50} games (red line).
                 </CardDescription>
               </CardHeader>
               <CardContent className="flex flex-col gap-3">
