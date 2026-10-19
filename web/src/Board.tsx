@@ -32,6 +32,68 @@ function outlinedText(ctx: CanvasRenderingContext2D, text: string, x: number, y:
   ctx.fillStyle = fill; ctx.fillText(text, x, y)
 }
 
+/** Unit-radius corner offsets of a pointy-top hex, corner i at 60i - 30 degrees. */
+const CORNER = Array.from({ length: 6 }, (_, i) => {
+  const a = (Math.PI / 180) * (60 * i - 30)
+  return [Math.cos(a), Math.sin(a)] as const
+})
+/** The two corners bounding the edge that faces `HEX_DIRS[d]`. */
+const EDGE: [number, number][] = [[0, 1], [5, 0], [4, 5], [3, 4], [2, 3], [1, 2]]
+
+/** A plain hexagon added to the current path; cheap enough to batch thousands. */
+function hexPoly(ctx: CanvasRenderingContext2D | Path2D, x: number, y: number, s: number) {
+  ctx.moveTo(x + s * CORNER[0][0], y + s * CORNER[0][1])
+  for (let i = 1; i < 6; i++) ctx.lineTo(x + s * CORNER[i][0], y + s * CORNER[i][1])
+  ctx.closePath()
+}
+
+interface Geometry { x: Float32Array; y: Float32Array; nb: Int32Array }
+
+/** Pixel centers and neighbor indices (-1 off board) of every hex, computed once per match. */
+function geometry(rep: ViewerReplay, all: number[]): Geometry {
+  const n = (2 * rep.radius + 1) ** 2
+  const g = { x: new Float32Array(n), y: new Float32Array(n), nb: new Int32Array(n * 6).fill(-1) }
+  for (const idx of all) {
+    const h = hexAt(rep.radius, idx)
+    const p = toPx(h)
+    g.x[idx] = p.x; g.y[idx] = p.y
+    HEX_DIRS.forEach((d, k) => {
+      const m = addHex(h, d)
+      if (onBoard(rep.radius, m) && rep.terrain[hexIndex(rep.radius, m)]) g.nb[idx * 6 + k] = hexIndex(rep.radius, m)
+    })
+  }
+  return g
+}
+
+function drawTerrain(ctx: CanvasRenderingContext2D, rep: ViewerReplay, geo: Geometry, s: number, detail: number, heightMode: boolean) {
+  const n = (2 * rep.radius + 1) ** 2
+  for (let idx = 0; idx < n; idx++) {
+    const t = rep.terrain[idx]
+    if (!t) continue
+    const x = geo.x[idx], y = geo.y[idx]
+    hexPath(ctx, x, y, s)
+    if (t.kind !== 'open') {
+      const water = t.kind === 'water'
+      ctx.fillStyle = water ? '#0b1626' : '#14161b'
+      ctx.fill()
+      ctx.strokeStyle = water ? '#2c6fa3' : '#4a4f5c'
+      ctx.lineWidth = 1; ctx.stroke()
+      ctx.save(); ctx.clip()
+      ctx.beginPath()
+      for (let d = -SIZE; d <= SIZE; d += 5) { ctx.moveTo(x + d - SIZE, y + SIZE); ctx.lineTo(x + d + SIZE, y - SIZE) }
+      ctx.strokeStyle = water ? '#2c6fa355' : '#4a4f5c66'; ctx.lineWidth = 1; ctx.stroke()
+      ctx.restore()
+      continue
+    }
+    const hs = HEIGHT_STYLE[t.height]
+    ctx.fillStyle = hs.fill; ctx.fill()
+    if (heightMode && detail >= 1) {
+      ctx.font = '700 14px ui-monospace, monospace'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'
+      outlinedText(ctx, hs.label, x, y, hs.tag)
+    }
+  }
+}
+
 /** Link slots shown above a building token: Farm sockets, Village farm support, Wall links. */
 export function buildingPips(c: Cell, rules: Rules): Pips | undefined {
   const linked = c.links.filter((l) => l >= 0).length
@@ -126,99 +188,129 @@ export function Board({ rep, cells, perspective, visible, selected, heightMode, 
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [rep, cells, selected, visible])
 
+  const geo = useMemo(() => geometry(rep, all), [rep, all])
+  const terrainLayer = useRef<{ key: string; canvas: HTMLCanvasElement } | null>(null)
+
   useEffect(() => {
     const c = canvas.current!
     const dpr = window.devicePixelRatio || 1
-    c.width = dims.w * dpr; c.height = dims.h * dpr
+    if (c.width !== dims.w * dpr || c.height !== dims.h * dpr) { c.width = dims.w * dpr; c.height = dims.h * dpr }
     const ctx = c.getContext('2d')!
-    ctx.scale(dpr, dpr)
-    ctx.clearRect(0, 0, dims.w, dims.h)
-    ctx.translate(dims.w / 2 + cam.x, dims.h / 2 + cam.y)
-    ctx.scale(cam.k, cam.k)
     const px = cam.k * SIZE
     const detail = px >= 13 ? 2 : px >= 7 ? 1 : 0
     const s = SIZE - 1.7
-    const center = (i: number) => toPx(hexAt(rep.radius, i))
+    const world = () => { ctx.setTransform(dpr, 0, 0, dpr, 0, 0); ctx.translate(dims.w / 2 + cam.x, dims.h / 2 + cam.y); ctx.scale(cam.k, cam.k) }
 
-    for (const idx of all) {
-      const t = rep.terrain[idx]!
-      const h = hexAt(rep.radius, idx)
-      const { x, y } = toPx(h)
-      hexPath(ctx, x, y, s)
-      if (t.kind !== 'open') {
-        const water = t.kind === 'water'
-        ctx.fillStyle = water ? '#0b1626' : '#14161b'
-        ctx.fill()
-        ctx.strokeStyle = water ? '#2c6fa3' : '#4a4f5c'
-        ctx.lineWidth = 1; ctx.stroke()
-        ctx.save(); ctx.clip()
-        ctx.beginPath()
-        for (let d = -SIZE; d <= SIZE; d += 5) { ctx.moveTo(x + d - SIZE, y + SIZE); ctx.lineTo(x + d + SIZE, y - SIZE) }
-        ctx.strokeStyle = water ? '#2c6fa355' : '#4a4f5c66'; ctx.lineWidth = 1; ctx.stroke()
-        ctx.restore()
-        continue
+    // Terrain never changes during a match, so it is drawn once per camera position.
+    const key = `${dims.w}x${dims.h}@${dpr}:${cam.x},${cam.y},${cam.k}:${heightMode}`
+    if (terrainLayer.current?.key !== key) {
+      const layer = terrainLayer.current?.canvas ?? document.createElement('canvas')
+      layer.width = c.width; layer.height = c.height
+      const t = layer.getContext('2d')!
+      t.setTransform(dpr, 0, 0, dpr, 0, 0); t.translate(dims.w / 2 + cam.x, dims.h / 2 + cam.y); t.scale(cam.k, cam.k)
+      drawTerrain(t, rep, geo, s, detail, heightMode)
+      terrainLayer.current = { key, canvas: layer }
+    }
+    ctx.setTransform(1, 0, 0, 1, 0, 0)
+    ctx.clearRect(0, 0, c.width, c.height)
+    ctx.drawImage(terrainLayer.current.canvas, 0, 0)
+    world()
+
+    // Hexes on screen (plus a margin); everything per-hex below is skipped off screen.
+    const vx = (-dims.w / 2 - cam.x) / cam.k - SIZE, vy = (-dims.h / 2 - cam.y) / cam.k - SIZE
+    const vw = dims.w / cam.k + 2 * SIZE, vh = dims.h / cam.k + 2 * SIZE
+    const onScreen = (i: number) => { const x = geo.x[i], y = geo.y[i]; return x >= vx && x <= vx + vw && y >= vy && y <= vy + vh }
+    const fogged = (idx: number) => visible !== null && !visible.has(idx)
+    const seen = (i: number) => !fogged(i)
+    const emphasized = (i: number) => rel.hexes.has(i)
+    const ownerAt = (i: number) => { if (i < 0 || fogged(i)) return -1; return cells.get(i)?.owner ?? -1 }
+
+    if (visible !== null) {
+      ctx.beginPath()
+      for (const idx of all) if (rep.terrain[idx]!.kind === 'open' && !visible.has(idx)) hexPoly(ctx, geo.x[idx], geo.y[idx], s)
+      ctx.fillStyle = 'rgba(6,7,10,0.62)'; ctx.fill()
+    }
+
+    // Territory: one tinted fill, one border path and one front path per player.
+    const players = rep.names.length
+    const fills = Array.from({ length: players }, () => new Path2D())
+    const borders = Array.from({ length: players }, () => new Path2D())
+    const fronts = Array.from({ length: players }, () => new Path2D())
+    const inset = s - 1.4
+    for (const [idx, cell] of cells) {
+      if (cell.owner < 0 || fogged(idx)) continue
+      const o = cell.owner, x = geo.x[idx], y = geo.y[idx]
+      hexPoly(fills[o], x, y, inset)
+      for (let d = 0; d < 6; d++) {
+        const n = geo.nb[idx * 6 + d]
+        const other = ownerAt(n)
+        if (other === o) continue
+        const [a, b] = EDGE[d]
+        const path = other >= 0 ? fronts[o] : borders[o]
+        path.moveTo(x + inset * CORNER[a][0], y + inset * CORNER[a][1])
+        path.lineTo(x + inset * CORNER[b][0], y + inset * CORNER[b][1])
       }
-      const hs = HEIGHT_STYLE[t.height]
-      ctx.fillStyle = hs.fill; ctx.fill()
-      const hidden = fogged(idx)
-      if (hidden) { hexPath(ctx, x, y, s); ctx.fillStyle = 'rgba(6,7,10,0.62)'; ctx.fill() }
-      const cell = cells.get(idx)
-      if (!hidden && cell && cell.owner >= 0) {
-        const col = PLAYER_COLORS[cell.owner % 8]
-        hexPath(ctx, x, y, s - 1.3)
-        ctx.fillStyle = col + '30'; ctx.fill()
-        ctx.save()
-        if (detail >= 1) { ctx.shadowColor = col; ctx.shadowBlur = 6 }
-        ctx.strokeStyle = col; ctx.lineWidth = 2.6; ctx.lineJoin = 'round'; ctx.stroke()
-        ctx.restore()
-        if (detail >= 2) {
-          ctx.fillStyle = PLAYER_COLORS[cell.owner % 8]
-          ctx.font = '7px sans-serif'; ctx.textAlign = 'left'; ctx.textBaseline = 'top'
-          ctx.fillText(PLAYER_MARKS[cell.owner % 8], x - SIZE * 0.78, y - SIZE * 0.5)
-        }
+    }
+    ctx.lineCap = 'round'; ctx.lineJoin = 'round'
+    for (let o = 0; o < players; o++) {
+      const col = PLAYER_COLORS[o % 8]
+      ctx.fillStyle = col + (detail === 0 ? '48' : '30'); ctx.fill(fills[o])
+      if (detail >= 1) {
+        ctx.globalAlpha = 0.28; ctx.strokeStyle = col; ctx.lineWidth = 6
+        ctx.stroke(borders[o]); ctx.stroke(fronts[o])
+        ctx.globalAlpha = 1
       }
-      if (!hidden && !heightMode && detail === 2 && (!cell || cell.owner < 0) && !(cell && cell.building > 0)) {
+      ctx.strokeStyle = col
+      ctx.lineWidth = 2.4; ctx.stroke(borders[o])
+      ctx.lineWidth = 3.6; ctx.stroke(fronts[o])
+    }
+
+    if (detail >= 2) {
+      ctx.font = '7px sans-serif'; ctx.textAlign = 'left'; ctx.textBaseline = 'top'
+      for (const [idx, cell] of cells) {
+        if (cell.owner < 0 || fogged(idx) || !onScreen(idx)) continue
+        ctx.fillStyle = PLAYER_COLORS[cell.owner % 8]
+        ctx.fillText(PLAYER_MARKS[cell.owner % 8], geo.x[idx] - SIZE * 0.78, geo.y[idx] - SIZE * 0.5)
+      }
+      if (!heightMode) {
         ctx.font = '600 10.5px Geist Variable, ui-sans-serif, sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'
         ctx.fillStyle = 'rgba(255,255,255,0.88)'
-        ctx.fillText(String(cell ? cell.troops : rep.neutral[idx]), x, t.height === 0 ? y + 1 : y - SIZE * 0.08)
-      }
-      if (heightMode && detail >= 1) {
-        ctx.fillStyle = hs.tag
-        ctx.font = '700 14px ui-monospace, monospace'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'
-        outlinedText(ctx, hs.label, x, y, hs.tag)
+        for (const idx of all) {
+          const t = rep.terrain[idx]!
+          if (t.kind !== 'open' || fogged(idx) || !onScreen(idx)) continue
+          const cell = cells.get(idx)
+          if (cell && (cell.owner >= 0 || cell.building > 0)) continue
+          ctx.fillText(String(cell ? cell.troops : rep.neutral[idx]), geo.x[idx], t.height === 0 ? geo.y[idx] + 1 : geo.y[idx] - SIZE * 0.08)
+        }
       }
     }
 
-    const seen = (i: number) => !fogged(i)
-    const emphasized = (i: number) => rel.hexes.has(i)
-
     for (const [idx, cell] of cells) {
-      if (cell.building === 0 || !seen(idx)) continue
-      const { x, y } = center(idx)
+      if (cell.building === 0 || !seen(idx) || !onScreen(idx)) continue
+      const x = geo.x[idx], y = geo.y[idx]
       const ps = detail === 0 ? s * 0.9 : s * 0.8
       drawPlot(ctx, cell.building, x, y, ps, () => hexPath(ctx, x, y, ps), idx)
     }
 
     for (const b of recentBuilds) {
-      if (!seen(b.idx) || cells.get(b.idx)?.building !== b.kind) continue
-      const { x, y } = center(b.idx)
+      if (!seen(b.idx) || cells.get(b.idx)?.building !== b.kind || !onScreen(b.idx)) continue
       const fade = 1 - b.age / NEW_BUILD_TICKS
       const col = BUILDING_STYLE[b.kind - 1].color
-      ctx.save()
+      ctx.globalAlpha = 0.25 * fade
+      hexPath(ctx, geo.x[b.idx], geo.y[b.idx], s + 4 + 3 * (1 - fade)); ctx.strokeStyle = col; ctx.lineWidth = 6; ctx.stroke()
       ctx.globalAlpha = 0.35 + 0.65 * fade
-      ctx.shadowColor = col; ctx.shadowBlur = 14 * fade + 4
-      hexPath(ctx, x, y, s + 1.5 + 3 * (1 - fade)); ctx.strokeStyle = col; ctx.lineWidth = 2.6; ctx.stroke()
-      ctx.restore()
+      hexPath(ctx, geo.x[b.idx], geo.y[b.idx], s + 1.5 + 3 * (1 - fade)); ctx.lineWidth = 2.6; ctx.stroke()
+      ctx.globalAlpha = 1
     }
 
     if (detail >= 2) {
       for (const [idx, cell] of cells) {
         if (!seen(idx) || cell.building === 0) continue
-        const a = center(idx)
+        const a = { x: geo.x[idx], y: geo.y[idx] }
         if (cell.building === 1) {
           for (const l of cell.links) {
-            if (l < 0 || !seen(l)) continue
-            const b = center(l)
+            if (l < 0 || !seen(l) || (!onScreen(idx) && !onScreen(l))) continue
+            const b = { x: geo.x[l], y: geo.y[l] }
             const hot = emphasized(idx) && emphasized(l)
             ctx.lineCap = 'round'
             ctx.strokeStyle = 'rgba(6,7,10,0.9)'; ctx.lineWidth = hot ? 7 : 5.5
@@ -228,8 +320,8 @@ export function Board({ rep, cells, perspective, visible, selected, heightMode, 
           }
         } else if (cell.building === 4) {
           for (const l of cell.links) {
-            if (l < 0 || l < idx || !seen(l)) continue
-            const b = center(l)
+            if (l < 0 || l < idx || !seen(l) || (!onScreen(idx) && !onScreen(l))) continue
+            const b = { x: geo.x[l], y: geo.y[l] }
             const hot = emphasized(idx) && emphasized(l)
             ctx.lineCap = 'round'
             ctx.strokeStyle = 'rgba(6,7,10,0.9)'; ctx.lineWidth = hot ? 10 : 8.5
@@ -244,54 +336,51 @@ export function Board({ rep, cells, perspective, visible, selected, heightMode, 
     }
 
     const rules = rep.rules
-    for (const [idx, cell] of cells) {
-      if (!seen(idx)) continue
-      const { x, y } = center(idx)
-      const hasB = cell.building > 0
-      const troops = cell.troops
-      if (detail === 0) continue
-      const flat = rep.terrain[idx]?.height === 0
-      if (!heightMode && detail === 2 && troops > 0 && (cell.owner >= 0 || hasB)) {
-        ctx.font = `600 ${hasB ? 9.5 : 10.5}px Geist Variable, ui-sans-serif, sans-serif`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'
-        outlinedText(ctx, String(troops), x, hasB ? y + SIZE * 0.36 : flat ? y + 1 : y - SIZE * 0.08, '#ffffff')
+    if (detail >= 1) {
+      for (const [idx, cell] of cells) {
+        if (!seen(idx) || !onScreen(idx)) continue
+        const x = geo.x[idx], y = geo.y[idx]
+        const hasB = cell.building > 0
+        const troops = cell.troops
+        const flat = rep.terrain[idx]?.height === 0
+        if (!heightMode && detail === 2 && troops > 0 && (cell.owner >= 0 || hasB)) {
+          ctx.font = `600 ${hasB ? 9.5 : 10.5}px Geist Variable, ui-sans-serif, sans-serif`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'
+          outlinedText(ctx, String(troops), x, hasB ? y + SIZE * 0.36 : flat ? y + 1 : y - SIZE * 0.08, '#ffffff')
+        }
+        if (!hasB) continue
+        if (detail < 2) {
+          drawBuilding(ctx, cell.building, x, y, SIZE * 0.5)
+          continue
+        }
+        drawBuilding(ctx, cell.building, x, y - SIZE * 0.22, SIZE * 0.38, { pips: buildingPips(cell, rules) })
       }
-      if (!hasB) continue
-      if (detail < 2) {
-        drawBuilding(ctx, cell.building, x, y, SIZE * 0.5)
-        continue
-      }
-      drawBuilding(ctx, cell.building, x, y - SIZE * 0.22, SIZE * 0.38, { pips: buildingPips(cell, rules) })
     }
 
     if (detail >= 2 && !heightMode) {
       for (const idx of all) {
         const t = rep.terrain[idx]!
-        if (t.kind !== 'open' || t.height === 0 || fogged(idx)) continue
-        const { x, y } = center(idx)
+        if (t.kind !== 'open' || t.height === 0 || fogged(idx) || !onScreen(idx)) continue
         const hasB = (cells.get(idx)?.building ?? 0) > 0
-        drawHeightMark(ctx, t.height, x, y + SIZE * (hasB ? 0.7 : 0.54), SIZE * 0.25)
+        drawHeightMark(ctx, t.height, geo.x[idx], geo.y[idx] + SIZE * (hasB ? 0.7 : 0.54), SIZE * 0.25)
       }
     }
 
     for (const i of rel.discounted) {
-      const { x, y } = center(i)
+      const x = geo.x[i], y = geo.y[i]
       hexPath(ctx, x, y, s); ctx.fillStyle = 'rgba(111,214,255,0.22)'; ctx.fill()
       ctx.setLineDash([3, 2]); ctx.strokeStyle = '#6fd6ff'; ctx.lineWidth = 1.6; ctx.stroke(); ctx.setLineDash([])
       if (detail >= 1) { ctx.font = '700 7px sans-serif'; ctx.textAlign = 'center'; outlinedText(ctx, '-25%', x, y - SIZE * 0.5, '#9fe6ff') }
     }
     for (const i of rel.alternatives) {
-      const { x, y } = center(i)
-      hexPath(ctx, x, y, s - 0.5); ctx.setLineDash([4, 3]); ctx.strokeStyle = '#ffd36b'; ctx.lineWidth = 2; ctx.stroke(); ctx.setLineDash([])
+      hexPath(ctx, geo.x[i], geo.y[i], s - 0.5); ctx.setLineDash([4, 3]); ctx.strokeStyle = '#ffd36b'; ctx.lineWidth = 2; ctx.stroke(); ctx.setLineDash([])
     }
     for (const i of rel.hexes) {
-      const { x, y } = center(i)
-      hexPath(ctx, x, y, s + 1); ctx.strokeStyle = i === selected ? '#fff' : '#e8f5ff'; ctx.lineWidth = i === selected ? 3.2 : 2.2; ctx.stroke()
+      hexPath(ctx, geo.x[i], geo.y[i], s + 1); ctx.strokeStyle = i === selected ? '#fff' : '#e8f5ff'; ctx.lineWidth = i === selected ? 3.2 : 2.2; ctx.stroke()
     }
     if (selected !== null && !rel.hexes.has(selected)) {
-      const { x, y } = center(selected)
-      hexPath(ctx, x, y, s + 1); ctx.strokeStyle = '#fff'; ctx.lineWidth = 3; ctx.stroke()
+      hexPath(ctx, geo.x[selected], geo.y[selected], s + 1); ctx.strokeStyle = '#fff'; ctx.lineWidth = 3; ctx.stroke()
     }
-  }, [rep, cells, visible, cam, dims, selected, all, perspective, heightMode, rel, recentBuilds])
+  }, [rep, cells, visible, cam, dims, selected, all, perspective, heightMode, rel, recentBuilds, geo])
 
   useEffect(() => {
     const c = mini.current!
