@@ -63,7 +63,7 @@ Under Rules v0.1, which required owning every hex, the hand-written roster finis
 
 ## Play it yourself
 
-**Play** (`#/play`) seats you against CPU bots. Pick a map, 1 to 7 opponents and a difficulty (Easy: the hand-written roster CPUs; Medium: bots from the middle of the arena standings; Hard: the top of the standings), then play in your own fog. You give the same one order per tick a bot does. Orders wait in a queue (up to 40) and the next one runs each tick, so you can line up a whole march ahead of time.
+**Play** (`#/play`) seats you against CPU bots. Pick a map, 1 to 7 opponents and a difficulty (Easy: the four original CPUs, Expander, Homesteader, Raider and Warden; Medium: bots from the middle of the arena standings; Hard: the top of the standings), then play in your own fog. You give the same one order per tick a bot does. Orders wait in a queue (up to 40) and the next one runs each tick, so you can line up a whole march ahead of time.
 
 - Click one of your hexes, then a neighbour, to send its spare troops there. Keep clicking to chain moves. **H** switches between sending all and half.
 - **Shift-click** or **right-click** one of your hexes to gather troops toward it.

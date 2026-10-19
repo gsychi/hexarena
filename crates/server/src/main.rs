@@ -999,7 +999,7 @@ fn live_lineup(app: &AppState, level: play::Level, count: usize, seed: u64) -> V
         .collect();
     let mut pool = match level {
         play::Level::Easy => {
-            let mut p = catalog.active_field();
+            let mut p: Vec<Style> = ANCHORS.iter().filter_map(|a| catalog.resolve(a)).collect();
             shuffle(&mut p);
             p
         }

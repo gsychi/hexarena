@@ -21,7 +21,7 @@ import type { BoardRep, Cell, GameEvent, Hex } from './model'
 const go = (hash: string) => { location.hash = hash }
 
 const LEVELS: { id: LiveLevel; name: string; blurb: string }[] = [
-  { id: 'easy', name: 'Easy', blurb: 'The hand-written roster CPUs: steady expanders and raiders.' },
+  { id: 'easy', name: 'Easy', blurb: 'The four original CPUs: Expander, Homesteader, Raider and Warden.' },
   { id: 'medium', name: 'Medium', blurb: 'Bots from the middle of the arena standings.' },
   { id: 'hard', name: 'Hard', blurb: 'The current top of the arena, agent-designed and tuned in self-play.' },
 ]
