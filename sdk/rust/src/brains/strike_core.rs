@@ -115,6 +115,8 @@ struct Capture {
     from: usize,
     to: usize,
     send: u32,
+    /// Passable hexes the capture would seal off.
+    sealed: u32,
 }
 
 /// How the land we don't own hangs together this tick.
@@ -224,6 +226,9 @@ struct Knobs {
     region: i64,
     /// Extra score per sealed-off hex a rival owns.
     region_enemy: i64,
+    /// Walk spare stacks toward a capture we can't afford yet when it would seal off at
+    /// least this many hexes (0 = never).
+    region_stage: u32,
 }
 
 impl Knobs {
@@ -275,6 +280,7 @@ impl Knobs {
             switch_pct: k("switch_pct", 70) as u32,
             region: k("region", 0),
             region_enemy: k("region_enemy", 0),
+            region_stage: k("region_stage", 0) as u32,
         }
     }
 
@@ -613,15 +619,17 @@ impl StrikeCore {
                 let need = (mean + sd * self.k.sure_x10 / 10).div_ceil(1000) + 1;
                 let loss = mean.div_ceil(1000);
                 let want_t = self.want(geo, me, t, s);
+                let seals = regions.map_or(0, |r| r.land[t]);
                 if need > avail {
-                    if self.k.stage > 0 {
+                    let region_pad = self.k.region_stage > 0 && seals >= self.k.region_stage;
+                    if self.k.stage > 0 || region_pad {
                         let full = need.max(want_t.map_or(0, |w| loss + w));
                         let short = full + 1 - troops.min(full + 1);
                         let score = self.capture_gain(geo, me, t, tc, seal) + sealed(t)
                             - loss as i64 * cost_milli / 1000
                             - short as i64 * self.k.short_cost;
                         if blocked.map_or(true, |b| (score, std::cmp::Reverse(t)) > (b.score, std::cmp::Reverse(b.to))) {
-                            blocked = Some(Capture { score, from: s, to: t, send: short as u32 });
+                            blocked = Some(Capture { score, from: s, to: t, send: short as u32, sealed: seals });
                         }
                     }
                     continue;
@@ -663,7 +671,7 @@ impl StrikeCore {
                         > (b.score, std::cmp::Reverse(b.to), b.send as u64)
                 });
                 if better {
-                    best = Some(Capture { score, from: s, to: t, send: send as u32 });
+                    best = Some(Capture { score, from: s, to: t, send: send as u32, sealed: seals });
                 }
             }
         }
@@ -959,7 +967,10 @@ impl Bot for StrikeCore {
             !rush && self.k.supply_every > 0 && view.tick % self.k.supply_every == 0;
         let floor = capture.map_or(self.k.min_score, |c| c.score);
         let staging = blocked
-            .filter(|b| !rush && mine.len() > 1 && b.score >= floor + self.k.stage)
+            .filter(|b| {
+                let region_pad = self.k.region_stage > 0 && b.sealed >= self.k.region_stage;
+                !rush && mine.len() > 1 && (b.score >= floor + self.k.stage || region_pad && b.score > floor)
+            })
             .and_then(|b| {
                 let contact =
                     mine.iter().any(|&s| geo.nbrs[s].iter().any(|&n| self.enemy(n, me)));
@@ -976,5 +987,70 @@ impl Bot for StrikeCore {
         };
         self.geo = Some(geo);
         PlayerCommand::action(action)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{PlayerEconomy, Terrain, TerrainKind, VisibleHex};
+
+    /// A radius-4 board where we own the ring at distance 2 from the centre except one
+    /// hex, a rival owns the centre, and a mountain sits inside the ring.
+    fn ring_view(gap: Hex, mountain: Hex) -> View {
+        let radius = 4;
+        let w = 2 * radius + 1;
+        let mut terrain = vec![None; (w * w) as usize];
+        let mut visible = vec![];
+        for r in -radius..=radius {
+            for q in -radius..=radius {
+                let h = Hex::new(q, r);
+                if h.distance(Hex::new(0, 0)) > radius {
+                    continue;
+                }
+                let kind = if h == mountain { TerrainKind::Mountain } else { TerrainKind::Open };
+                terrain[((r + radius) * w + q + radius) as usize] = Some(Terrain { height: 0, kind });
+                let d = h.distance(Hex::new(0, 0));
+                let owner = if d == 2 && h != gap { Some(0) } else if d == 0 { Some(1) } else { None };
+                visible.push(VisibleHex { hex: h, owner, troops: 5, building: None, income: 1, wall_milli: MILLI });
+            }
+        }
+        View {
+            protocol_version: 1,
+            rules_version: String::new(),
+            tick: 0,
+            you: 0,
+            radius,
+            fog_radius: 3,
+            public_players: vec![],
+            public_terrain: terrain,
+            visible_hexes: visible,
+            own_economy: PlayerEconomy { resource: 0 },
+            own_queue: vec![],
+            visible_events: vec![],
+            storm_radius: None,
+            rules: None,
+        }
+    }
+
+    #[test]
+    fn closing_a_ring_seals_its_inside_mountains_included() {
+        let gap = Hex::new(2, 0);
+        let view = ring_view(gap, Hex::new(1, 0));
+        let mut core = StrikeCore::new(crate::style("ridgeline").unwrap());
+        let geo = Geometry::new(&view);
+        core.seen = vec![None; geo.passable.len()];
+        for c in &view.visible_hexes {
+            let i = geo.slot(c.hex).unwrap();
+            core.seen[i] = Some(Cell { owner: c.owner, troops: c.troops, wall_milli: c.wall_milli, building: None, income: 1 });
+        }
+        let r = core.regions(&geo, 0);
+        let g = geo.slot(gap).unwrap();
+        // Inside the ring: the centre and five of the six distance-1 hexes are passable.
+        assert_eq!(r.land[g], 6);
+        assert_eq!(r.enemy[g], 1);
+        // Taking a hex outside the ring seals nothing.
+        assert_eq!(r.land[geo.slot(Hex::new(3, 0)).unwrap()], 0);
+        assert_eq!(r.land[geo.slot(Hex::new(0, 0)).unwrap()], 0);
     }
 }
