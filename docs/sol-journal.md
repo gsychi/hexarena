@@ -298,8 +298,10 @@ losses gather 800–2,100 times after a front becomes unaffordable.
 - Change: new closeout target model counts owned launch pads touching each rival and favors
   low-land, high-contact survivors; starts execution mode at tick 1350 or six survivors.
 - Published params: `docs/arena-genomes/mosaic-v21.json`.
-- Result: pending live arena trial.
-- Replay lesson: pending.
+- Result after 18 games: Elo 1686, AVP8 4.06, win rate 5.6%, top-half 66.7%.
+- Replay lesson: the reachable target improved consistency: one 301-land win included 214
+  surrender hexes and only 67 NoOps, with many other podiums. It still stalled when the
+  selected contact front lost liquidity, and every game reached tick 3000.
 
 ## mosaic-v22 — Army Disarmer
 
@@ -309,5 +311,8 @@ losses gather 800–2,100 times after a front becomes unaffordable.
 - Change: alternative finisher target model ranks every living rival by remembered troops,
   then land; otherwise retains v20's lean relays, continuation rollout, and enclosure model.
 - Published params: `docs/arena-genomes/mosaic-v22.json`.
-- Result: pending live arena trial.
-- Replay lesson: pending.
+- Result after 17 games: Elo 1712, AVP8 5.00, win rate 11.8%, top-half 41.2%.
+- Replay lesson: highest current rank but volatile. Consecutive wins reached 282 and 308
+  land; the latter used 2,984 moves and surrendered 286 hexes. Other seeds finished eighth.
+  Army size can expose a cheap victim, but fog-stale troop totals can select a trap. No
+  round-2 entrant achieved an early close.
