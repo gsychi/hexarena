@@ -1,0 +1,19 @@
+{
+  "brain": "siege",
+  "knobs": {
+    "lookahead": 2,
+    "enclosure": 260,
+    "enclosure_enemy": 140,
+    "two_discount": 80,
+    "thin_min_friends": 2,
+    "counter_margin": 400,
+    "rescue_min_land": 3,
+    "rescue_min_troops": 120,
+    "rescue_enemy_pct": 135,
+    "city_from": 500,
+    "city_until": 6500,
+    "city_depth": 2,
+    "city_score": 90,
+    "demolish": 1
+  }
+}
