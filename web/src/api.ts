@@ -1,5 +1,5 @@
 import { registerBots } from './lineage'
-import type { GameEvent, Hex, Placement, Rules, Terrain } from './model'
+import type { GameEvent, Hex, MapPreset, Placement, Rules, Terrain } from './model'
 
 export interface BotInfo {
   id: string
@@ -44,6 +44,8 @@ export interface MatchSummary {
   final_tick: number | null
   /** Scheduled by the self-playing arena. */
   auto?: boolean
+  /** The real-world map it was played on; procedural when absent. */
+  map?: MapPreset
   winner: string | null
   standings: Standing[]
 }
@@ -187,7 +189,10 @@ export type ActivityItem =
 
 export interface Activity { agent: string; status: AgentStatus | null; items: ActivityItem[] }
 
-export interface CreateMatch { bots: string[]; seed?: number; count: number }
+/** `'any'` picks a real-world map at random for each game. */
+export type MapChoice = 'procedural' | 'any' | MapPreset
+export interface CreateMatch { bots: string[]; seed?: number; count: number; map: MapChoice }
+export interface MapInfo { id: MapPreset; name: string; blurb: string }
 
 async function json<T>(res: Response): Promise<T> {
   if (!res.ok) {
@@ -207,6 +212,7 @@ export const api = {
     fetch(`/api/matches?limit=${limit}`).then(async (r) => ({ games: await json<MatchSummary[]>(r), total: Number(r.headers.get('x-total-count') ?? 0) })),
   match: (id: string) => fetch(`/api/matches/${id}`).then((r) => json<MatchSummary>(r)),
   rules: () => fetch('/api/rules').then((r) => json<LiveRules>(r)),
+  maps: () => fetch('/api/maps').then((r) => json<MapInfo[]>(r)),
   leaderboard: (format: BoardFormat = 'all') => fetch(format === 'all' ? '/api/leaderboard' : `/api/leaderboard?format=${format}`).then((r) => json<Leaderboard>(r)),
   matchElo: (id: string) => fetch(`/api/matches/${id}/elo`).then((r) => json<MatchElo>(r)),
   arena: () => fetch('/api/arena').then((r) => json<ArenaInfo>(r)),
@@ -233,7 +239,7 @@ export const api = {
 const post = <T,>(url: string, body: unknown) =>
   fetch(url, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) }).then((r) => json<T>(r))
 
-export type MapPreset = 'europe'
+export type { MapPreset }
 export type LiveLevel = 'easy' | 'medium' | 'hard'
 export type LivePhase = 'playing' | 'won' | 'lost' | 'cutoff' | 'abandoned'
 export interface NewLiveGame { map: MapPreset | null; level: LiveLevel; opponents: number; speed?: number }
