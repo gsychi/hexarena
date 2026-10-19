@@ -1,0 +1,4 @@
+timing seed 930001 seat 0 cand   moves  3034 mean 0.104 ms  p99.9 0.159 ms  max 0.200 ms at move 0
+timing seed 930001 seat 1 base   moves  3034 mean 0.023 ms  p99.9 0.046 ms  max 0.079 ms at move 0
+timing seed 930004 seat 0 base   moves  8369 mean 0.045 ms  p99.9 0.126 ms  max 0.142 ms at move 4930
+timing seed 930004 seat 1 cand   moves  8369 mean 0.132 ms  p99.9 0.172 ms  max 0.195 ms at move 0
