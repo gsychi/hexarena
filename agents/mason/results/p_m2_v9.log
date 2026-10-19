@@ -1,0 +1,29 @@
+seed 910000 tick 10000 closer None: raider=7/w3l1 raider=8/w0l1 cand=3/w261l42 cand=1/w60l51 cand=5/w32l32 base=2/w24l70 base=6/w17l6 base=4/w4l188
+seed 910000 tick 10000 closer None: raider=7/w4l1 raider=8/w1l0 base=2/w51l46 base=3/w9l42 base=5/w19l53 cand=1/w100l26 cand=6/w36l12 cand=4/w20l49
+after 1 pairs: gain +0.33 ± NaN
+seed 910001 tick 10000 closer None: base=1/w46l67 cand=3/w86l20 cand=8/w0l0 predator=7/w5l21 cand=5/w10l0 base=2/w40l61 relay=6/w2l1 base=4/w38l55
+seed 910001 tick 10000 closer None: cand=2/w128l104 base=4/w5l19 base=8/w0l0 predator=7/w9l32 base=6/w0l4 cand=3/w78l72 relay=5/w3l13 cand=1/w124l100
+after 2 pairs: gain +0.42 ± 0.08
+seed 910002 tick 10000 closer None: cand=3/w112l62 homesteader=8/w1l2 cand=6/w3l10 base=4/w10l10 cand=5/w7l2 base=1/w80l62 base=2/w27l87 warden=7/w0l2
+seed 910002 tick 10000 closer None: base=3/w22l197 homesteader=7/w0l1 base=6/w4l1 cand=5/w9l0 base=4/w11l39 cand=1/w159l66 cand=2/w140l38 warden=8/w1l2
+after 3 pairs: gain +0.17 ± 0.25
+seed 910003 tick 10000 closer None: ridgeline=4/w3l4 cand=5/w14l5 base=6/w3l6 base=3/w13l41 base=2/w66l112 cand=7/w0l0 cand=1/w146l28 expander=8/w1l42
+seed 910003 tick 10000 closer None: ridgeline=5/w3l3 base=6/w6l10 cand=4/w1l2 cand=3/w37l20 cand=2/w122l11 base=8/w0l0 base=1/w31l120 expander=7/w0l25
+after 4 pairs: gain +0.29 ± 0.22
+seed 910004 tick 10000 closer None: cand=4/w1l6 cand=5/w5l4 base=6/w2l1 base=1/w41l91 warden=8/w0l1 raider=7/w0l7 base=2/w20l55 cand=3/w119l18
+seed 910004 tick 10000 closer None: base=4/w3l21 base=5/w2l4 cand=6/w0l0 cand=1/w137l131 warden=8/w1l3 raider=7/w1l8 cand=3/w219l98 base=2/w17l112
+after 5 pairs: gain +0.17 ± 0.21
+seed 910005 tick 10000 closer None: base=3/w41l113 base=6/w4l3 cand=7/w29l34 cand=2/w106l146 base=4/w26l26 ridgeline=5/w2l3 ridgeline=8/w0l3 cand=1/w215l91
+seed 910005 tick 10000 closer None: cand=3/w75l12 cand=6/w1l1 base=4/w17l15 base=1/w16l55 cand=5/w17l20 ridgeline=7/w1l1 ridgeline=8/w1l0 base=2/w26l44
+after 6 pairs: gain +0.03 ± 0.22
+gain +0.028 ± 0.221 over 6 pairs (12 games)
+bot            seats  score    avp  rgn+/g  rgn-/g  demo  elim close cpu ms/mv  cpu max   ring ok wall max
+base              36   3.69   3.69    20.6    51.0     0    19     0    0.107     4.57    0/0        72.9
+cand              36   3.67   3.67    72.5    36.5  2182    18     0    0.403     4.07  585/585      72.7
+expander           2   7.50   7.50     0.5    33.5     0     2     0    0.010     0.03    0/0         2.2
+homesteader        2   7.50   7.50     0.5     1.5     0     2     0    0.025     0.08    0/0         6.7
+predator           2   7.00   7.00     7.0    26.5     0     2     0    0.027     0.09    0/0         7.3
+raider             6   7.33   7.33     1.5     3.0     0     6     0    0.014     0.11    0/0        11.4
+relay              2   5.50   5.50     2.5     7.0     0     2     0    0.020     0.06    0/0         9.2
+ridgeline          6   6.17   6.17     1.7     2.3     0     6     0    0.015     0.14    0/0         8.8
+warden             4   7.75   7.75     0.5     2.0     0     4     0    0.015     0.06    0/0         3.4

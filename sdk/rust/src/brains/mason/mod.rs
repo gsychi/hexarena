@@ -203,6 +203,9 @@ pub struct Mason {
     /// (flagged, lost within 10 ticks).
     calib: Vec<(u32, usize, usize)>,
     calib_hits: [(u32, u32); 16],
+    /// `MASON_CALIB` / `MASON_DEBUG` set when the bot was built.
+    calib_on: bool,
+    debug_on: bool,
 }
 
 #[derive(Clone, Copy, PartialEq)]
@@ -231,6 +234,8 @@ impl Mason {
             banned: vec![],
             calib: vec![],
             calib_hits: [(0, 0); 16],
+            calib_on: std::env::var("MASON_CALIB").is_ok(),
+            debug_on: std::env::var("MASON_DEBUG").is_ok(),
         }
     }
 
@@ -612,7 +617,7 @@ impl Mason {
                 if blocked[x] || !m.passable[x] || !m.nbrs[x].iter().any(|&n| blocked[n]) || !falls(x, r) {
                     continue;
                 }
-                if std::env::var("MASON_CALIB").is_ok() && village(x).is_some() && !self.calib.iter().any(|c| c.1 == x) {
+                if self.calib_on && village(x).is_some() && !self.calib.iter().any(|c| c.1 == x) {
                     let def = cell[x].map_or(1, |c| c.troops.max(1)) as u64;
                     let worst = m.nbrs[x].iter().filter_map(|&e| cell[e].filter(|c| c.owner == Some(r))).map(|c| c.troops as u64).max().unwrap_or(0);
                     let tb = if def <= 10 { 0 } else if def <= 40 { 1 } else if def <= 150 { 2 } else { 3 };
@@ -620,7 +625,7 @@ impl Mason {
                     self.calib.push((view.tick, x, tb * 4 + rb));
                     self.calib_hits[tb * 4 + rb].0 += 1;
                 }
-                if std::env::var("MASON_DEBUG").is_ok() && village(x).is_some() {
+                if self.debug_on && village(x).is_some() {
                     eprintln!("  t{} direct x={:?} troops {}", view.tick, m.hexes[x], cell[x].map_or(0, |c| c.troops));
                 }
                 consider(x, &mut best);
@@ -633,7 +638,7 @@ impl Mason {
                     }
                     floods += 1;
                     if self.tarjan.sealed(&b, &blocked, x, n, 400) {
-                        if std::env::var("MASON_DEBUG").is_ok() {
+                        if self.debug_on {
                             eprintln!("  t{} pocket via x={:?} (troops {}) by p{} size {}", view.tick, m.hexes[x], cell[x].map_or(0, |c| c.troops), r, self.tarjan.flooded().len());
                         }
                         for &j in self.tarjan.flooded() {
@@ -651,7 +656,7 @@ impl Mason {
 
 impl Drop for Mason {
     fn drop(&mut self) {
-        if std::env::var("MASON_CALIB").is_ok() {
+        if self.calib_on {
             let cells: Vec<String> = self.calib_hits.iter().enumerate().filter(|(_, h)| h.0 > 0).map(|(i, h)| format!("d{}r{}:{}/{}", i / 4, i % 4, h.1, h.0)).collect();
             eprintln!("calib {}", cells.join(" "));
         }
@@ -687,7 +692,7 @@ impl Bot for Mason {
             }
             Action::Gather { .. } | Action::Build { .. } | Action::Demolish { .. } | Action::NoOp => false,
         };
-        if std::env::var("MASON_CALIB").is_ok() {
+        if self.calib_on {
             let me = view.you;
             let mut keep = vec![];
             for &(t, i, bk) in &self.calib {
@@ -733,7 +738,7 @@ impl Bot for Mason {
             && self.last_demolish.is_none_or(|t| view.tick >= t + self.k.demolish_gap)
         {
             if let Some(at) = doomed {
-                if std::env::var("MASON_DEBUG").is_ok() {
+                if self.debug_on {
                     let c = view.visible_hexes.iter().find(|c| c.hex == at).unwrap();
                     eprintln!("t{} p{} demolish {:?} income {} troops {}", view.tick, view.you, at, c.income, c.troops);
                 }
