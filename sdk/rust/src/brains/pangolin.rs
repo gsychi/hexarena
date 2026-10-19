@@ -91,6 +91,10 @@ struct Knobs {
     /// Prefer discounted Villages before Farms, and never build a Farm that feeds no
     /// existing Village (0/1).
     village_first: bool,
+    /// Finish an affordable discounted Village before starting another Quarry ring.
+    ring_first: bool,
+    /// Fewest existing Villages a Farm must feed in village-first mode.
+    farm_min_villages: u64,
     /// Quarry score bonus per useful neighbour when the cluster touches the board edge.
     edge_cluster: u64,
     /// Walls on enemy-facing border hexes from this tick (0 = never).
@@ -134,6 +138,8 @@ impl Knobs {
             quarry_first: k("quarry_first", 0) > 0,
             quarry_sites: k("quarry_sites", 2) as usize,
             village_first: k("village_first", 0) > 0,
+            ring_first: k("ring_first", 0) > 0,
+            farm_min_villages: k("farm_min_villages", 1) as u64,
             edge_cluster: k("edge_cluster", 0) as u64,
             wall_from: k("wall_from", 0) as u32,
             wall_gap: k("wall_gap", 4) as u32,
@@ -304,7 +310,7 @@ impl Pangolin {
                 let partners =
                     m.nbrs[i].iter().filter(|&&n| site[n] == Site::Empty && m.colour(n) == vclass).count() as u64;
                 let villages = count(Building::Village);
-                if !self.k.village_first || villages > 0 {
+                if !self.k.village_first || villages >= self.k.farm_min_villages {
                     let rate = 1000 * self.rules.village.farm_bonus as u64 * villages + fut * partners;
                     options.push((Building::Farm, rate));
                 }
@@ -381,6 +387,11 @@ impl Pangolin {
                 if roi >= self.k.min_roi && best.is_none_or(|x| (roi, std::cmp::Reverse(i)) > (x.0, std::cmp::Reverse(x.1))) {
                     best = Some((roi, i, b));
                 }
+            }
+        }
+        if self.k.ring_first {
+            if let Some((roi, i)) = best_discounted_village {
+                return Some((roi, Action::Build { at: m.hexes[i], building: Building::Village }));
             }
         }
         if let Some((score, i)) = best_quarry {
