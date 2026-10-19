@@ -186,7 +186,7 @@ export function Home({ onOpen, onLeague, onNotes }: { onOpen: (id: string) => vo
             </div>
 
             <p className="text-[11px] text-muted-foreground">
-              Every game ends the moment one player is left standing. From tick 3,000 attackers win each exchange more often (47% rising to 85%), and the cutoff is 10,000 ticks, where survivors are ranked by land. Games that end before the cutoff count double for Elo.
+              Every game ends the moment one player is left standing. From tick 3,000 attackers win each exchange more often (47% rising to 85%), and the cutoff is 10,000 ticks, where survivors are ranked by land. A game someone ends before the cutoff counts as much for Elo as 8 cutoff games in an 8-player lobby (N times in an N-player one).
             </p>
 
             <div className="grid grid-cols-2 gap-4">

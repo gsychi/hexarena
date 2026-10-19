@@ -24,8 +24,14 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 pub const START_ELO: f64 = 1500.0;
 pub const K: f64 = 32.0;
-/// A game that ends before the cutoff moves ratings this many times as far.
-pub const ENDED_WEIGHT: f64 = 2.0;
+/// How far a finished game moves ratings, as a multiple of K. A game someone ended
+/// before the cutoff counts as many times as a cutoff game as there were players, so
+/// closing out an 8-player lobby is worth 8 times coasting to the cutoff in one. The
+/// ended weight stays at 2, so ratings are as steady as before when most games end.
+pub fn game_weight(ended: bool, players: usize) -> f64 {
+    const ENDED: f64 = 2.0;
+    if ended { ENDED } else { ENDED / players.max(1) as f64 }
+}
 /// Challengers drawn per attempt before one that plays like the champion is gated anyway.
 const SCREEN_TRIES: usize = 12;
 /// Attempts kept in `league.json`; older ones are summarized by the counters.
@@ -634,8 +640,7 @@ fn plays_like(a: &Entrant, b: &Entrant, pool: &[Entrant], seed: u64) -> Result<b
 
 /// Multiplayer Elo: every pair of seats with different identities is a head-to-head
 /// result (lower 8-player placement wins), scaled by K/(N-1); an identity with several
-/// seats moves by the average of its seats. Games that ended before the cutoff count
-/// [`ENDED_WEIGHT`] times.
+/// seats moves by the average of its seats, weighted by [`game_weight`].
 pub fn apply_elo(elo: &mut BTreeMap<String, f64>, log: &GameLog) {
     let n = log.ids.len();
     if n < 2 {
@@ -660,7 +665,7 @@ pub fn apply_elo(elo: &mut BTreeMap<String, f64>, log: &GameLog) {
             d += actual - expected;
         }
         let e = delta.entry(&log.ids[i]).or_insert((0.0, 0));
-        let k = if log.closer.is_some() { K * ENDED_WEIGHT } else { K };
+        let k = K * game_weight(log.closer.is_some(), n);
         e.0 += k / (n - 1) as f64 * d;
         e.1 += 1;
     }
