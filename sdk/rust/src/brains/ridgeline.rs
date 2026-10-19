@@ -11,7 +11,7 @@
 //! made at all, and troops get cheaper the more of them we bank per hex. Spare actions
 //! relay interior stacks toward short border hexes.
 
-use crate::{Action, Bot, Hex, PlayerCommand, PlayerId, RulesConfig, Style, View, MILLI};
+use crate::{Action, Bot, Building, Hex, PlayerCommand, PlayerId, RulesConfig, Style, View, MILLI};
 use std::collections::VecDeque;
 
 /// Map-static data, built from the first view.
@@ -66,6 +66,7 @@ struct Cell {
     owner: Option<PlayerId>,
     troops: u32,
     wall_milli: u32,
+    building: Option<Building>,
 }
 
 /// One affordable capture under consideration.
@@ -160,6 +161,14 @@ struct Knobs {
     /// Before this tick (0 = never) the opening knobs below replace `margin_pct` and
     /// `safe_min`: on a crowded spawn every hex faces an enemy, and full garrisons freeze
     /// expansion while the rivals grow away from us.
+    /// Go-style region capture (0/1; rules v0.7, which a frozen binary can't read): any
+    /// region we don't own that our land closes off from the board edge becomes ours.
+    region: bool,
+    /// Largest region (hexes) we flood looking for one we'd close off.
+    region_max: usize,
+    /// Score for taking a rival's Village / Farm or Quarry with the hex.
+    loot_village: i64,
+    loot_farm: i64,
     open_until: u32,
     open_margin_pct: u64,
     open_safe_min: i64,
@@ -207,6 +216,10 @@ impl Knobs {
             late_at: None,
             focus: k("focus", 0),
             push_gather: k("push_gather", 0) as u32,
+            region: k("region", 0) > 0,
+            region_max: k("region_max", 200) as usize,
+            loot_village: k("loot_village", 0),
+            loot_farm: k("loot_farm", 0),
             open_until: k("open_until", 0) as u32,
             open_margin_pct: k("open_margin_pct", 200) as u64,
             open_safe_min: k("open_safe_min", 0),
@@ -327,7 +340,46 @@ impl Ridgeline {
     }
 
     /// Hexes of the enemy pockets that would surrender if we took `to`.
+    /// Passable hexes of the regions we'd close off from the board edge by taking `to`.
+    fn region_gain(&self, geo: &Geometry, to: usize, me: PlayerId) -> i64 {
+        let mut gain = 0i64;
+        let mut done: Vec<usize> = vec![];
+        for nb in geo.hexes[to].neighbors() {
+            let Some(n) = geo.slot(nb) else { continue };
+            if self.owned(n, me) || done.contains(&n) {
+                continue;
+            }
+            let mut comp = vec![n];
+            let mut k = 0;
+            let mut enclosed = true;
+            while k < comp.len() && enclosed {
+                let c = comp[k];
+                k += 1;
+                for h in geo.hexes[c].neighbors() {
+                    let Some(j) = geo.slot(h) else {
+                        enclosed = false;
+                        break;
+                    };
+                    if j != to && !self.owned(j, me) && !comp.contains(&j) {
+                        comp.push(j);
+                    }
+                }
+                if comp.len() > self.k.region_max {
+                    enclosed = false;
+                }
+            }
+            done.extend(&comp);
+            if enclosed {
+                gain += comp.iter().filter(|&&c| geo.passable[c]).count() as i64;
+            }
+        }
+        gain
+    }
+
     fn enclosure_gain(&self, geo: &Geometry, to: usize, me: PlayerId) -> i64 {
+        if self.k.region {
+            return self.region_gain(geo, to, me);
+        }
         const LIMIT: usize = 64;
         let mut gain = 0i64;
         let mut done: Vec<usize> = vec![];
@@ -542,8 +594,19 @@ impl Ridgeline {
         let hugged = geo.nbrs[t].iter().filter(|&&n| self.owned(n, me)).count() as i64;
         let exposed = geo.nbrs[t].len() as i64 - hugged;
         let mut gain = self.k.land;
+        if self.k.region {
+            gain += self.k.enclose * self.enclosure_gain(geo, t, me);
+        }
         if let Some(o) = tc.owner {
-            gain += self.k.enemy + self.k.enclose * self.enclosure_gain(geo, t, me);
+            if !self.k.region {
+                gain += self.k.enclose * self.enclosure_gain(geo, t, me);
+            }
+            gain += self.k.enemy;
+            gain += match tc.building {
+                Some(Building::Village) => self.k.loot_village,
+                Some(Building::Farm | Building::Quarry) => self.k.loot_farm,
+                _ => 0,
+            };
             if self.k.focus > 0 {
                 let n = self.land_of.get(o as usize).copied().unwrap_or(0).max(1) as i64;
                 gain += self.k.focus * 50 / n;
@@ -705,7 +768,12 @@ impl Bot for Ridgeline {
         let mut mine = vec![];
         for c in &view.visible_hexes {
             let Some(i) = geo.slot(c.hex) else { continue };
-            self.seen[i] = Some(Cell { owner: c.owner, troops: c.troops, wall_milli: c.wall_milli });
+            self.seen[i] = Some(Cell {
+                owner: c.owner,
+                troops: c.troops,
+                wall_milli: c.wall_milli,
+                building: c.building.as_ref().map(|b| b.kind),
+            });
             if c.owner == Some(me) {
                 mine.push(i);
             }
