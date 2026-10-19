@@ -263,8 +263,9 @@ struct Knobs {
     /// Demolish a Village, Farm or Quarry on a hex we took once the biggest enemy stack
     /// next to it would kill this % of its garrison (0 = never): it falls back bare.
     demolish_pct: u64,
-    /// Neck passes only for rivals touching our land, one rival a tick in turn (0/1).
-    neck_rr: bool,
+    /// Board hexes the neck passes may visit a tick, one region pass per rival costing a
+    /// board's worth (0 = every rival every tick).
+    neck_budget: usize,
     /// Finish the victim once at most this many players are alive, in lobbies that
     /// started with more (0 = never).
     blitz_alive: u32,
@@ -276,6 +277,8 @@ struct Knobs {
     duel_late_sprint: bool,
     /// % of the troops a seal hands over counted in its score, at the troop price.
     region_troops_pct: i64,
+    /// While finishing, skip supply, staging and reinforcement everywhere (0/1).
+    finish_rush: bool,
     /// Whether the duel overrides have been applied.
     duel_set: bool,
 }
@@ -339,12 +342,13 @@ impl Knobs {
             reinforce: k("reinforce", 0) as u32,
             reinforce_min: k("reinforce_min", 300),
             demolish_pct: k("demolish_pct", 0) as u64,
-            neck_rr: k("neck_rr", 0) > 0,
+            neck_budget: k("neck_budget", 0) as usize,
             blitz_alive: k("blitz_alive", 0) as u32,
             blitz_share_pct: k("blitz_share_pct", 0) as u32,
             duel_late_from: k("duel_late_from", 0) as u32,
             duel_late_sprint: k("duel_late_sprint", 0) > 0,
             region_troops_pct: k("region_troops_pct", 0),
+            finish_rush: k("finish_rush", 1) > 0,
             duel_set: false,
         }
     }
@@ -617,39 +621,29 @@ impl StrikeCore {
 
     /// One region pass per rival we have seen (Mason's neck defence, reused with credit):
     /// `neck[i]` is the most of our hexes a rival next to slot `i` would swallow by taking it.
-    fn necks(&mut self, geo: &Geometry, me: PlayerId, mine: &[usize]) {
+    fn necks(&mut self, geo: &Geometry, me: PlayerId) {
         let slots = geo.passable.len();
         self.neck.clear();
         self.neck.resize(slots, 0);
         let mut rivals = [false; 64];
-        if self.k.neck_rr {
-            for &s in mine {
-                for &n in &geo.nbrs[s] {
-                    if let Some(o) = self.seen[n].and_then(|c| c.owner).filter(|&o| o != me) {
-                        if let Some(r) = rivals.get_mut(o as usize) {
-                            *r = true;
-                        }
-                    }
-                }
-            }
-        } else {
-            for o in self.seen.iter().flatten().filter_map(|c| c.owner) {
-                if o != me && (o as usize) < rivals.len() {
-                    rivals[o as usize] = true;
-                }
+        for o in self.seen.iter().flatten().filter_map(|c| c.owner) {
+            if o != me && (o as usize) < rivals.len() {
+                rivals[o as usize] = true;
             }
         }
         if self.neck_of.len() < rivals.len() {
             self.neck_of.resize(rivals.len(), vec![]);
         }
-        // Round robin: one pass a tick for the next rival touching us, the others' maps
-        // kept from their last turn, so big boards cost one pass whatever the lobby.
-        let due: Vec<usize> = if self.k.neck_rr {
-            let n = rivals.len();
-            (1..=n).map(|d| (self.neck_turn + d) % n).find(|&r| rivals[r]).into_iter().collect()
-        } else {
-            (0..rivals.len()).filter(|&r| rivals[r]).collect()
+        // Passes fitting the budget run for the next rivals in turn and the others keep
+        // their maps from their last turn, so a big board costs a pass or two a tick
+        // while a procedural one still gets every rival's every tick.
+        let passes = match self.k.neck_budget {
+            0 => rivals.len(),
+            b => (b / geo.on_board.iter().filter(|&&o| o).count().max(1)).max(1),
         };
+        let n = rivals.len();
+        let due: Vec<usize> =
+            (1..=n).map(|d| (self.neck_turn + d) % n).filter(|&r| rivals[r]).take(passes).collect();
         let mut buf = std::mem::take(&mut self.neck_buf);
         for &r in &due {
             self.neck_turn = r;
@@ -1209,10 +1203,10 @@ impl Bot for StrikeCore {
         }
         let sprinting = view.tick + self.k.sprint >= self.rules.max_ticks
             || (self.k.late_sprint && self.k.late_at.is_some());
-        let rush = sprinting || self.finishing;
+        let rush = sprinting || (self.finishing && self.k.finish_rush);
         let seal = (self.k.seal > 0 || self.k.backyard > 0).then(|| self.seal(&geo, me));
         if self.k.neck_take > 0 || self.k.neck_want_pct > 0 {
-            self.necks(&geo, me, &mine);
+            self.necks(&geo, me);
         }
         let supply = self.supply(&geo, me, &mine);
         let mut buf = std::mem::take(&mut self.region_buf);
@@ -1323,7 +1317,7 @@ mod tests {
         assert_eq!(r.land[geo.slot(Hex::new(0, 0)).unwrap()], 0);
 
         // Seen from the centre's owner, the gap is the neck its one hex would fall through.
-        core.necks(&geo, 1, &[geo.slot(Hex::new(0, 0)).unwrap()]);
+        core.necks(&geo, 1);
         assert_eq!(core.neck[g], 1);
         assert_eq!(core.neck[geo.slot(Hex::new(3, 0)).unwrap()], 0);
         assert!(core.neck.iter().all(|&n| n <= 1));
