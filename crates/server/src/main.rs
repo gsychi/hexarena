@@ -11,7 +11,7 @@ use hexarena_protocol::{PlayerId, RulesConfig};
 use hexarena_sdk::Style;
 use serde::{Deserialize, Serialize};
 use catalog::Catalog;
-use standings::{standings, SeatResult, K, RATED_GAMES, START_ELO};
+use standings::{is_anchor, standings, SeatResult, ANCHORS, K, RATED_GAMES, START_ELO};
 use std::collections::BTreeMap;
 use std::net::IpAddr;
 use std::path::PathBuf;
@@ -29,7 +29,8 @@ const MAX_PLAYERS: usize = 8;
 const MAX_BATCH: u32 = 20;
 /// Refuse new games while this many are still queued or running.
 const MAX_RUNNING: usize = 100;
-/// Most roster CPU seats in each self-play game; arena entrants fill the rest.
+/// Most roster CPU seats in each self-play game, the anchor included; arena entrants
+/// fill the rest.
 const AUTOPLAY_FIELD: usize = 2;
 /// Most entrant seats one author gets in a self-play game.
 const AUTOPLAY_PER_AUTHOR: usize = 2;
@@ -385,7 +386,7 @@ fn launch(app: &Shared, styles: &[Style], seed: u64, auto: bool) -> Summary {
 }
 
 /// Seats for the next self-play game, always [`MAX_PLAYERS`] when there are enough bots:
-/// up to [`AUTOPLAY_FIELD`] of the least-played roster CPUs that aren't retired, then
+/// the least-played anchor, up to [`AUTOPLAY_FIELD`] roster CPUs in all, then
 /// the active entrants with the fewest arena games, at most [`AUTOPLAY_PER_AUTHOR`] from
 /// one author so a prolific author's versions don't mostly play each other, topped up
 /// past that cap when too few authors are active. Ties break at random; seat order is
@@ -408,9 +409,17 @@ fn autoplay_lineup(app: &AppState, catalog: &Catalog, seed: u64) -> Vec<Style> {
         rng
     };
     let games = |id: &str| played.get(id).copied().unwrap_or(0);
-    let mut field: Vec<(usize, u64, Style)> = catalog.active_field().into_iter().map(|s| (games(&s.id), next(), s)).collect();
+    let mut anchors: Vec<(usize, u64, &str)> = ANCHORS.iter().map(|a| (games(a), next(), *a)).collect();
+    anchors.sort_by_key(|&(n, tie, _)| (n, tie));
+    let mut seats: Vec<Style> = anchors.first().and_then(|&(_, _, a)| catalog.resolve(a)).into_iter().collect();
+    let mut field: Vec<(usize, u64, Style)> = catalog
+        .active_field()
+        .into_iter()
+        .filter(|s| !is_anchor(&s.id))
+        .map(|s| (games(&s.id), next(), s))
+        .collect();
     field.sort_by_key(|(n, tie, _)| (*n, *tie));
-    let mut seats: Vec<Style> = field.into_iter().map(|(_, _, s)| s).take(AUTOPLAY_FIELD).collect();
+    seats.extend(field.into_iter().map(|(_, _, s)| s).take(AUTOPLAY_FIELD.saturating_sub(seats.len())));
     let mut entrants: Vec<(usize, u64, &hexarena_arena::entrants::Entrant)> =
         catalog.active_entrants().map(|e| (games(&e.id), next(), e)).collect();
     entrants.sort_by_key(|&(n, tie, _)| (n, tie));
@@ -652,6 +661,8 @@ async fn leaderboard(State(app): State<Shared>) -> Json<serde_json::Value> {
         "k": K,
         "top": ACTIVE_TOP,
         "rated_games": RATED_GAMES,
+        "anchors": ANCHORS,
+        "anchor_elo": START_ELO,
         "retired": catalog.retired_reasons(),
         "bots": board.rows,
         "retired_bots": board.retired_rows,
@@ -823,15 +834,15 @@ fn board(app: &AppState, catalog: &Catalog) -> Board {
 /// Retires every bot that has had a fair trial and sits outside the top [`ACTIVE_TOP`]
 /// of the standings: arena entrants and roster CPUs.
 fn retire_outside_top(app: &AppState, catalog: &Catalog) {
-    let rows = board(app, catalog).rows;
+    let rows: Vec<_> = board(app, catalog).rows.into_iter().filter(|r| !is_anchor(&r.bot)).collect();
     let cut = rows.get(ACTIVE_TOP - 1).map(|r| r.elo);
-    for row in &rows {
-        if !row.rated || row.rank as usize <= ACTIVE_TOP {
+    for (i, row) in rows.iter().enumerate() {
+        if !row.rated || i < ACTIVE_TOP {
             continue;
         }
         let reason = format!(
             "ranked #{} with Elo {:.0} after {} games; the top {ACTIVE_TOP} cut was {:.0}",
-            row.rank,
+            i + 1,
             row.elo,
             row.games,
             cut.unwrap_or(row.elo)
