@@ -154,6 +154,14 @@ struct Knobs {
     /// In the late phase, every this many ticks (0 = never) Gather toward the best
     /// capture's launch hex, so one action brings the whole interior bank a step closer.
     push_gather: u32,
+    /// Before this tick (0 = never) the opening knobs below replace `margin_pct` and
+    /// `safe_min`: on a crowded spawn every hex faces an enemy, and full garrisons freeze
+    /// expansion while the rivals grow away from us.
+    open_until: u32,
+    open_margin_pct: u64,
+    open_safe_min: i64,
+    base_margin_pct: u64,
+    base_safe_min: i64,
 }
 
 impl Knobs {
@@ -195,6 +203,22 @@ impl Knobs {
             late_at: None,
             focus: k("focus", 0),
             push_gather: k("push_gather", 0) as u32,
+            open_until: k("open_until", 0) as u32,
+            open_margin_pct: k("open_margin_pct", 200) as u64,
+            open_safe_min: k("open_safe_min", 0),
+            base_margin_pct: k("margin_pct", 600) as u64,
+            base_safe_min: k("safe_min", 300),
+        }
+    }
+
+    fn opening(&mut self, tick: u32) {
+        if tick < self.open_until {
+            self.margin_pct = self.open_margin_pct;
+            self.safe_min = self.open_safe_min;
+        } else {
+            self.margin_pct = self.base_margin_pct;
+            self.safe_min = self.base_safe_min;
+            self.open_until = 0;
         }
     }
 
@@ -660,6 +684,9 @@ impl Bot for Ridgeline {
             self.rules = r.clone();
         }
         self.win = self.rules.attacker_win_milli(view.tick);
+        if self.k.open_until > 0 {
+            self.k.opening(view.tick);
+        }
         if self.k.late_from > 0 && view.tick >= self.k.late_from {
             self.k.go_late();
         }
