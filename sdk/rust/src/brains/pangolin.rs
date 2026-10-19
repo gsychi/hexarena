@@ -92,6 +92,20 @@ struct Knobs {
     wall_cap: usize,
     /// Troops a border hex keeps on top of a Wall's cost before it may build one.
     wall_keep: u32,
+    /// Turtle triggers (bits, 0 = off): 1 = an exposed start (central and open, read from
+    /// public terrain at tick 0), 2 = an enemy hex seen near the start early. A turtle
+    /// walls its enemy-facing border from `turtle_wall_from` until `wall_from`.
+    turtle: u32,
+    /// Fewest steps from the start to the board edge that count as central.
+    turtle_edge: i32,
+    /// Fewest passable hexes within 6 steps of the start that count as open.
+    turtle_open: usize,
+    /// Contact counts before this tick, within `turtle_dist` of the start.
+    turtle_tick: u32,
+    turtle_dist: i32,
+    turtle_wall_from: u32,
+    turtle_cap: usize,
+    turtle_gap: u32,
 }
 
 impl Knobs {
@@ -112,6 +126,14 @@ impl Knobs {
             wall_gap: k("wall_gap", 4) as u32,
             wall_cap: k("wall_cap", 60) as usize,
             wall_keep: k("wall_keep", 10) as u32,
+            turtle: k("turtle", 0) as u32,
+            turtle_edge: k("turtle_edge", 5) as i32,
+            turtle_open: k("turtle_open", 80) as usize,
+            turtle_tick: k("turtle_tick", 150) as u32,
+            turtle_dist: k("turtle_dist", 6) as i32,
+            turtle_wall_from: k("turtle_wall_from", 150).max(1) as u32,
+            turtle_cap: k("turtle_cap", 20) as usize,
+            turtle_gap: k("turtle_gap", 6) as u32,
         }
     }
 }
@@ -125,6 +147,8 @@ pub struct Pangolin {
     vclass: Option<i32>,
     last_build: Option<u32>,
     last_wall: Option<u32>,
+    start: Option<usize>,
+    turtling: bool,
 }
 
 #[derive(Clone, Copy, PartialEq)]
@@ -144,6 +168,42 @@ impl Pangolin {
             vclass: None,
             last_build: None,
             last_wall: None,
+            start: None,
+            turtling: false,
+        }
+    }
+
+    /// Central and open: the starts that meet the most rivals.
+    fn exposed(&self, m: &Map, start: usize) -> bool {
+        if m.radius - m.hexes[start].distance(Hex::new(0, 0)) < self.k.turtle_edge {
+            return false;
+        }
+        let mut dist = vec![u32::MAX; m.passable.len()];
+        dist[start] = 0;
+        let mut queue = VecDeque::from([start]);
+        let mut open = 0;
+        while let Some(c) = queue.pop_front() {
+            open += 1;
+            if dist[c] == 6 {
+                continue;
+            }
+            for &n in &m.nbrs[c] {
+                if dist[n] == u32::MAX {
+                    dist[n] = dist[c] + 1;
+                    queue.push_back(n);
+                }
+            }
+        }
+        open >= self.k.turtle_open
+    }
+
+    fn update_turtle(&mut self, view: &View, m: &Map) {
+        let Some(start) = self.start else { return };
+        if self.k.turtle & 2 != 0 && view.tick < self.k.turtle_tick {
+            let s = m.hexes[start];
+            self.turtling |= view.visible_hexes.iter().any(|c| {
+                c.owner.is_some_and(|o| o != view.you) && c.hex.distance(s) <= self.k.turtle_dist
+            });
         }
     }
 
@@ -279,7 +339,7 @@ impl Pangolin {
 
     /// A Wall on the enemy-facing border hex under the biggest adjacent enemy stack,
     /// preferring hexes next to our Walls that still have a free link.
-    fn wall(&self, view: &View, m: &Map) -> Option<Action> {
+    fn wall(&self, view: &View, m: &Map, cap: usize) -> Option<Action> {
         let me = view.you;
         let slots = m.passable.len();
         let mut cell = vec![None; slots];
@@ -290,7 +350,7 @@ impl Pangolin {
         }
         let is_wall = |c: &crate::VisibleHex| c.building.as_ref().is_some_and(|b| b.kind == Building::Wall);
         let walls = cell.iter().flatten().filter(|c| c.owner == Some(me) && is_wall(c)).count();
-        if walls >= self.k.wall_cap {
+        if walls >= cap {
             return None;
         }
         let max_links = self.rules.wall.max_links as usize;
@@ -373,6 +433,11 @@ impl Bot for Pangolin {
         if self.vclass.is_none() {
             let start = view.visible_hexes.iter().find(|c| c.owner == Some(view.you)).and_then(|c| m.slot(c.hex));
             self.vclass = start.map(|s| self.pick_class(&m, s));
+            self.start = start;
+            self.turtling = self.k.turtle & 1 != 0 && start.is_some_and(|s| self.exposed(&m, s));
+        }
+        if self.k.turtle > 0 && !self.turtling {
+            self.update_turtle(view, &m);
         }
         let open = view.tick >= self.k.build_from
             && (self.k.build_until == 0 || view.tick < self.k.build_until)
@@ -393,9 +458,15 @@ impl Bot for Pangolin {
                 }
             }
         }
-        let walls = self.k.wall_from > 0 && view.tick >= self.k.wall_from;
-        if walls && !built && !capture && self.last_wall.is_none_or(|t| view.tick >= t + self.k.wall_gap) {
-            if let Some(a) = self.wall(view, &m) {
+        let turtle = self.turtling && (self.k.wall_from == 0 || view.tick < self.k.wall_from);
+        let (from, cap, gap) = if turtle {
+            (self.k.turtle_wall_from, self.k.turtle_cap, self.k.turtle_gap)
+        } else {
+            (self.k.wall_from, self.k.wall_cap, self.k.wall_gap)
+        };
+        let walls = from > 0 && view.tick >= from;
+        if walls && !built && !capture && self.last_wall.is_none_or(|t| view.tick >= t + gap) {
+            if let Some(a) = self.wall(view, &m, cap) {
                 cmd.action = a;
                 self.last_wall = Some(view.tick);
             }
