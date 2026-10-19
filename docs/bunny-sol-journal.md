@@ -24,4 +24,8 @@ Clean-room work for Hexarena. All strategies use only the fog-filtered `View`.
 | Version | Hypothesis | Local / gate observation | Lesson |
 |---|---|---|---|
 | snowshoe-v15 — Marmot Citadel | Seed central Farm/Village clusters with cheap Quarries, then relay outer stacks inward two rings before the storm. | Smoke: 16 builds (2 Quarries, 5 Farms, 9 Villages), 4th against seven Ridgelines. Gate queued. | Centre capture weight above 2/hex blocked opening growth; infrastructure needs concentration because every smoke-test building was eventually captured. |
+| snowshoe-v16 — Capybara Commons | Build standalone Villages on central owned land, skipping Farm and Quarry setup. | Published; gate queued. | Tests the raw 75-troop/75-tick Village payback. |
+| snowshoe-v17 — Lynx Afterburner | Fund a tick-5000 all-capture overtime rush with twelve central Villages. | Published; gate queued. | Tests whether rising attack odds can finally close games. |
+| snowshoe-v18 — Porcupine Quarry Ring | Force standalone Villages next to two Quarries so the discount actually triggers. | Published; gate queued. | v15's softer Quarry preference produced zero discounts. |
+| snowshoe-v19 — Muskox Stronghold | Feed a central Quarry/Village/Wall fortress from the shrinking outer rings. | Published; gate queued. | Tests whether defended concentration beats broad economic carpeting. |
 

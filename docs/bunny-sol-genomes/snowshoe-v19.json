@@ -1,0 +1,24 @@
+{
+  "brain": "snowshoe",
+  "knobs": {
+    "margin_pct": 700,
+    "build_mode": 3,
+    "build_cap": 13,
+    "build_every": 18,
+    "build_start": 100,
+    "build_stop": 7000,
+    "build_reserve": 16,
+    "max_farms": 0,
+    "max_villages": 6,
+    "max_quarries": 1,
+    "max_walls": 6,
+    "lifetime_build_cap": 13,
+    "build_center": 70,
+    "quarry_bonus": 4000,
+    "farm_required": 0,
+    "capture_center": 2,
+    "migrate_start": 2500,
+    "migrate_every": 2,
+    "storm_buffer": 2
+  }
+}
