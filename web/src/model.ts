@@ -36,7 +36,7 @@ export interface Rules {
   /** `adjacent_boost` (v0.5+): every adjacent Farm boosts a Village, no links or sockets. */
   farm: { troop_cost: number; resource_cost: number; allowed_heights: number[]; sockets: number; relink_cooldown: number; adjacent_boost?: boolean }
   village: { troop_cost: number; resource_cost: number; bonus: number; farm_bonus: number }
-  quarry: { troop_cost: number; resource_cost: number; allowed_heights: number[]; min_friendly_distance: number; discount_radius: number; troop_discount_pct: number; resource_discount: number }
+  quarry: { troop_cost: number; resource_cost: number; allowed_heights: number[]; min_friendly_distance: number; discount_radius: number; troop_discount_pct: number; resource_discount: number; village_bonus?: number }
   wall: { troop_cost: number; resource_cost: number; max_links: number; defense_milli_by_links: number[]; relink_cooldown: number }
 }
 
@@ -121,6 +121,18 @@ export const hexIndex = (radius: number, h: Hex) => (h.r + radius) * (2 * radius
 export const onBoard = (radius: number, h: Hex) =>
   Math.abs(h.q) <= radius && Math.abs(h.r) <= radius && Math.abs(h.q + h.r) <= radius
 export const addHex = (a: Hex, b: Hex): Hex => ({ q: a.q + b.q, r: a.r + b.r })
+
+/** Same-owner Quarries next to the Village at `idx` that boost it (`quarry.village_bonus`, v0.6+). */
+export function adjacentQuarries(rep: ViewerReplay, cells: Map<number, Cell>, idx: number): number {
+  const c = cells.get(idx)
+  if (!rep.rules.quarry.village_bonus || !c || c.owner < 0 || c.building !== 2) return 0
+  const h = hexAt(rep.radius, idx)
+  return HEX_DIRS.filter((d) => {
+    const n = addHex(h, d)
+    const x = onBoard(rep.radius, n) ? cells.get(hexIndex(rep.radius, n)) : undefined
+    return x?.owner === c.owner && x.building === 3
+  }).length
+}
 
 export interface Cell {
   owner: number

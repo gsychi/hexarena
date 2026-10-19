@@ -2,11 +2,13 @@
 //! Shared by the CLI and the server so both produce identical artifacts.
 
 pub mod entrants;
+pub mod eval;
 
 use hexarena_engine::{build_replay, State};
 use hexarena_protocol::*;
 use hexarena_sdk::{brains, Bot, Style};
 use std::collections::BTreeMap;
+use std::time::{Duration, Instant};
 
 /// Derives the three independent seeds from one match seed.
 pub fn settings(players: u16, seed: u64) -> MatchSettings {
@@ -40,6 +42,21 @@ pub struct Played {
     pub state: State,
     pub commands: Vec<TickCommands>,
     pub events: Vec<Vec<Event>>,
+    /// Wall-clock time each seat's bot spent deciding, over the ticks it was alive.
+    pub move_time: Vec<MoveTime>,
+}
+
+#[derive(Clone, Copy, Debug, Default)]
+pub struct MoveTime {
+    pub moves: u64,
+    pub total: Duration,
+    pub slowest: Duration,
+}
+
+impl MoveTime {
+    pub fn ms_per_move(&self) -> Option<f64> {
+        (self.moves > 0).then(|| self.total.as_secs_f64() * 1000.0 / self.moves as f64)
+    }
 }
 
 impl Played {
@@ -73,10 +90,21 @@ fn run(seed: u64, styles: &[Style], max_ticks: u32, record: bool) -> Result<Play
         .map(|s| brains::build(s.clone()))
         .collect::<Result<_, _>>()?;
     let (mut commands, mut events) = (vec![], vec![]);
+    let mut move_time = vec![MoveTime::default(); styles.len()];
     while !st.is_over() && st.tick < max_ticks {
         let cmds: TickCommands = (0..styles.len() as PlayerId)
             .filter(|&p| !st.eliminated[p as usize])
-            .map(|p| (p, bots[p as usize].act(&st.view(p))))
+            .map(|p| {
+                let view = st.view(p);
+                let started = Instant::now();
+                let cmd = bots[p as usize].act(&view);
+                let took = started.elapsed();
+                let t = &mut move_time[p as usize];
+                t.moves += 1;
+                t.total += took;
+                t.slowest = t.slowest.max(took);
+                (p, cmd)
+            })
             .collect();
         st.step(&cmds);
         if record {
@@ -88,6 +116,7 @@ fn run(seed: u64, styles: &[Style], max_ticks: u32, record: bool) -> Result<Play
         state: st,
         commands,
         events,
+        move_time,
     })
 }
 

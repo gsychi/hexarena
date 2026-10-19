@@ -9,11 +9,12 @@ import { Slider } from '@/components/ui/slider'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
+import { api } from './api'
 import { Board, buildingPips } from './Board'
 import { BuildingIcon, Legend } from './Legend'
 import type { Cell, GameEvent, Placement, ViewerReplay } from './model'
 import {
-  BUILDING_KEYS, BUILDING_NAMES, HEIGHT_STYLE, PLAYER_COLORS, PLAYER_MARKS, buildPreview, defenseMilli, frameCells, hexAt, hexIndex, loadViewer, usesResource, visibleSet,
+  BUILDING_KEYS, BUILDING_NAMES, HEIGHT_STYLE, PLAYER_COLORS, PLAYER_MARKS, adjacentQuarries, buildPreview, defenseMilli, frameCells, hexAt, hexIndex, loadViewer, usesResource, visibleSet,
 } from './model'
 
 const SPEEDS = [1, 2, 4, 8, 16]
@@ -40,12 +41,30 @@ function describe(e: GameEvent, names: string[]): { player: number; text: string
 
 const eventHex = (e: GameEvent) => ('at' in e ? e.at : null)
 
+/** One seat's Elo going into the game and, once the game is rated, after it. */
+interface SeatElo { before: number; after: number | null }
+
+/** `1532`, plus the change once the game is rated (`+12` / `−8`). */
+function EloTag({ elo, change }: { elo?: SeatElo | null; change: boolean }) {
+  if (!elo) return null
+  const d = elo.after === null ? null : Math.round(elo.after - elo.before)
+  return (
+    <span className="ml-1.5 whitespace-nowrap text-[11px] font-normal tabular-nums text-muted-foreground" title={elo.after === null ? 'Elo going into this game' : `Elo ${Math.round(elo.before)} before this game, ${Math.round(elo.after)} after`}>
+      ({Math.round(elo.before)})
+      {change && d !== null && (
+        <span className={`ml-1 font-medium ${d > 0 ? 'text-emerald-400' : d < 0 ? 'text-rose-400' : 'text-muted-foreground'}`}>{d > 0 ? `+${d}` : d < 0 ? `−${-d}` : '±0'}</span>
+      )}
+    </span>
+  )
+}
+
 function SectionLabel({ children }: { children: React.ReactNode }) {
   return <div className="text-[10px] font-medium uppercase tracking-[0.14em] text-muted-foreground">{children}</div>
 }
 
-export function Viewer({ src, label, onBack }: { src: string; label: string; onBack: () => void }) {
+export function Viewer({ src, match, label, onBack }: { src: string; match?: string; label: string; onBack: () => void }) {
   const [rep, setRep] = useState<ViewerReplay | null>(null)
+  const [elo, setElo] = useState<(SeatElo | null)[]>([])
   const [error, setError] = useState<string | null>(null)
   const [tick, setTick] = useState(0)
   const [playing, setPlaying] = useState(false)
@@ -58,18 +77,34 @@ export function Viewer({ src, label, onBack }: { src: string; label: string; onB
   const [hideEnd, setHideEnd] = useState(false)
 
   useEffect(() => {
-    setRep(null); setError(null); setTick(0); setPlaying(false); setSelected(null)
-    fetch(src)
-      .then((r) => { if (!r.ok) throw new Error(`${r.status} ${r.statusText}`); return r.json() })
-      .then((raw) => {
+    setRep(null); setError(null); setTick(0); setPlaying(false); setSelected(null); setElo([])
+    // Seats and ratings are extras: the replay still plays without them.
+    const extras = match
+      ? Promise.all([api.match(match), api.matchElo(match)]).catch(() => null)
+      : Promise.resolve(null)
+    Promise.all([fetch(src).then((r) => { if (!r.ok) throw new Error(`${r.status} ${r.statusText}`); return r.json() }), extras])
+      .then(([raw, extra]) => {
         const loaded = loadViewer(raw)
+        if (extra) {
+          const [summary, ratings] = extra
+          const byBot = new Map(ratings.bots.map((b) => [b.bot, b]))
+          const seats = summary.seats
+          const once = (bot: string) => seats.filter((x) => x.bot === bot).length === 1
+          if (seats.length === loaded.names.length) {
+            loaded.names = loaded.names.map((n, p) => (once(seats[p].bot) ? byBot.get(seats[p].bot)?.name ?? n : n))
+            setElo(seats.map((x) => {
+              const b = byBot.get(x.bot)
+              return b && b.before !== null ? { before: b.before, after: b.after } : null
+            }))
+          }
+        }
         const want = new URLSearchParams(location.search).get('tick')
         const lastTick = loaded.store.last
         if (want) setTick(want === 'end' ? lastTick : Math.min(lastTick, Math.max(0, Number(want) || 0)))
         setRep(loaded)
       })
       .catch((e) => setError(String(e)))
-  }, [src])
+  }, [src, match])
 
   useEffect(() => {
     if (!playing || !rep) return
@@ -103,11 +138,11 @@ export function Viewer({ src, label, onBack }: { src: string; label: string; onB
   const stats = rep.names.map((_, p) => {
     let land = 0, troops = 0, income = 0
     const built = [0, 0, 0, 0]
-    for (const c of cells.values()) {
+    for (const [idx, c] of cells) {
       if (c.owner !== p) continue
       land++; troops += c.troops; income += r.base_income
       if (c.building > 0) built[c.building - 1]++
-      if (c.building === 2) income += r.village.bonus + c.links.filter((l) => l >= 0).length * r.village.farm_bonus
+      if (c.building === 2) income += r.village.bonus + c.links.filter((l) => l >= 0).length * r.village.farm_bonus + adjacentQuarries(rep, cells, idx) * (r.quarry.village_bonus ?? 0)
     }
     return { land, troops, income, built }
   })
@@ -159,6 +194,7 @@ export function Viewer({ src, label, onBack }: { src: string; label: string; onB
                   <TableCell className="py-1.5 font-medium">
                     <span className="mr-2 inline-block size-2 rounded-full" style={{ background: PLAYER_COLORS[p % 8] }} />
                     <span className="mr-1 text-[10px]" style={{ color: PLAYER_COLORS[p % 8] }}>{PLAYER_MARKS[p % 8]}</span>{n}
+                    <EloTag elo={elo[p]} change={tick === last} />
                   </TableCell>
                   <TableCell className="py-1.5 text-right tabular-nums">{knows(p) ? stats[p].land : '—'}</TableCell>
                   <TableCell className="py-1.5 text-right tabular-nums">{knows(p) ? stats[p].troops : '—'}</TableCell>
@@ -229,7 +265,7 @@ export function Viewer({ src, label, onBack }: { src: string; label: string; onB
         <div className="relative min-h-0 flex-1">
           <Board rep={rep} cells={cells} perspective={perspective} visible={visible} selected={selected} heightMode={heightMode} tick={tick}
             onSelect={(i) => { setSelected(i); if (i !== null) setTab('hex') }} />
-          {tick === last && !hideEnd && <MatchOver rep={rep} onReplay={() => { setTick(0); setPlaying(true) }} onClose={() => setHideEnd(true)} />}
+          {tick === last && !hideEnd && <MatchOver rep={rep} elo={elo} onReplay={() => { setTick(0); setPlaying(true) }} onClose={() => setHideEnd(true)} />}
         </div>
         <Card size="sm" className="py-2">
           <CardContent className="flex flex-wrap items-center gap-2">
@@ -261,7 +297,7 @@ export function Viewer({ src, label, onBack }: { src: string; label: string; onB
   )
 }
 
-function MatchOver({ rep, onReplay, onClose }: { rep: ViewerReplay; onReplay: () => void; onClose: () => void }) {
+function MatchOver({ rep, elo, onReplay, onClose }: { rep: ViewerReplay; elo: (SeatElo | null)[]; onReplay: () => void; onClose: () => void }) {
   const ps = [...rep.result.placements].sort((a, b) => a.place_start - b.place_start || a.player - b.player)
   const survivors = ps.filter((p) => p.land > 0).length
   const winner = ps[0]
@@ -299,6 +335,7 @@ function MatchOver({ rep, onReplay, onClose }: { rep: ViewerReplay; onReplay: ()
                   <TableCell className="py-1.5 tabular-nums">{place(p)}</TableCell>
                   <TableCell className="py-1.5 font-medium">
                     <span className="mr-2 inline-block size-2 rounded-full" style={{ background: PLAYER_COLORS[p.player % 8] }} />{rep.names[p.player]}
+                    <EloTag elo={elo[p.player]} change />
                     {p.land === 0 && <span className="ml-1.5 text-[10px] text-muted-foreground">eliminated</span>}
                   </TableCell>
                   <TableCell className="py-1.5 text-right tabular-nums">{p.land}</TableCell>
@@ -341,7 +378,7 @@ function HexPanel({ rep, cells, selected, visible }: { rep: ViewerReplay; cells:
             <div>
               {c && c.owner >= 0 ? <span style={{ color: PLAYER_COLORS[c.owner % 8] }}>{rep.names[c.owner]}</span> : 'Neutral'} · {c ? c.troops : rep.neutral[selected]} troops
             </div>
-            {c && c.building > 0 && <BuildingDetail rep={rep} c={c} wallLinks={wallLinks} />}
+            {c && c.building > 0 && <BuildingDetail rep={rep} c={c} wallLinks={wallLinks} quarries={adjacentQuarries(rep, cells, selected)} />}
             <div className="space-y-1.5">
               <SectionLabel>Defense if attacked from height</SectionLabel>
               <div className="grid grid-cols-5 gap-1 text-center">
@@ -387,8 +424,9 @@ function HexPanel({ rep, cells, selected, visible }: { rep: ViewerReplay; cells:
   )
 }
 
-function BuildingDetail({ rep, c, wallLinks }: { rep: ViewerReplay; c: Cell; wallLinks: number | null }) {
+function BuildingDetail({ rep, c, wallLinks, quarries }: { rep: ViewerReplay; c: Cell; wallLinks: number | null; quarries: number }) {
   const r = rep.rules
+  const qb = r.quarry.village_bonus ?? 0
   const linked = c.links.filter((l) => l >= 0).length
   const cd = c.cooldown > 0 ? `relink in ${c.cooldown} ticks` : 'relink ready'
   return (
@@ -400,9 +438,9 @@ function BuildingDetail({ rep, c, wallLinks }: { rep: ViewerReplay; c: Cell; wal
           ? <div className="text-muted-foreground"><Link2 className="mr-1 inline size-3" />Boosting {linked} adjacent Village{linked === 1 ? '' : 's'} by +{r.village.farm_bonus}/tick each</div>
           : <div className="text-muted-foreground"><Link2 className="mr-1 inline size-3" />{linked}/{r.farm.sockets} Villages supported, +{r.village.farm_bonus}/tick each · {cd}{usesResource(r) && <><br />+1 Resource in {c.remaining} ticks</>}</div>)}
         {c.building === 2 && (r.farm.adjacent_boost
-          ? <div className="text-muted-foreground"><span className="text-foreground">{r.base_income + r.village.bonus + linked * r.village.farm_bonus}/tick</span> · {linked} adjacent Farm{linked === 1 ? '' : 's'}, each adds +{r.village.farm_bonus}</div>
+          ? <div className="text-muted-foreground"><span className="text-foreground">{r.base_income + r.village.bonus + linked * r.village.farm_bonus + quarries * qb}/tick</span> · {linked} adjacent Farm{linked === 1 ? '' : 's'}, each adds +{r.village.farm_bonus}{qb > 0 && <> · {quarries} adjacent Quarr{quarries === 1 ? 'y' : 'ies'}, each adds +{qb}</>}</div>
           : <div className="text-muted-foreground">{c.links[0] >= 0 ? <><span className="text-foreground">{r.base_income + r.village.bonus + r.village.farm_bonus}/tick</span> · supported by a Farm</> : <><span className="text-foreground">{r.base_income + r.village.bonus}/tick</span> · unsupported, a Farm link adds +{r.village.farm_bonus}</>}</div>)}
-        {c.building === 3 && <div className="text-muted-foreground">{usesResource(r) ? <>+1 Resource in {c.remaining} ticks<br />Adjacent builds: −{r.quarry.troop_discount_pct}% troops, −{r.quarry.resource_discount} Resource</> : <>Adjacent Farms, Villages and Walls cost {r.quarry.troop_discount_pct}% fewer troops</>}</div>}
+        {c.building === 3 && <div className="text-muted-foreground">{usesResource(r) ? <>+1 Resource in {c.remaining} ticks<br />Adjacent builds: −{r.quarry.troop_discount_pct}% troops, −{r.quarry.resource_discount} Resource</> : <>Adjacent Farms, Villages and Walls cost {r.quarry.troop_discount_pct}% fewer troops{qb > 0 && <><br />Boosting {linked} adjacent Village{linked === 1 ? '' : 's'} by +{qb}/tick each</>}</>}</div>}
         {c.building === 4 && <div className="text-muted-foreground">{wallLinks}/{r.wall.max_links} links · <span className="text-foreground">{(r.wall.defense_milli_by_links[wallLinks ?? 0] / 1000).toFixed(1)}× wall</span> · {cd}</div>}
       </div>
     </div>
