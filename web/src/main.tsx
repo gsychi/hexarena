@@ -1,4 +1,4 @@
-import { BookOpen, BookText, Swords, TrendingUp, Trophy } from 'lucide-react'
+import { BookOpen, BookText, House, Swords, TrendingUp, Trophy } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import { StrictMode, useEffect, useRef, useState } from 'react'
 import { createRoot } from 'react-dom/client'
@@ -12,16 +12,17 @@ import { Viewer } from './App.tsx'
 import { BotAvatar } from './BotAvatar.tsx'
 import { BotPage } from './BotPage.tsx'
 import { NotebookPage } from './Notebook.tsx'
-import { BotsPage, GamesPage, ProgressPage } from './Pages.tsx'
+import { BotsPage, GamesPage, HomePage, ProgressPage } from './Pages.tsx'
 import { RulesPage } from './Rules.tsx'
 
-type Section = 'rules' | 'games' | 'bots' | 'progress' | 'notes'
+type Section = 'home' | 'rules' | 'games' | 'bots' | 'progress' | 'notes'
 type Route = { page: Section } | { page: 'match'; id: string } | { page: 'bot'; id: string }
 
 const NAV: { page: Section; label: string; icon: LucideIcon; hash: string }[] = [
+  { page: 'home', label: 'Home', icon: House, hash: '/' },
   { page: 'rules', label: 'Rules', icon: BookText, hash: '/rules' },
   { page: 'games', label: 'Games', icon: Swords, hash: '/games' },
-  { page: 'bots', label: 'Bots', icon: Trophy, hash: '/' },
+  { page: 'bots', label: 'Bots', icon: Trophy, hash: '/bots' },
   { page: 'progress', label: 'Progression', icon: TrendingUp, hash: '/progress' },
   { page: 'notes', label: 'Lab notebook', icon: BookOpen, hash: '/notes' },
 ]
@@ -31,14 +32,14 @@ function parse(hash: string): Route {
   const bot = hash.match(/^#\/bot\/([^/?#]+)/)
   if (bot) return { page: 'bot', id: decodeURIComponent(bot[1]) }
   const m = hash.match(/^#\/match\/([A-Za-z0-9]+)/)
-  return m ? { page: 'match', id: m[1] } : { page: 'bots' }
+  return m ? { page: 'match', id: m[1] } : { page: 'home' }
 }
 
 function hashOf(r: Route): string {
   switch (r.page) {
     case 'match': return `/match/${r.id}`
     case 'bot': return `/bot/${encodeURIComponent(r.id)}`
-    case 'rules': case 'games': case 'bots': case 'progress': case 'notes': return NAV.find((n) => n.page === r.page)!.hash
+    case 'home': case 'rules': case 'games': case 'bots': case 'progress': case 'notes': return NAV.find((n) => n.page === r.page)!.hash
     default: { const never: never = r; return never }
   }
 }
@@ -48,7 +49,7 @@ function sectionOf(r: Route): Section {
   switch (r.page) {
     case 'match': return 'games'
     case 'bot': return 'bots'
-    case 'rules': case 'games': case 'bots': case 'progress': case 'notes': return r.page
+    case 'home': case 'rules': case 'games': case 'bots': case 'progress': case 'notes': return r.page
     default: { const never: never = r; return never }
   }
 }
@@ -62,12 +63,13 @@ const openBot = (id: string) => go(`/bot/${encodeURIComponent(id)}`)
 
 function Content({ route, backTo }: { route: Route; backTo: string }) {
   switch (route.page) {
+    case 'home': return <div className="h-full overflow-y-auto"><HomePage onBot={openBot} /></div>
     case 'rules': return <div className="h-full overflow-y-auto"><RulesPage /></div>
     case 'games': return <div className="h-full overflow-y-auto"><GamesPage onOpen={openMatch} /></div>
     case 'bots': return <div className="h-full overflow-y-auto"><BotsPage onBot={openBot} /></div>
     case 'progress': return <div className="h-full overflow-y-auto"><ProgressPage onBot={openBot} /></div>
     case 'notes': return <NotebookPage onOpen={openMatch} />
-    case 'bot': return <BotPage key={route.id} id={route.id} onBack={() => go('/')} onOpen={openMatch} onBot={openBot} />
+    case 'bot': return <BotPage key={route.id} id={route.id} onBack={() => go('/bots')} onOpen={openMatch} onBot={openBot} />
     case 'match': {
       const src = route.id === 'sample' ? '/sample-replay.json' : `/api/matches/${route.id}/viewer`
       return <Viewer key={route.id} src={src} match={route.id === 'sample' ? undefined : route.id} label={route.id === 'sample' ? 'Sample match' : `Game ${route.id}`} onBack={() => go(backTo)} />
@@ -111,7 +113,7 @@ function Root() {
             <SidebarMenuItem>
               <SidebarMenuButton size="lg" tooltip="Hexarena" render={<a href="#/" />}>
                 <BotAvatar id="hexarena" name="Hexarena" size={32} className="shrink-0" />
-                <span className="flex min-w-0 flex-col leading-tight">
+                <span className="flex min-w-0 flex-col leading-tight group-data-[collapsible=icon]:hidden">
                   <span className="text-[11px] font-semibold tracking-[0.3em]">HEXARENA</span>
                   <span className="truncate text-xs text-sidebar-foreground/60">CPU arena</span>
                 </span>

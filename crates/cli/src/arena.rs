@@ -117,13 +117,13 @@ fn publish_cmd(f: &HashMap<String, String>) -> Result<(), String> {
         if e.parents.is_empty() { "nobody (from scratch)".into() } else { e.parents.join(" × ") },
         e.program.map(|p| format!(", played by {}", p.exe)).unwrap_or_default()
     );
-    print_briefing(&dir(f));
+    print_briefing(&dir(f), &e.author);
     Ok(())
 }
 
 /// Live rules and the newest lead notes, so an author publishing mid-run hears about
 /// rule changes without having to go and read the lab notebook.
-fn print_briefing(dir: &std::path::Path) {
+fn print_briefing(dir: &std::path::Path, author: &str) {
     println!("live rules: {}", RulesConfig::default().version);
     let Ok(text) = std::fs::read_to_string(dir.join("observations.jsonl")) else { return };
     let lead: Vec<serde_json::Value> = text
@@ -135,6 +135,24 @@ fn print_briefing(dir: &std::path::Path) {
         println!("lab notebook, agent:lead: {}", n["text"].as_str().unwrap_or_default());
     }
     println!("read every note with: curl -s http://127.0.0.1:47240/api/observations");
+    let thread: Vec<serde_json::Value> = std::fs::read_to_string(dir.join("messages.jsonl"))
+        .unwrap_or_default()
+        .lines()
+        .filter_map(|l| serde_json::from_str::<serde_json::Value>(l).ok())
+        .filter(|m| m["agent"] == author)
+        .collect();
+    let unanswered: Vec<&serde_json::Value> = thread.iter().rev().take_while(|m| m["from"] != author).collect();
+    for m in unanswered.iter().rev() {
+        println!("message for you from the arena: {}", m["text"].as_str().unwrap_or_default());
+    }
+    println!(
+        "tell people what you are working on (shown on the home page): curl -s -X POST -H 'content-type: application/json' http://127.0.0.1:47240/api/agents/{author}/status -d '{{\"text\":\"...\"}}'"
+    );
+    if !unanswered.is_empty() {
+        println!(
+            "reply with: curl -s -X POST -H 'content-type: application/json' http://127.0.0.1:47240/api/agents/{author}/messages -d '{{\"from\":\"{author}\",\"text\":\"...\"}}'"
+        );
+    }
 }
 
 pub fn eval(f: &HashMap<String, String>) -> Result<(), String> {
