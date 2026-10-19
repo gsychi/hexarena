@@ -111,7 +111,7 @@ function Root() {
             <SidebarMenuItem>
               <SidebarMenuButton size="lg" tooltip="Hexarena" render={<a href="#/" />}>
                 <BotAvatar id="hexarena" name="Hexarena" size={32} className="shrink-0" />
-                <span className="flex min-w-0 flex-col leading-tight">
+                <span className="flex min-w-0 flex-col leading-tight group-data-[collapsible=icon]:hidden">
                   <span className="text-[11px] font-semibold tracking-[0.3em]">HEXARENA</span>
                   <span className="truncate text-xs text-sidebar-foreground/60">CPU arena</span>
                 </span>
