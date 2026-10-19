@@ -1,0 +1,20 @@
+{
+  "brain": "mosaic",
+  "knobs": {
+    "doctrine": 3,
+    "margin_pct": 155,
+    "margin_abs": 8,
+    "guard": 25,
+    "hold_pct": 45,
+    "neutral": 105,
+    "enemy": 15,
+    "revenge": 35,
+    "leader": 50,
+    "high": 18,
+    "cost": 45,
+    "peace_until": 0,
+    "build_mode": 2,
+    "build_every": 13,
+    "build_cap": 8
+  }
+}

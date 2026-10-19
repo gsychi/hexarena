@@ -35,3 +35,15 @@ eight-player scale, so lower is better.
 - Published params: `docs/arena-genomes/mosaic-v3.json`.
 - Result: pending live arena trial.
 - Replay lesson: pending.
+
+## mosaic-v4 — Blood Ledger
+
+- Hypothesis: a bot that visibly remembers attacks can avoid wasteful universal war yet
+  answer repeated incursions hard enough to secure a quiet border; linked walls on active
+  fronts make that deterrence durable.
+- Change: doctrine 3 accumulates a debt for every observed capture (especially its own
+  losses), bids aggressively against debtors, seeks high defensive terrain, builds linked
+  frontier Walls, and reserves almost half of the largest adjacent stack.
+- Published params: `docs/arena-genomes/mosaic-v4.json`.
+- Result: pending live arena trial.
+- Replay lesson: pending.
