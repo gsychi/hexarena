@@ -253,6 +253,10 @@ struct Knobs {
     neck_want_pct: u64,
     /// Most swallowed hexes the neck terms count.
     neck_cap: u32,
+    /// Hexes we took in the last this many ticks count as fresh (0 = never reinforce).
+    reinforce: u32,
+    /// Safety gain (milli) a move of spare troops into a fresh hex must buy to take the tick.
+    reinforce_min: i64,
 }
 
 impl Knobs {
@@ -311,6 +315,8 @@ impl Knobs {
             neck_take: k("neck_take", 0),
             neck_want_pct: k("neck_want_pct", 0) as u64,
             neck_cap: k("neck_cap", 30) as u32,
+            reinforce: k("reinforce", 0) as u32,
+            reinforce_min: k("reinforce_min", 300),
         }
     }
 
@@ -962,6 +968,37 @@ impl StrikeCore {
         Some((gain, Action::Move { from: geo.hexes[i], to: geo.hexes[toward[i]], troops }))
     }
 
+    /// Moves a neighbour's spare troops into the hex we took most recently that is still
+    /// short of its garrison, so it isn't simply retaken. Returns the safety gain (milli).
+    fn reinforce(&self, geo: &Geometry, me: PlayerId, mine: &[usize]) -> Option<(i64, Action)> {
+        let mut best: Option<(i64, usize, usize, u64)> = None;
+        for &f in mine {
+            if self.tick >= self.flipped[f] + self.k.reinforce || self.flipped[f] == 0 {
+                continue;
+            }
+            let Some(w) = self.want(geo, me, f, usize::MAX) else { continue };
+            let have = self.seen[f].unwrap().troops as u64;
+            if have >= w {
+                continue;
+            }
+            for &n in &geo.nbrs[f] {
+                if !self.owned(n, me) {
+                    continue;
+                }
+                let spare = self.spare(geo, me, n);
+                if spare == 0 {
+                    continue;
+                }
+                let gain = Self::safety(have + spare, Some(w)) - Self::safety(have, Some(w));
+                if best.map_or(true, |b| (gain, std::cmp::Reverse(n)) > (b.0, std::cmp::Reverse(b.1))) {
+                    best = Some((gain, n, f, spare));
+                }
+            }
+        }
+        let (gain, n, f, spare) = best?;
+        Some((gain, Action::Move { from: geo.hexes[n], to: geo.hexes[f], troops: spare as u32 }))
+    }
+
     /// Nothing worth taking: pull troops toward the border hex facing the cheapest target.
     fn regroup(&self, geo: &Geometry, me: PlayerId, mine: &[usize], tick: u32) -> Option<Action> {
         if mine.len() < 2 {
@@ -1081,8 +1118,13 @@ impl Bot for StrikeCore {
                     mine.iter().any(|&s| geo.nbrs[s].iter().any(|&n| self.enemy(n, me)));
                 self.stage_to(&geo, me, b.from, !contact && view.tick < self.k.gather_until)
             });
+        let reinforce = (!rush && self.k.reinforce > 0)
+            .then(|| self.reinforce(&geo, me, &mine))
+            .flatten()
+            .filter(|r| r.0 >= self.k.reinforce_min);
         let action = match (supply, capture) {
             (Some((gain, a)), _) if supply_tick && gain >= self.k.supply_min => a,
+            _ if reinforce.is_some() => reinforce.unwrap().1,
             _ if staging.is_some() => staging.unwrap(),
             (_, Some(c)) => {
                 Action::Move { from: geo.hexes[c.from], to: geo.hexes[c.to], troops: c.send }
