@@ -141,7 +141,7 @@ struct Knobs {
     /// Score lost per troop the launch hex is short of a blocked capture.
     short_cost: i64,
     /// Infrastructure plan: 0 off, 1 farm economy, 2 wall line, 3 quarry hub, 4 hybrid,
-    /// 5 Farm-first honeycomb.
+    /// 5 Farm-first honeycomb, 6 interleaved Quarry honeycomb.
     build_mode: u32,
     build_cap: usize,
     build_every: u32,
@@ -162,6 +162,11 @@ struct Knobs {
     build_depth: usize,
     /// Bonus for putting a discounted building next to a Quarry.
     quarry_bonus: i64,
+    /// Build another Quarry only after this many Villages per current Quarry.
+    villages_per_quarry: usize,
+    /// Site bonuses for current and prospective neighboring Villages.
+    quarry_village_bonus: i64,
+    quarry_future_bonus: i64,
     /// Whether Villages require an adjacent Farm.
     farm_required: bool,
     /// Build at most this many Villages per current Farm before starting another Farm.
@@ -188,6 +193,9 @@ struct Knobs {
     /// Tick at which captures focus the weakest rival remembered from legitimate views.
     finish_start: u32,
     finish_bonus: i64,
+    /// Reduced, but nonzero, safety policy used by a focused finishing campaign.
+    finish_margin_pct: u64,
+    finish_safe_min: i64,
 }
 
 impl Knobs {
@@ -233,6 +241,9 @@ impl Knobs {
             build_radius: k("build_radius", 0) as i32,
             build_depth: k("build_depth", 0) as usize,
             quarry_bonus: k("quarry_bonus", 0),
+            villages_per_quarry: k("villages_per_quarry", 0) as usize,
+            quarry_village_bonus: k("quarry_village_bonus", 0),
+            quarry_future_bonus: k("quarry_future_bonus", 0),
             farm_required: k("farm_required", 1) > 0,
             villages_per_farm: k("villages_per_farm", 0) as usize,
             farm_per_village: k("farm_per_village", 0) as usize,
@@ -248,6 +259,8 @@ impl Knobs {
             rush_start: k("rush_start", 0) as u32,
             finish_start: k("finish_start", 0) as u32,
             finish_bonus: k("finish_bonus", 0),
+            finish_margin_pct: k("finish_margin_pct", 0) as u64,
+            finish_safe_min: k("finish_safe_min", 0),
         }
     }
 }
@@ -780,6 +793,12 @@ impl Ridgeline {
                 Building::Quarry,
                 Building::Wall,
             ],
+            6 => vec![
+                Building::Quarry,
+                Building::Farm,
+                Building::Village,
+                Building::Wall,
+            ],
             _ => vec![
                 Building::Village,
                 Building::Wall,
@@ -800,7 +819,12 @@ impl Ridgeline {
                         && (self.k.villages_per_farm == 0
                             || counts[1] < counts[0] * self.k.villages_per_farm)
                 }
-                Building::Quarry => counts[2] < self.k.max_quarries,
+                Building::Quarry => {
+                    counts[2] < self.k.max_quarries
+                        && (self.k.villages_per_quarry == 0
+                            || counts[2] == 0
+                            || counts[1] >= counts[2] * self.k.villages_per_quarry)
+                }
                 Building::Wall => counts[3] < self.k.max_walls,
             };
             if !under_kind_cap {
@@ -900,7 +924,11 @@ impl Ridgeline {
                         c.troops as i64 + self.k.village_farm_bonus * adjacent_farm - 100 * foreign
                             + if near_quarry { 100 } else { 0 }
                     }
-                    Building::Quarry => c.troops as i64 - 80 * foreign,
+                    Building::Quarry => {
+                        c.troops as i64 - 80 * foreign
+                            + self.k.quarry_village_bonus * adjacent_village
+                            + self.k.quarry_future_bonus * future_village
+                    }
                     Building::Wall => {
                         c.troops as i64
                             + 250 * enemy
@@ -1131,9 +1159,18 @@ impl Bot for Ridgeline {
                 mine.push(i);
             }
         }
+        let finishing = self.k.finish_start > 0 && view.tick >= self.k.finish_start;
+        if finishing {
+            if self.k.finish_margin_pct > 0 {
+                self.k.margin_pct = self.k.finish_margin_pct;
+            }
+            if self.k.finish_safe_min > 0 {
+                self.k.safe_min = self.k.finish_safe_min;
+            }
+        }
         let rushing = view.tick + self.k.sprint >= self.rules.max_ticks
             || (self.k.rush_start > 0 && view.tick >= self.k.rush_start);
-        let focus = (self.k.finish_start > 0 && view.tick >= self.k.finish_start)
+        let focus = finishing
             .then(|| {
                 let mut rivals: Vec<(PlayerId, usize)> = vec![];
                 for cell in self.seen.iter().flatten() {
@@ -1146,8 +1183,16 @@ impl Bot for Ridgeline {
                         rivals.push((owner, 1));
                     }
                 }
+                let contacts: Vec<PlayerId> = mine
+                    .iter()
+                    .flat_map(|&cell| geo.nbrs[cell].iter().copied())
+                    .filter_map(|neighbor| self.seen[neighbor].and_then(|cell| cell.owner))
+                    .filter(|&owner| owner != me)
+                    .collect();
+                let has_contact = rivals.iter().any(|(owner, _)| contacts.contains(owner));
                 rivals
                     .into_iter()
+                    .filter(|(owner, _)| !has_contact || contacts.contains(owner))
                     .min_by_key(|&(owner, count)| (count, owner))
                     .map(|(owner, _)| owner)
             })

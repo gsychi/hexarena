@@ -87,7 +87,15 @@ impl Frames {
         }
     }
 
-    fn curve(&self, player: i32, radius: i32) -> Curve {
+    fn curve(
+        &self,
+        player: i32,
+        radius: i32,
+        base_income: usize,
+        village_bonus: usize,
+        farm_bonus: usize,
+        quarry_bonus: usize,
+    ) -> Curve {
         let width = 2 * radius + 1;
         let mut curve = Curve::default();
         for idx in 0..self.state.len() {
@@ -96,9 +104,9 @@ impl Frames {
             }
             curve.land += 1;
             curve.troops += self.state[idx][1] as i64;
-            curve.production += 1;
+            curve.production += base_income;
             if self.state[idx][2] == 2 {
-                curve.production += 1;
+                curve.production += village_bonus;
                 let q = idx as i32 % width - radius;
                 let r = idx as i32 / width - radius;
                 for (dq, dr) in [(1, 0), (1, -1), (0, -1), (-1, 0), (-1, 1), (0, 1)] {
@@ -107,11 +115,12 @@ impl Frames {
                         continue;
                     }
                     let neighbor = ((nr + radius) * width + nq + radius) as usize;
-                    if self.present[neighbor]
-                        && self.state[neighbor][0] == player
-                        && self.state[neighbor][2] == 1
-                    {
-                        curve.production += 1;
+                    if self.present[neighbor] && self.state[neighbor][0] == player {
+                        if self.state[neighbor][2] == 1 {
+                            curve.production += farm_bonus;
+                        } else if self.state[neighbor][2] == 3 {
+                            curve.production += quarry_bonus;
+                        }
                     }
                 }
             }
@@ -147,6 +156,12 @@ fn study(path: &Path) {
             .expect("summary JSON");
     let id = summary["id"].as_str().unwrap();
     let radius = number(&viewer["radius"]);
+    let base_income = number(&viewer["rules"]["base_income"]) as usize;
+    let village_bonus = number(&viewer["rules"]["village"]["bonus"]) as usize;
+    let farm_bonus = number(&viewer["rules"]["village"]["farm_bonus"]) as usize;
+    let quarry_bonus = viewer["rules"]["quarry"]["village_bonus"]
+        .as_u64()
+        .unwrap_or(0) as usize;
     let frames = viewer["frames"].as_array().unwrap();
     let mut decoded = Frames::new(
         ((2 * radius + 1) * (2 * radius + 1)) as usize,
@@ -157,7 +172,17 @@ fn study(path: &Path) {
         decoded.step(delta.as_array().unwrap());
         if CHECKPOINTS.contains(&tick) {
             for player in 0..viewer["names"].as_array().unwrap().len() {
-                curves.insert((player, tick), decoded.curve(player as i32, radius));
+                curves.insert(
+                    (player, tick),
+                    decoded.curve(
+                        player as i32,
+                        radius,
+                        base_income,
+                        village_bonus,
+                        farm_bonus,
+                        quarry_bonus,
+                    ),
+                );
             }
         }
     }

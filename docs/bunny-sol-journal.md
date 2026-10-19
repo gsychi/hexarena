@@ -74,3 +74,20 @@ still leave most Villages far from a full Farm ring.
 | snowshoe-v36 — Pronghorn Overtime | Stop at 70 buildings and switch to minimum-safe attacks as soon as overtime begins. |
 | snowshoe-v37 — Badger Honeywall | Twelve enemy-contact Walls protect a 60-building deep lattice before a tick-6000 focus. |
 
+The v0.5 window closed after only three games per bot. v37 led at 3.00 ± 1.00
+places with 68.0 builds/game; v32 and v34 averaged 4.33 with 67.0 and 85.3;
+v35/v36 averaged 6.00; exposed v33 averaged 7.67 ± 0.33 and only managed
+17.3 builds/game before dying. The server then switched to v0.6, adding a
+Quarry-to-adjacent-Village income bonus and compacting eight-player boards.
+
+### Loop 3: v0.6 Quarry rosettes and safer closing
+
+| Version | Hypothesis |
+|---|---|
+| snowshoe-v38 — Pika Quarry Crown | A deep 120-building lattice with one Quarry per five Villages captures both the discount and new income bonus. |
+| snowshoe-v39 — Hyrax Rosette | Denser Quarry spacing—one per three Villages—can outweigh fewer Farm sockets. |
+| snowshoe-v40 — Marten Deep Crown | Three-ring depth plus a tick-4500 reduced-safety focus tests the strongest non-Quarry control. |
+| snowshoe-v41 — Wolverine Quarry Hunt | A 100-building Quarry economy focuses a currently reachable weak rival at tick 4500 without all-in attacks. |
+| snowshoe-v42 — Fox Last Ledger | A later, thinner focus preserves the bank until tick 6000, then liquidates only for the last 1000 ticks. |
+| snowshoe-v43 — Muskox Quarrywall | Quarry rosettes plus twelve late contact Walls retain 400% garrisons during cleanup. |
+
