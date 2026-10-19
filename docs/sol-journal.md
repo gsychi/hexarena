@@ -716,3 +716,11 @@ exists, and retains extra source troops when a third party touches the launch he
   removing players before the cautious field, accepting worse cutoff placement variance.
 - Economy: tiny lattice, 16 midgame Walls, earliest and leanest focused finisher.
 - Result and replay lesson: pending 50-game sample.
+
+### eagle-v1 — Eagle
+
+- Hypothesis: the survivor lock is strongest only after a maximum depth-three bank has
+  reached scale and three players remain; large garrisons prevent the last rival from
+  immediately undoing each focused capture.
+- Economy: 120-site deep lattice, 24 late Walls, delayed three-survivor finisher.
+- Result and replay lesson: pending 50-game sample.
