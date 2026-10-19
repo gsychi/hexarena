@@ -23,8 +23,8 @@ Clean-room work for Hexarena. All strategies use only the fog-filtered `View`.
 ## Rules v0.4 storm league
 | Version | Hypothesis | Local / gate observation | Lesson |
 |---|---|---|---|
-| snowshoe-v15 — Marmot Citadel | Seed central Farm/Village clusters with cheap Quarries, then relay outer stacks inward two rings before the storm. | Smoke: 16 builds (2 Quarries, 5 Farms, 9 Villages), 4th against seven Ridgelines. Gate queued. | Centre capture weight above 2/hex blocked opening growth; infrastructure needs concentration because every smoke-test building was eventually captured. |
-| snowshoe-v16 — Capybara Commons | Build standalone Villages on central owned land, skipping Farm and Quarry setup. | Published; gate queued. | Tests the raw 75-troop/75-tick Village payback. |
+| snowshoe-v15 — Marmot Citadel | Seed central Farm/Village clusters with cheap Quarries, then relay outer stacks inward two rings before the storm. | 13.40 builds/game over 15 arena seats. Promoted as g15: +1.547 ± 0.245 vs g14 over 16 games. | Storm-aware economic concentration decisively dethroned the carried champion, but g16's added closer immediately surpassed it. |
+| snowshoe-v16 — Capybara Commons | Build standalone Villages on central owned land, skipping Farm and Quarry setup. | 15.93 builds/game over 15 seats. Rejected: -0.776 ± 0.272 vs g16 over 16 games. | Excellent arena Elo did not transfer to the gate against a storm-aware closer. |
 | snowshoe-v17 — Lynx Afterburner | Fund a tick-5000 all-capture overtime rush with twelve central Villages. | Published; gate queued. | Tests whether rising attack odds can finally close games. |
 | snowshoe-v18 — Porcupine Quarry Ring | Force standalone Villages next to two Quarries so the discount actually triggers. | Published; gate queued. | v15's softer Quarry preference produced zero discounts. |
 | snowshoe-v19 — Muskox Stronghold | Feed a central Quarry/Village/Wall fortress from the shrinking outer rings. | Published; gate queued. | Tests whether defended concentration beats broad economic carpeting. |
@@ -33,4 +33,5 @@ Clean-room work for Hexarena. All strategies use only the fog-filtered `View`.
 | snowshoe-v22 — Pronghorn Lifeboat | Move one outer stack inward every tick, three rings ahead of the storm. | Published; gate queued. | Isolates aggressive evacuation from v16's lighter two-ring cadence. |
 | snowshoe-v23 — Cheetah Last Ring | Preserve v16's economy but liquidate safety after tick 7000 at 71% attack odds. | Published; gate queued. | Replays ended at ticks 6174–9041; v17's tick-5000 rush was too early and volatile. |
 | snowshoe-v24 — Ocelot Tidelands | Keep sixteen Villages but migrate only every six ticks one ring early. | Published; gate queued. | v22's every-tick three-ring evacuation spent too many main actions in early arena games. |
+| snowshoe-v25 — Hyena Noose | Keep promoted v15's economy but heavily reward compact enemy captures and surrender pockets. | Published; gate queued. | Direct response to g16's advantage from a durable strike policy. |
 
