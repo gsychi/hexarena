@@ -70,7 +70,7 @@ export function Standings({ board }: { board: Leaderboard | null }) {
       <CardHeader>
         <CardTitle className="flex items-center gap-2"><Trophy className="size-4 text-amber-300" />Standings</CardTitle>
         <CardDescription>
-          Elo rating for each CPU style across {board?.games ?? 0} finished game{board?.games === 1 ? '' : 's'} under rules {board?.rules_version ?? 'v0.2'}. Everyone starts at {board?.start_elo ?? 1500}.
+          Elo rating for each CPU style across {board?.games ?? 0} finished game{board?.games === 1 ? '' : 's'} under rules {board?.rules_version ?? 'v0.3'}. Everyone starts at {board?.start_elo ?? 1500}.
           Each free-for-all counts as a head-to-head result between every pair of players, where the better place wins, and ratings update after every game (K = {board?.k ?? 32}). Win % and top half % are per seat; top half means finishing in the top half of the lobby (1st–2nd of 4, 1st–3rd of 6).
           Any bot outside the top {board?.top ?? 20} after 12 games is retired from the self-playing arena and the league's sparring seats (the league champion excepted) and leaves this table{board?.retired_bots?.length ? ` (${board.retired_bots.length} retired so far)` : ''}. Retired bots stay playable from the lineup picker.
         </CardDescription>

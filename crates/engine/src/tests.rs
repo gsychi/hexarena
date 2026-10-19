@@ -627,12 +627,12 @@ fn capture_surrenders_enclosed_enemy_component() {
 fn build_costs_and_quarry_discounts_match_spec_examples() {
     let r = RulesConfig::default();
     let v = r.build_cost(Building::Village, true);
-    assert_eq!((v.troops, v.resource), (68, 1));
+    assert_eq!((v.troops, v.resource), (57, 1));
     let w = r.build_cost(Building::Wall, true);
-    assert_eq!((w.troops, w.resource), (30, 0));
+    assert_eq!((w.troops, w.resource), (25, 0));
     let f = r.build_cost(Building::Farm, true);
-    assert_eq!((f.troops, f.resource), (45, 0));
-    assert_eq!(r.build_cost(Building::Village, false).troops, 90);
+    assert_eq!((f.troops, f.resource), (38, 0));
+    assert_eq!(r.build_cost(Building::Village, false).troops, 75);
 }
 
 #[test]
@@ -640,7 +640,7 @@ fn build_rules_terrain_spacing_and_leave_one_troop() {
     let mut st = state(2, 17);
     clear_owners(&mut st);
     let c = interior_open(&st);
-    set(&mut st, c, Some(0), 59);
+    set(&mut st, c, Some(0), 49);
     let f = faraway(&st, c);
     set(&mut st, f, Some(1), 3);
     set_height(&mut st, c, 0);
@@ -665,7 +665,7 @@ fn build_rules_terrain_spacing_and_leave_one_troop() {
     ));
     assert!(
         st.cell(c).unwrap().building.is_none(),
-        "60 troops on hex is not enough: one must remain"
+        "50 troops on hex is not enough: one must remain"
     );
     st.step(&act(
         0,
@@ -675,7 +675,7 @@ fn build_rules_terrain_spacing_and_leave_one_troop() {
         },
     ));
     assert_eq!(st.cell(c).unwrap().building, Some(Building::Farm));
-    assert_eq!(st.cell(c).unwrap().troops, 62 - 60);
+    assert_eq!(st.cell(c).unwrap().troops, 52 - 50);
 }
 
 #[test]

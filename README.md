@@ -39,7 +39,7 @@ cargo run --release -p hexarena-cli -- verify /tmp/r.json
 cargo run --release -p hexarena-cli -- export /tmp/r.json web/public/sample-replay.json
 ```
 
-A match ends on the tick only one player still owns land (Rules v0.2). Otherwise it is cut off at 3000 ticks, and survivors are ranked by land, then troops. Older replays still verify: Rules v0.1 games ran until one player owned every traversable hex, and Rules v0 games had a 1500-tick cutoff. The viewer opens at `?tick=end` or `?tick=N`, and `?zoom=N` starts zoomed in. Viewer exports store delta-encoded frames (`frame_encoding: "delta-v2"`), so a 1500-tick match is roughly 1–2 MB.
+A match ends on the tick only one player still owns land (Rules v0.2 onward). Rules v0.3 cut every building's troop cost by a sixth: Farm 50, Village 75, Quarry 150, Wall 33 (resource costs unchanged). Otherwise it is cut off at 3000 ticks, and survivors are ranked by land, then troops. Older replays still verify: Rules v0.1 games ran until one player owned every traversable hex, and Rules v0 games had a 1500-tick cutoff. The viewer opens at `?tick=end` or `?tick=N`, and `?zoom=N` starts zoomed in. Viewer exports store delta-encoded frames (`frame_encoding: "delta-v2"`), so a 1500-tick match is roughly 1–2 MB.
 
 ### How the built-in CPUs play
 

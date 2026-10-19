@@ -235,7 +235,7 @@ fn is_false(b: &bool) -> bool {
 impl Default for RulesConfig {
     fn default() -> Self {
         RulesConfig {
-            version: "v0.2".into(),
+            version: "v0.3".into(),
             min_players: 2,
             max_players: 8,
             map_radius_factor: 7.5,
@@ -259,20 +259,20 @@ impl Default for RulesConfig {
             extractor_period: 10,
             extractor_output: 1,
             farm: FarmRules {
-                troop_cost: 60,
+                troop_cost: 50,
                 resource_cost: 0,
                 allowed_heights: vec![-2, -1],
                 sockets: 3,
                 relink_cooldown: 10,
             },
             village: VillageRules {
-                troop_cost: 90,
+                troop_cost: 75,
                 resource_cost: 2,
                 bonus: 1,
                 farm_bonus: 1,
             },
             quarry: QuarryRules {
-                troop_cost: 180,
+                troop_cost: 150,
                 resource_cost: 0,
                 allowed_heights: vec![1, 2],
                 min_friendly_distance: 3,
@@ -281,7 +281,7 @@ impl Default for RulesConfig {
                 resource_discount: 1,
             },
             wall: WallRules {
-                troop_cost: 40,
+                troop_cost: 33,
                 resource_cost: 1,
                 max_links: 2,
                 defense_milli_by_links: vec![2000, 2500, 3000],
