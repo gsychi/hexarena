@@ -14,7 +14,8 @@ Hexarena is a standalone project. No source code, bots, model weights, replays, 
 | `crates/engine` | Pure deterministic engine: map generation, fog-filtered views, tick resolution, placement scoring, leaderboard metrics |
 | `crates/arena` | Runs CPU matches on the engine and converts replays to the viewer format (shared by CLI and server) |
 | `crates/server` | Axum game server: create games, store replays in `data/matches/`, serve viewer documents and the CPU leaderboard |
-| `crates/cli` | `hexarena` CLI: `simulate`, `report`, `map`, `verify`, `export` |
+| `crates/league` | Self-improvement loop: gated generations of CPU genomes in 8-player lobbies, roster benchmark, Elo, persisted in `data/league/` |
+| `crates/cli` | `hexarena` CLI: `simulate`, `report`, `map`, `verify`, `export`, `league` |
 | `sdk/rust` | Bot trait and the built-in CPU roster: Expander, Homesteader, Raider, Warden |
 | `web` | React + TypeScript + Vite + Tailwind + shadcn/ui: start page (create games, game list, leaderboard) and replay viewer |
 | `agents`, `migrations`, `deploy`, `trainer` | Coordination docs and reserved locations; see roadmap |
@@ -28,7 +29,7 @@ cd web && pnpm install && pnpm dev           # start page on http://127.0.0.1:47
 
 Open the start page, pick 2 to 8 CPU seats and an optional seed, and create one game or a batch of up to 20 (consecutive seeds). Games run in the background on the Rust engine; when one finishes, click **Watch**. The leaderboard aggregates every finished game played under the current rules version by CPU style. Games persist in `data/matches/` (override with `HEXARENA_DATA`; port with `HEXARENA_PORT`). If the server isn't running, the start page says so and the bundled sample match still plays.
 
-Server API: `GET /api/bots`, `GET|POST /api/matches` (`{"bots": ["raider", "warden"], "seed": 7, "count": 5}`); every game runs to total conquest or the 3000-tick cutoff, `GET /api/matches/{id}`, `GET /api/matches/{id}/viewer`, `GET /api/matches/{id}/replay`, `GET /api/leaderboard`.
+Server API: `GET /api/bots`, `GET|POST /api/matches` (`{"bots": ["raider", "warden"], "seed": 7, "count": 5}`); every game runs to total conquest or the 3000-tick cutoff, `GET /api/matches/{id}`, `GET /api/matches/{id}/viewer`, `GET /api/matches/{id}/replay`, `GET /api/leaderboard`, `GET /api/league`.
 
 ```bash
 cargo test                                   # engine, scoring, fog-leak, arena determinism tests
@@ -50,6 +51,24 @@ Every CPU shares one strategy, tuned per style (attack margin, enemy bonus, buil
 - **Buildings.** Built on the style's schedule, with Farm–Village and Wall links managed automatically.
 
 With the current roster, 20 seeds per lineup ended by total conquest about 90% of the time with 2 players, 85% with 3, 50% with 4, 25% with 5, 20% with 6, and 0% with 8. Bigger lobbies get bigger maps, and one action per tick limits how fast anyone can claim land.
+
+## League: CPUs that improve themselves
+
+A CPU's whole strategy is a genome of numbers (`BotParams` in `sdk/rust`: attack margin, how much it values land, enemies and compact borders, the build plan, gather and grab cadence, whether it marches). The league evolves that genome, AlphaGo style. A new generation only replaces the champion after it beats the champion head to head.
+
+```bash
+cargo run --release -p hexarena-cli -- league run                 # evolve forever (Ctrl-C any time; --attempts N to stop)
+cargo run --release -p hexarena-cli -- league show                # champion and progression
+cargo run --release -p hexarena-cli -- league eval --params cand.json --pairs 16   # try a genome without touching the league
+cargo run --release -p hexarena-cli -- league submit --params cand.json --origin agent:me --note "why"
+```
+
+- **Challengers.** Each attempt takes the champion and either mutates one to three genes, crosses it with an earlier generation, or takes the next genome from `data/league/inbox/` (written by `league submit`, so people and agents can propose ideas).
+- **Gate.** Challenger and champion play mirrored pairs of 8-player lobbies on the same seeds: three seats each plus two sparring seats from earlier generations and the hand-written roster, then the same seeds again with challenger and champion swapped. Places are scored as **AVP on the 8-player scale**: `1 + (place − 1) · 7 / (N − 1)`, so 1 is always first and 8 is always last whatever the lobby size, and ties share the middle of their places. The challenger is promoted when it averages at least 0.05 places better than the champion *and* the gain is more than two standard errors. Gates stop early once the answer is clear (16 to 96 games), so a hopeless mutation costs a few seconds.
+- **Progress.** Every generation is benchmarked on 32 fixed seeds (two seats against six roster CPUs), and every league game updates a multiplayer Elo (K = 32, start 1500). The roster's Elo is the fixed yardstick.
+- **Watch it.** The start page links to **League progression** (`#/league`): benchmark AVP and Elo by generation, every gate result, and the gene changes of each generation. **Play** next to any generation runs it against the roster in an 8-player game you can watch. Generations are also playable CPUs in the API (`"champion"`, or an id like `"g3"`).
+
+The league lives in `data/league/` (`league.json`, `games.jsonl` with every game, `inbox/`); the server reads it from `HEXARENA_LEAGUE`. All the games use the same Rust engine and rules as everything else. The standings on the start page report AVP on the same 8-player scale.
 
 ## Deploy
 
