@@ -19,16 +19,20 @@ fn main() {
     let paths: Vec<String> = std::env::args().skip(1).collect();
     let summary_only = paths.iter().any(|p| p == "--summary-only");
     let all_players = paths.iter().any(|p| p == "--all");
+    let rules_filter = paths.iter().find_map(|p| p.strip_prefix("--rules="));
     if !summary_only {
         println!("replay,player,builds,farms,villages,quarries,walls,final_tick,place");
     }
     let mut summary: BTreeMap<String, (u32, Counts)> = BTreeMap::new();
     for path in paths
         .iter()
-        .filter(|p| p.as_str() != "--summary-only" && p.as_str() != "--all")
+        .filter(|p| !p.starts_with("--"))
     {
         let bytes = std::fs::read(&path).expect("read replay");
         let replay: Replay = serde_json::from_slice(&bytes).expect("parse replay");
+        if rules_filter.is_some_and(|rules| replay.rules_version != rules) {
+            continue;
+        }
         let mut counts: BTreeMap<u16, Counts> = BTreeMap::new();
         for commands in &replay.commands {
             for (player, command) in commands {

@@ -25,13 +25,17 @@ Clean-room work for Hexarena. All strategies use only the fog-filtered `View`.
 |---|---|---|---|
 | snowshoe-v15 — Marmot Citadel | Seed central Farm/Village clusters with cheap Quarries, then relay outer stacks inward two rings before the storm. | 13.40 builds/game over 15 arena seats. Promoted as g15: +1.547 ± 0.245 vs g14 over 16 games. | Storm-aware economic concentration decisively dethroned the carried champion, but g16's added closer immediately surpassed it. |
 | snowshoe-v16 — Capybara Commons | Build standalone Villages on central owned land, skipping Farm and Quarry setup. | 15.93 builds/game over 15 seats. Rejected: -0.776 ± 0.272 vs g16 over 16 games. | Excellent arena Elo did not transfer to the gate against a storm-aware closer. |
-| snowshoe-v17 — Lynx Afterburner | Fund a tick-5000 all-capture overtime rush with twelve central Villages. | Published; gate queued. | Tests whether rising attack odds can finally close games. |
-| snowshoe-v18 — Porcupine Quarry Ring | Force standalone Villages next to two Quarries so the discount actually triggers. | Published; gate queued. | v15's softer Quarry preference produced zero discounts. |
-| snowshoe-v19 — Muskox Stronghold | Feed a central Quarry/Village/Wall fortress from the shrinking outer rings. | Published; gate queued. | Tests whether defended concentration beats broad economic carpeting. |
-| snowshoe-v20 — Moose Orchard Core | Build exactly three supported Villages per central Farm. | Published; gate queued. | Tests the strongest theoretical linked-Farm payback without unsupported Villages. |
-| snowshoe-v21 — Elk Metropolis | Scale the early arena-leading standalone Village carpet from 16 to 24. | Published; gate queued. | Tests whether the 10,000-tick horizon supports substantially more investment. |
-| snowshoe-v22 — Pronghorn Lifeboat | Move one outer stack inward every tick, three rings ahead of the storm. | Published; gate queued. | Isolates aggressive evacuation from v16's lighter two-ring cadence. |
-| snowshoe-v23 — Cheetah Last Ring | Preserve v16's economy but liquidate safety after tick 7000 at 71% attack odds. | Published; gate queued. | Replays ended at ticks 6174–9041; v17's tick-5000 rush was too early and volatile. |
-| snowshoe-v24 — Ocelot Tidelands | Keep sixteen Villages but migrate only every six ticks one ring early. | Published; gate queued. | v22's every-tick three-ring evacuation spent too many main actions in early arena games. |
-| snowshoe-v25 — Hyena Noose | Keep promoted v15's economy but heavily reward compact enemy captures and surrender pockets. | Published; gate queued. | Direct response to g16's advantage from a durable strike policy. |
+| snowshoe-v17 — Lynx Afterburner | Fund a tick-5000 all-capture overtime rush with twelve central Villages. | 11.06 builds/game over 17 v0.4 seats; gate unfinished when v0.5 reset. | Tick-5000 liquidation was volatile; replays ranged from 1st to 8th. |
+| snowshoe-v18 — Porcupine Quarry Ring | Force standalone Villages next to two Quarries so the discount actually triggers. | 13.00 builds/game over 17 v0.4 seats; gate unfinished at reset. | Hard Quarry affinity produced the intended two-Quarry rings. |
+| snowshoe-v19 — Muskox Stronghold | Feed a central Quarry/Village/Wall fortress from the shrinking outer rings. | 11.94 builds/game over 16 v0.4 seats; gate unfinished at reset. | The mixed stronghold trailed pure Villages in early arena play. |
+| snowshoe-v20 — Moose Orchard Core | Build exactly three supported Villages per central Farm. | 10.50 builds/game over 16 v0.4 seats; gate unfinished at reset. | Portfolio control worked, but early arena results lagged standalone Villages. |
+| snowshoe-v21 — Elk Metropolis | Scale the early arena-leading standalone Village carpet from 16 to 24. | 21.31 builds/game over 16 v0.4 seats; gate unfinished at reset. | More than sixteen Villages consumed too many actions. |
+| snowshoe-v22 — Pronghorn Lifeboat | Move one outer stack inward every tick, three rings ahead of the storm. | 13.88 builds/game over 16 v0.4 seats; gate unfinished at reset. | Aggressive evacuation also consumed too many actions. |
+| snowshoe-v23 — Cheetah Last Ring | Preserve v16's economy but liquidate safety after tick 7000 at 71% attack odds. | 14.00 builds/game over 16 v0.4 seats; gate unfinished at reset. | Replays ended at ticks 6174–9041; v17's tick-5000 rush was too early. |
+| snowshoe-v24 — Ocelot Tidelands | Keep sixteen Villages but migrate only every six ticks one ring early. | 14.00 builds/game over 16 v0.4 seats; gate unfinished at reset. | Tests a lower action tax than v22, but the rule reset prevented its v0.4 gate. |
+| snowshoe-v25 — Hyena Noose | Keep promoted v15's economy but heavily reward compact enemy captures and surrender pockets. | 1.00 builds/game over only 2 v0.4 seats; gate unfinished at reset. | Direct response to g16 arrived too late for a meaningful v0.4 sample. |
+
+The server switched to rules v0.5 while v17–v25 were waiting. Their displayed arena and
+gate statuses subsequently restarted under v0.5; the measurements above are filtered to
+`Replay.rules_version == "v0.4"` and must not be mixed with the restarted results.
 
