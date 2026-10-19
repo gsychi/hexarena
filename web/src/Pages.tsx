@@ -1,4 +1,4 @@
-import { BookOpen, Dice5, Dna, Loader2, Play, Plus, Shuffle, Trophy, TriangleAlert, Users } from 'lucide-react'
+import { Dice5, Loader2, Play, Plus, Shuffle, Swords, TrendingUp, Trophy, Users } from 'lucide-react'
 import { memo, useCallback, useEffect, useMemo, useState } from 'react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -7,15 +7,19 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectSeparator, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
-import type { BotInfo, Leaderboard, MatchStatus, MatchSummary } from './api'
+import type { BotInfo, MatchStatus, MatchSummary } from './api'
 import { api } from './api'
 import { PLAYER_COLORS } from './model'
+import { EloScatter } from './EloScatter'
+import { Offline, Page } from './Page'
+import { usePoll } from './poll'
 import { Standings } from './Standings'
 
 const BATCHES = [1, 5, 10, 20]
 /** Games listed on the home page; the rest stay one click away in their replays. */
 const RECENT = 40
 const POLL_MS = 3000
+const BOARD_MS = 10_000
 const DEFAULT_LINEUP = ['expander', 'homesteader', 'raider', 'warden']
 
 function finish(m: MatchSummary) {
@@ -53,118 +57,101 @@ function StatusBadge({ status }: { status: MatchStatus }) {
   }
 }
 
-export function Home({ onOpen, onLeague, onNotes }: { onOpen: (id: string) => void; onLeague: () => void; onNotes: () => void }) {
+const loadBoard = () => api.leaderboard()
+const loadProgress = () => Promise.all([api.leaderboard(), api.arena()])
+const loadGames = () => Promise.all([api.recentMatches(RECENT), api.leaderboard()])
+
+export function BotsPage({ onBot }: { onBot: (id: string) => void }) {
+  const { data: board, error, refresh } = usePoll(loadBoard, BOARD_MS)
+  return (
+    <Page icon={Trophy} wide title="Bots" description="Every bot in the arena, ranked by Elo under the current rules. Click one to see its profile, family, rating curve and game log.">
+      {error && <Offline error={error} onRetry={refresh} />}
+      <Standings board={board} onBot={onBot} />
+    </Page>
+  )
+}
+
+export function ProgressPage({ onBot }: { onBot: (id: string) => void }) {
+  const { data, error, refresh } = usePoll(loadProgress, BOARD_MS)
+  const [board, arena] = data ?? [null, null]
+  return (
+    <Page icon={TrendingUp} wide title="Progression"
+      description={<>Every published version&apos;s current Elo{board ? ` under rules ${board.rules_version}` : ''} against when it went up. The green line is the frontier: the best Elo anything published so far has reached. Switch to ms per move for the speed–strength Pareto front, where nothing to the left of the line is stronger. Click a dot to open its profile.</>}>
+      {error && <Offline error={error} onRetry={refresh} />}
+      <Card>
+        <CardContent>
+          {board && arena
+            ? <EloScatter rows={board.bots} retiredRows={board.retired_bots ?? []} entrants={arena.entrants} top={board.top ?? 20} onBot={onBot} />
+            : !error && <div className="flex items-center gap-2 text-sm text-muted-foreground"><Loader2 className="size-4 animate-spin" />Loading ratings…</div>}
+        </CardContent>
+      </Card>
+    </Page>
+  )
+}
+
+export function GamesPage({ onOpen }: { onOpen: (id: string) => void }) {
   const [bots, setBots] = useState<BotInfo[]>([])
-  const [matches, setMatches] = useState<MatchSummary[] | null>(null)
-  const [total, setTotal] = useState(0)
-  const [board, setBoard] = useState<Leaderboard | null>(null)
-  const [offline, setOffline] = useState<string | null>(null)
-
-  const refresh = useCallback(() => {
-    Promise.all([api.recentMatches(RECENT), api.leaderboard()])
-      .then(([m, l]) => { setMatches(m.games); setTotal(m.total); setBoard(l); setOffline(null) })
-      .catch((e) => setOffline(String(e.message ?? e)))
-  }, [])
-
-  useEffect(() => {
-    api.bots().then(setBots).catch((e) => setOffline(String(e.message ?? e)))
-    refresh()
-  }, [refresh])
-
-  const running = matches?.some((m) => m.status === 'running') ?? false
-  useEffect(() => {
-    if (!running) return
-    const id = setInterval(refresh, POLL_MS)
-    return () => clearInterval(id)
-  }, [running, refresh])
+  const { data, error, refresh, setData } = usePoll(loadGames, POLL_MS)
+  useEffect(() => { api.bots().then(setBots).catch(() => {}) }, [])
+  const matches = data?.[0].games ?? null
+  const total = data?.[0].total ?? 0
+  const board = data?.[1] ?? null
 
   // Rounded ratings as a string, so the lineup picker only re-renders when a shown Elo changes.
   const eloKey = JSON.stringify([...(board?.bots ?? []), ...(board?.retired_bots ?? [])].map((r) => [r.bot, Math.round(r.elo)]))
   const elo = useMemo(() => new Map<string, number>(JSON.parse(eloKey)), [eloKey])
   const onCreated = useCallback((made: MatchSummary[]) => {
-    setMatches((m) => [...made, ...(m ?? [])].slice(0, RECENT))
-    setTotal((t) => t + made.length)
-  }, [])
+    setData((d) => (d ? [{ games: [...made, ...d[0].games].slice(0, RECENT), total: d[0].total + made.length }, d[1]] : d))
+  }, [setData])
 
   return (
-    <div className="mx-auto flex min-h-full max-w-6xl flex-col gap-6 p-4 sm:p-6">
-      <header className="flex flex-wrap items-end justify-between gap-3">
-        <div>
-          <div className="text-[11px] font-semibold tracking-[0.3em] text-muted-foreground">HEXARENA</div>
-          <h1 className="mt-1 text-2xl font-semibold tracking-tight">CPU arena</h1>
-          <p className="text-sm text-muted-foreground">Set up a free-for-all, let the CPUs fight it out on the Rust engine, then watch the replay.</p>
-        </div>
-        <div className="flex flex-wrap gap-2">
-          <Button variant="outline" size="sm" onClick={onLeague}><Dna />League progression</Button>
-          <Button variant="outline" size="sm" onClick={onNotes}><BookOpen />Lab notebook</Button>
-          <Button variant="outline" size="sm" onClick={() => onOpen('sample')}><Play />Watch sample match</Button>
-        </div>
-      </header>
-
-      {offline && (
-        <Card className="border-amber-500/40">
+    <Page icon={Swords} wide title="Games" description="The self-playing arena keeps 8-player games going around the clock. Set up your own free-for-all, or open any game to watch its replay."
+      actions={<Button variant="outline" size="sm" onClick={() => onOpen('sample')}><Play />Watch sample match</Button>}>
+      {error && <Offline error={error} onRetry={refresh} />}
+      <div className="grid gap-6 lg:grid-cols-[minmax(0,26rem)_minmax(0,1fr)]">
+        <NewGame bots={bots} elo={elo} offline={!!error} onCreated={onCreated} />
+        <Card className="min-w-0">
           <CardHeader>
-            <CardTitle className="flex items-center gap-2 text-base"><TriangleAlert className="size-4 text-amber-400" />Game server isn't reachable</CardTitle>
-            <CardDescription>
-              Start it with <code className="rounded bg-muted px-1.5 py-0.5 text-foreground">cargo run --release -p hexarena-server</code>, then this page reconnects. You can still watch the sample match.
-            </CardDescription>
+            <CardTitle>Recent games</CardTitle>
+            <CardDescription>{matches ? (total > matches.length ? `Newest ${matches.length} of ${total} games.` : `${total} game${total === 1 ? '' : 's'}, newest first.`) : 'Loading…'}</CardDescription>
           </CardHeader>
-          <CardContent className="flex gap-2">
-            <Button size="sm" onClick={refresh}>Retry</Button>
-            <span className="self-center text-xs text-muted-foreground">{offline}</span>
+          <CardContent>
+            {matches === null && !error && <div className="flex items-center gap-2 text-sm text-muted-foreground"><Loader2 className="size-4 animate-spin" />Loading games…</div>}
+            {matches?.length === 0 && (
+              <div className="rounded-lg border border-dashed p-6 text-center text-sm text-muted-foreground">
+                No games yet. Pick a lineup and hit <span className="text-foreground">Create game</span>.
+              </div>
+            )}
+            <ul className="divide-y">
+              {matches?.map((m) => (
+                <li key={m.id} className="flex flex-wrap items-center gap-x-4 gap-y-2 py-3">
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-2 text-sm">
+                      <span className="font-mono text-xs text-muted-foreground">{m.id}</span>
+                      <StatusBadge status={m.status} />
+                      {m.auto && <Badge variant="outline" className="text-[10px] text-muted-foreground">Self-play</Badge>}
+                      {m.winner && <span className="flex min-w-0 items-center gap-1 truncate text-xs"><Trophy className="size-3 shrink-0 text-amber-300" />{m.winner}</span>}
+                    </div>
+                    <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-xs text-muted-foreground">
+                      {m.seats.map((s, i) => (
+                        <span key={i} className="flex items-center gap-1"><span className="size-2 rounded-full" style={{ background: PLAYER_COLORS[i % 8] }} />{s.name}</span>
+                      ))}
+                    </div>
+                    <div className="mt-1 text-[11px] text-muted-foreground">
+                      seed {m.seed} · {m.status === 'done' ? finish(m) : `up to ${m.max_ticks} ticks`} · {ago(m.created_at)}
+                      {m.error && <span className="text-destructive"> · {m.error}</span>}
+                    </div>
+                  </div>
+                  <Button size="sm" variant={m.status === 'done' ? 'default' : 'outline'} disabled={m.status !== 'done'} onClick={() => onOpen(m.id)}>
+                    <Play />Watch
+                  </Button>
+                </li>
+              ))}
+            </ul>
           </CardContent>
         </Card>
-      )}
-
-      <Standings board={board} />
-
-      <div className="grid gap-6 lg:grid-cols-[minmax(0,26rem)_minmax(0,1fr)]">
-        <NewGame bots={bots} elo={elo} offline={!!offline} onCreated={onCreated} />
-
-        <div className="flex min-w-0 flex-col gap-6">
-          <Card>
-            <CardHeader>
-              <CardTitle>Games</CardTitle>
-              <CardDescription>{matches ? (total > matches.length ? `Newest ${matches.length} of ${total} games.` : `${total} game${total === 1 ? '' : 's'}, newest first.`) : 'Loading…'}</CardDescription>
-            </CardHeader>
-            <CardContent>
-              {matches === null && !offline && <div className="flex items-center gap-2 text-sm text-muted-foreground"><Loader2 className="size-4 animate-spin" />Loading games…</div>}
-              {matches?.length === 0 && (
-                <div className="rounded-lg border border-dashed p-6 text-center text-sm text-muted-foreground">
-                  No games yet. Pick a lineup and hit <span className="text-foreground">Create game</span>.
-                </div>
-              )}
-              <ul className="divide-y">
-                {matches?.map((m) => (
-                  <li key={m.id} className="flex flex-wrap items-center gap-x-4 gap-y-2 py-3">
-                    <div className="min-w-0 flex-1">
-                      <div className="flex items-center gap-2 text-sm">
-                        <span className="font-mono text-xs text-muted-foreground">{m.id}</span>
-                        <StatusBadge status={m.status} />
-                        {m.auto && <Badge variant="outline" className="text-[10px] text-muted-foreground">Self-play</Badge>}
-                        {m.winner && <span className="flex items-center gap-1 text-xs"><Trophy className="size-3 text-amber-300" />{m.winner}</span>}
-                      </div>
-                      <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-xs text-muted-foreground">
-                        {m.seats.map((s, i) => (
-                          <span key={i} className="flex items-center gap-1"><span className="size-2 rounded-full" style={{ background: PLAYER_COLORS[i % 8] }} />{s.name}</span>
-                        ))}
-                      </div>
-                      <div className="mt-1 text-[11px] text-muted-foreground">
-                        seed {m.seed} · {m.status === 'done' ? finish(m) : `up to ${m.max_ticks} ticks`} · {ago(m.created_at)}
-                        {m.error && <span className="text-destructive"> · {m.error}</span>}
-                      </div>
-                    </div>
-                    <Button size="sm" variant={m.status === 'done' ? 'default' : 'outline'} disabled={m.status !== 'done'} onClick={() => onOpen(m.id)}>
-                      <Play />Watch
-                    </Button>
-                  </li>
-                ))}
-              </ul>
-            </CardContent>
-          </Card>
-        </div>
       </div>
-    </div>
+    </Page>
   )
 }
 
@@ -186,10 +173,9 @@ const NewGame = memo(function NewGame({ bots, elo, offline, onCreated }: {
   const items = useMemo(() => bots.map((b) => ({ value: b.id, label: b.name })), [bots])
   const groups = useMemo(() => {
     const byElo = (list: BotInfo[]) => [...list].sort((a, b) => (elo.get(b.id) ?? -Infinity) - (elo.get(a.id) ?? -Infinity) || a.name.localeCompare(b.name))
-    const choices = bots.filter((b) => b.id !== 'champion')
     return [
-      ['Active', byElo(choices.filter((b) => !b.retired))],
-      ['Retired', byElo(choices.filter((b) => b.retired))],
+      ['Active', byElo(bots.filter((b) => !b.retired))],
+      ['Retired', byElo(bots.filter((b) => b.retired))],
     ] as const
   }, [bots, elo])
 
@@ -282,5 +268,6 @@ const NewGame = memo(function NewGame({ bots, elo, offline, onCreated }: {
           {count === 1 ? 'Create game' : `Create ${count} games`}
         </Button>
       </CardContent>
-    </Card>  )
+    </Card>
+  )
 })
