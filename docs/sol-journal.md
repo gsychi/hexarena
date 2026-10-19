@@ -66,8 +66,11 @@ eight-player scale, so lower is better.
   do not reserve troops against incidental nearby stacks; late attacks use a separately
   tunable margin and stop preserving target garrisons. Doctrine 1's prey focus is retained.
 - Published params: `docs/arena-genomes/mosaic-v5.json`.
-- Result: pending live arena trial.
-- Replay lesson: pending.
+- Result after 14 games: Elo 1483, AVP8 4.64, win rate 14.3%, top-half 42.9%.
+- Replay lesson: the opening escape prevented v1-style paralysis and produced two wins,
+  but thin early captures also made elimination common. In a good replay it moved on 2,960
+  ticks; in a bad survivor it fell back to 1,173 gathers. Lower late margin did not close
+  a game, so reserve alone was not the cutoff cause.
 
 ## mosaic-v6 — Crown Breaker
 
@@ -77,8 +80,10 @@ eight-player scale, so lower is better.
 - Change: doctrine 4 bids overwhelmingly on the remembered land leader, uses thin reserves,
   accepts expensive fights, and enters a 105% all-out endgame.
 - Published params: `docs/arena-genomes/mosaic-v6.json`.
-- Result: pending live arena trial.
-- Replay lesson: pending.
+- Result after 14 games: Elo 1518, AVP8 4.29, win rate 0.0%, top-half 42.9%.
+- Replay lesson: no wins, but its later results improved (2nd with 264 land, 2nd with 224,
+  3rd with 197). It used nearly every tick and captured up to 2,481 times including
+  recaptures. Directly taxing the leader avoids stalls but pays the most repel losses.
 
 ## mosaic-v7 — Neighborhood Sheriff
 
@@ -89,5 +94,41 @@ eight-player scale, so lower is better.
   expansionist during the main game, otherwise takes roomy neutral ground, and relaxes into
   general conquest in the endgame.
 - Published params: `docs/arena-genomes/mosaic-v7.json`.
+- Result after 13 games: Elo 1493, AVP8 4.69, win rate 7.7%, top-half 38.5%.
+- Replay lesson: the capture-heat signal could win (267 land and 239 surrender hexes), but
+  fog made it local and brittle: another seed eliminated it at tick 452 after 229 gathers.
+  Heat is useful as one portfolio signal, not as the sole foreign policy.
+
+## mosaic-v8 — Industrial Guild
+
+- Hypothesis: v3 showed that infrastructure can place well when it survives, but rebuilding
+  indefinitely erased the advantage. A strict lifetime budget split among Farms, supported
+  Villages, and hill Quarries should buy compounding without surrendering the action game.
+- Change: infrastructure cap now counts attempted build actions for the bot's whole life,
+  even when buildings are captured. Doctrine 2 receives ten total builds and then spends
+  every remaining tick on expansion and late leader containment.
+- Published params: `docs/arena-genomes/mosaic-v8.json`.
+- Result: pending live arena trial.
+- Replay lesson: pending.
+
+## mosaic-v9 — Whitewater
+
+- Hypothesis: tactical sophistication may be losing to the one-action economy. A radical
+  land flood that sends at 116% expected loss, holds no border reserves, and values open
+  basins over compactness can test whether raw capture throughput dominates FFA diplomacy.
+- Change: doctrine 0 with a twelve-hex opening exemption, near-minimum safety, no buildings,
+  no garrisons, and a truce through tick 1700.
+- Published params: `docs/arena-genomes/mosaic-v9.json`.
+- Result: pending live arena trial.
+- Replay lesson: pending.
+
+## mosaic-v10 — Cabinet Portfolio
+
+- Hypothesis: no fixed foreign policy survived seed variance. Choosing a role from current
+  evidence—finish a polity below 30 land, contain a leader 25% larger than us, otherwise
+  police the hottest capturer—should retain each specialist's upside without its blind spot.
+- Change: doctrine 6 evaluates weak-rival, runaway-leader, and aggression conditions in
+  priority order on every enemy bid, backed by moderate reserves and an aggressive endgame.
+- Published params: `docs/arena-genomes/mosaic-v10.json`.
 - Result: pending live arena trial.
 - Replay lesson: pending.

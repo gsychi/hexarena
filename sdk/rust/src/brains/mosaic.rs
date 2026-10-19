@@ -97,6 +97,7 @@ pub struct Mosaic {
     hostility: Vec<i64>,
     last_decay: u32,
     last_build: u32,
+    build_actions: usize,
 }
 
 impl Mosaic {
@@ -115,6 +116,7 @@ impl Mosaic {
             hostility: vec![],
             last_decay: 0,
             last_build: 0,
+            build_actions: 0,
         }
     }
 
@@ -356,7 +358,7 @@ impl Mosaic {
                     + their_land / 2
             }
             // Sheriff: police whichever neighbour is visibly gaining land fastest.
-            _ => {
+            5 => {
                 let hottest = self.hostility.iter().copied().max().unwrap_or(0);
                 let heat = self.hostility.get(p).copied().unwrap_or(0);
                 if heat > 0 && heat == hottest {
@@ -365,6 +367,32 @@ impl Mosaic {
                     self.k.enemy
                 } else {
                     -self.k.prey
+                }
+            }
+            // Portfolio: choose a diplomatic role from the board instead of committing
+            // to one at construction time: finish a weak polity, contain a runaway, or
+            // punish the locally aggressive player, in that order.
+            _ => {
+                let ours = land.get(view.you as usize).copied().unwrap_or(1).max(1);
+                let smallest = land
+                    .iter()
+                    .enumerate()
+                    .filter(|(i, n)| **n > 0 && *i != view.you as usize)
+                    .map(|(_, n)| *n)
+                    .min()
+                    .unwrap_or(their_land);
+                let heat = self.hostility.get(p).copied().unwrap_or(0);
+                let hottest = self.hostility.iter().copied().max().unwrap_or(0);
+                if their_land <= smallest + 2 && their_land <= 30 {
+                    self.k.prey
+                } else if Some(owner) == leader && their_land * 100 >= ours * 125 {
+                    self.k.leader
+                } else if heat >= 4 && heat == hottest {
+                    self.k.revenge * heat
+                } else if endgame {
+                    self.k.enemy
+                } else {
+                    -self.k.enemy
                 }
             }
         }
@@ -533,17 +561,9 @@ impl Mosaic {
         vec![]
     }
 
-    fn building_count(&self) -> usize {
-        self.seen
-            .iter()
-            .enumerate()
-            .filter(|(i, cell)| self.own[*i] && cell.as_ref().is_some_and(|c| c.building.is_some()))
-            .count()
-    }
-
     fn build(&self, view: &View) -> Option<Action> {
         if self.k.build_mode == 0
-            || self.building_count() >= self.k.build_cap
+            || self.build_actions >= self.k.build_cap
             || view.tick < self.last_build + self.k.build_every
         {
             return None;
@@ -668,6 +688,7 @@ impl Bot for Mosaic {
         let (ready, blocked) = self.bids(view);
         let action = if let Some(build) = self.build(view) {
             self.last_build = view.tick;
+            self.build_actions += 1;
             build
         } else if let Some(bid) = ready {
             Action::Move {
