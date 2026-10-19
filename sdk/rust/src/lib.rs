@@ -61,6 +61,14 @@ pub struct BotParams {
     pub defend_gather: u32,
     /// The army walks to the threatened hex when it is at most this far away (0 = never).
     pub defend_range: u32,
+    /// Over the last N ticks before the cutoff (placement is decided by land), stop
+    /// building and spend every action on the cheapest capture available (0 = never).
+    pub endgame_ticks: u32,
+    /// Endgame captures send this % of the expected loss, so the one action a tick
+    /// rarely fails.
+    pub endgame_margin_pct: u64,
+    /// Endgame score bonus for taking a rival's hex, which also lowers their land.
+    pub endgame_enemy_bonus: i64,
 }
 
 impl Default for BotParams {
@@ -83,6 +91,9 @@ impl Default for BotParams {
             counter_margin_pct: 0,
             defend_gather: 0,
             defend_range: 0,
+            endgame_ticks: 0,
+            endgame_margin_pct: 200,
+            endgame_enemy_bonus: 20,
         }
     }
 }
@@ -593,6 +604,42 @@ impl Expander {
             .map(|(_, _, h)| h)
     }
 
+    /// Land race before the cutoff: one action a tick is the bottleneck, so take the
+    /// best-scoring affordable hex from any of our hexes, sending enough to be near
+    /// certain. With nothing affordable, gather toward the border hex facing the
+    /// cheapest target.
+    fn endgame(&self, view: &View, mine: &[&VisibleHex]) -> Option<Action> {
+        let owned = |h: &Hex| self.seen.get(h).is_some_and(|v| v.owner == Some(view.you));
+        let mut best: Option<(i64, Action)> = None;
+        let mut cheapest: Option<(u64, std::cmp::Reverse<u32>, Hex)> = None;
+        for c in mine {
+            let from_h = Self::height(view, c.hex);
+            for nb in c.hex.neighbors() {
+                let Some((loss, enemy)) = self.capture_cost(view, from_h, nb) else {
+                    continue;
+                };
+                let key = (loss, std::cmp::Reverse(c.troops), c.hex);
+                if cheapest.map_or(true, |k| key < k) {
+                    cheapest = Some(key);
+                }
+                let send = (loss * self.p.endgame_margin_pct / 100 + 1).max(1);
+                if c.troops < 2 || send > (c.troops - 1) as u64 || send < loss + 1 {
+                    continue;
+                }
+                let hugged = nb.neighbors().iter().filter(|n| owned(n)).count() as i64;
+                let score = self.p.hug_value * hugged - loss as i64
+                    + if enemy { self.p.endgame_enemy_bonus } else { 0 };
+                if best.as_ref().map_or(true, |(s, _)| score > *s) {
+                    best = Some((score, Action::Move { from: c.hex, to: nb, troops: send as u32 }));
+                }
+            }
+        }
+        best.map(|(_, a)| a).or_else(|| {
+            let (_, _, at) = cheapest?;
+            (mine.len() > 1).then_some(Action::Gather { target: at })
+        })
+    }
+
     /// Cheap grabs from any hex, used when the army has nothing to do.
     fn opportunistic(&self, view: &View, mine: &[&VisibleHex]) -> Option<Action> {
         mine.iter()
@@ -618,6 +665,11 @@ impl Bot for Expander {
             .collect();
         let management = self.management(&mine);
         self.focus_player = self.focus(view);
+        let e = self.p.endgame_ticks;
+        if e > 0 && view.tick + e >= self.rules.max_ticks {
+            let action = self.endgame(view, &mine).unwrap_or(Action::NoOp);
+            return PlayerCommand { management, action };
+        }
         self.threat = self.find_threat(view);
         let g = self.p.grab_every;
         let grab_tick = g > 0 && view.tick % g == 1 % g;

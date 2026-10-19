@@ -29,6 +29,9 @@ const GENES: &[Gene] = &[
     Gene { name: "counter_margin_pct", min: 0, max: 260, get: |p| p.counter_margin_pct as i64, set: |p, v| p.counter_margin_pct = v as u64 },
     Gene { name: "defend_gather", min: 0, max: 2, get: |p| p.defend_gather as i64, set: |p, v| p.defend_gather = v as u32 },
     Gene { name: "defend_range", min: 0, max: 12, get: |p| p.defend_range as i64, set: |p, v| p.defend_range = v as u32 },
+    Gene { name: "endgame_ticks", min: 0, max: 3000, get: |p| p.endgame_ticks as i64, set: |p, v| p.endgame_ticks = v as u32 },
+    Gene { name: "endgame_margin_pct", min: 100, max: 400, get: |p| p.endgame_margin_pct as i64, set: |p, v| p.endgame_margin_pct = v as u64 },
+    Gene { name: "endgame_enemy_bonus", min: -40, max: 160, get: |p| p.endgame_enemy_bonus, set: |p, v| p.endgame_enemy_bonus = v },
 ];
 
 const KINDS: [Building; 4] = [Building::Farm, Building::Village, Building::Quarry, Building::Wall];
