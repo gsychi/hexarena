@@ -30,6 +30,12 @@ struct Geometry {
     /// Passable neighbour slots of each slot.
     nbrs: Vec<Vec<usize>>,
     hexes: Vec<Hex>,
+    /// On-board neighbour slots of each slot, impassable ones included: a v0.7 region
+    /// flows through mountains and water, and only the board edge stops it closing.
+    ring: Vec<Vec<usize>>,
+    on_board: Vec<bool>,
+    /// On-board slots with an off-board neighbour.
+    edge: Vec<bool>,
 }
 
 impl Geometry {
@@ -47,7 +53,31 @@ impl Geometry {
                 height[i] = t.height;
             }
         }
-        let mut g = Geometry { radius, width, passable, height, nbrs: vec![], hexes };
+        let mut g = Geometry {
+            radius,
+            width,
+            passable,
+            height,
+            nbrs: vec![],
+            hexes,
+            ring: vec![],
+            on_board: vec![false; slots],
+            edge: vec![false; slots],
+        };
+        for i in 0..slots {
+            g.on_board[i] = g.slot(g.hexes[i]) == Some(i);
+        }
+        g.ring = (0..slots)
+            .map(|i| {
+                if !g.on_board[i] {
+                    return vec![];
+                }
+                g.hexes[i].neighbors().iter().filter_map(|n| g.slot(*n)).collect()
+            })
+            .collect();
+        for i in 0..slots {
+            g.edge[i] = g.on_board[i] && g.ring[i].len() < 6;
+        }
         g.nbrs = (0..slots)
             .map(|i| {
                 g.hexes[i]
@@ -95,6 +125,15 @@ struct Seal {
     /// Hexes already inside such a region: nobody else can reach them without first
     /// taking our land, so they can wait.
     pocket: Vec<bool>,
+}
+
+/// What each capture would seal off from the board edge this tick (rules v0.7 region
+/// capture): taking slot `t` turns every region of not-ours hexes it cuts off into ours.
+struct Regions {
+    /// Passable hexes taking `t` would seal off.
+    land: Vec<u32>,
+    /// Of those, hexes we last saw a rival own.
+    enemy: Vec<u32>,
 }
 
 /// Tunables, read once from the genome's knobs.
@@ -181,6 +220,10 @@ struct Knobs {
     finish_n: u32,
     /// A new victim must have at most this % of the current one's known land to replace it.
     switch_pct: u32,
+    /// Score per passable hex a capture seals off from the board edge (0 = ignore regions).
+    region: i64,
+    /// Extra score per sealed-off hex a rival owns.
+    region_enemy: i64,
 }
 
 impl Knobs {
@@ -230,6 +273,8 @@ impl Knobs {
             victim_from: k("victim_from", 0) as u32,
             finish_n: k("finish_n", 0) as u32,
             switch_pct: k("switch_pct", 70) as u32,
+            region: k("region", 0),
+            region_enemy: k("region_enemy", 0),
         }
     }
 
@@ -389,6 +434,73 @@ impl StrikeCore {
         gain
     }
 
+    /// Region cuts (Tarjan, iterative) over every on-board hex we don't own, impassable
+    /// ones included, rooted at a virtual outside node joined to the board edge. Taking a
+    /// passable hex `v` seals off each DFS child subtree whose low link can't climb above
+    /// `v`. Ownership of the not-ours side doesn't matter for the cut, only for its value.
+    fn regions(&self, geo: &Geometry, me: PlayerId) -> Regions {
+        let slots = geo.passable.len();
+        let open = |i: usize| geo.on_board[i] && !self.owned(i, me);
+        let mut land = vec![0u32; slots];
+        let mut enemy = vec![0u32; slots];
+        let mut disc = vec![0u32; slots];
+        let mut low = vec![0u32; slots];
+        let mut sub_land = vec![0u32; slots];
+        let mut sub_enemy = vec![0u32; slots];
+        let mut parent = vec![usize::MAX; slots];
+        // The outside node has discovery time 1; every edge hex hangs off it.
+        let mut timer = 1u32;
+        let mut stack: Vec<(usize, usize)> = vec![];
+        for root in 0..slots {
+            if !geo.edge[root] || !open(root) || disc[root] != 0 {
+                continue;
+            }
+            timer += 1;
+            disc[root] = timer;
+            low[root] = 1;
+            stack.push((root, 0));
+            while let Some(top) = stack.last_mut() {
+                let (v, it) = *top;
+                if it < geo.ring[v].len() {
+                    top.1 += 1;
+                    let w = geo.ring[v][it];
+                    if !open(w) {
+                        continue;
+                    }
+                    if disc[w] == 0 {
+                        parent[w] = v;
+                        timer += 1;
+                        disc[w] = timer;
+                        low[w] = if geo.edge[w] { 1 } else { timer };
+                        stack.push((w, 0));
+                    } else if w != parent[v] {
+                        low[v] = low[v].min(disc[w]);
+                    }
+                    continue;
+                }
+                stack.pop();
+                if geo.passable[v] {
+                    sub_land[v] += 1;
+                    if self.enemy(v, me) {
+                        sub_enemy[v] += 1;
+                    }
+                }
+                let p = parent[v];
+                if p == usize::MAX {
+                    continue;
+                }
+                low[p] = low[p].min(low[v]);
+                sub_land[p] += sub_land[v];
+                sub_enemy[p] += sub_enemy[v];
+                if low[v] >= disc[p] {
+                    land[p] += sub_land[v];
+                    enemy[p] += sub_enemy[v];
+                }
+            }
+        }
+        Regions { land, enemy }
+    }
+
     /// Articulation points of the land we don't own (Tarjan, iterative). Enemy hexes
     /// root the search first, so regions that hold an enemy are never a backyard.
     fn seal(&self, geo: &Geometry, me: PlayerId) -> Seal {
@@ -466,7 +578,11 @@ impl StrikeCore {
         mine: &[usize],
         sprinting: bool,
         seal: Option<&Seal>,
+        regions: Option<&Regions>,
     ) -> (Option<Capture>, Option<Capture>) {
+        let sealed = |t: usize| {
+            regions.map_or(0, |r| self.k.region * r.land[t] as i64 + self.k.region_enemy * r.enemy[t] as i64)
+        };
         let mut best: Option<Capture> = None;
         // Best capture the pad can't afford yet; `send` holds the troops it is short.
         let mut blocked: Option<Capture> = None;
@@ -501,7 +617,7 @@ impl StrikeCore {
                     if self.k.stage > 0 {
                         let full = need.max(want_t.map_or(0, |w| loss + w));
                         let short = full + 1 - troops.min(full + 1);
-                        let score = self.capture_gain(geo, me, t, tc, seal)
+                        let score = self.capture_gain(geo, me, t, tc, seal) + sealed(t)
                             - loss as i64 * cost_milli / 1000
                             - short as i64 * self.k.short_cost;
                         if blocked.map_or(true, |b| (score, std::cmp::Reverse(t)) > (b.score, std::cmp::Reverse(b.to))) {
@@ -532,14 +648,16 @@ impl StrikeCore {
                     pick = (1_000_000, 1000, need.max(avail * self.k.send_pct / 100).min(avail));
                 }
                 let (v, st, send) = pick;
-                if st < self.k.safe_min {
+                let region = sealed(t);
+                if st < self.k.safe_min && region == 0 {
                     continue;
                 }
                 let gain = self.capture_gain(geo, me, t, tc, seal);
                 let kill = if tc.owner.is_some() { tc.troops as i64 * cost_milli / 1000 * self.k.kill_pct / 100 } else { 0 };
                 let score = gain * st / 1000 + (v / 1000 - st) * self.k.land / 1000
                     - loss as i64 * cost_milli / 1000
-                    + kill;
+                    + kill
+                    + region;
                 let better = best.as_ref().map_or(true, |b| {
                     (score, std::cmp::Reverse(t), send)
                         > (b.score, std::cmp::Reverse(b.to), b.send as u64)
@@ -834,7 +952,8 @@ impl Bot for StrikeCore {
         let rush = sprinting || self.finishing;
         let seal = (self.k.seal > 0 || self.k.backyard > 0).then(|| self.seal(&geo, me));
         let supply = self.supply(&geo, me, &mine);
-        let (capture, blocked) = self.best_capture(&geo, me, &mine, sprinting, seal.as_ref());
+        let regions = (self.k.region > 0 || self.k.region_enemy > 0).then(|| self.regions(&geo, me));
+        let (capture, blocked) = self.best_capture(&geo, me, &mine, sprinting, seal.as_ref(), regions.as_ref());
         let capture = capture.filter(|c| rush || c.score >= self.k.min_score);
         let supply_tick =
             !rush && self.k.supply_every > 0 && view.tick % self.k.supply_every == 0;

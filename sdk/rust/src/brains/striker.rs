@@ -273,7 +273,7 @@ impl Bot for Striker {
                 Action::Move { to, .. } => {
                     view.visible_hexes.iter().find(|c| c.hex == *to).is_some_and(|c| c.owner != Some(view.you))
                 }
-                Action::Gather { .. } | Action::Build { .. } | Action::NoOp => false,
+                Action::Gather { .. } | Action::Build { .. } | Action::Demolish { .. } | Action::NoOp => false,
             };
             if let Some((roi, a)) = self.build(view, &m, vclass) {
                 if !capture || roi >= self.k.rush_roi {
