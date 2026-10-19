@@ -186,7 +186,9 @@ pub fn gate(
         let (m, se) = mean_se(&gains);
         let hopeless = m + se < 0.0 || (n >= cfg.max_pairs / 2 && m + 2.0 * se < cfg.min_gain);
         let clear_win = m >= cfg.min_gain && m > (cfg.z_accept + 1.0) * se;
-        if n >= cfg.min_pairs && (hopeless || clear_win) {
+        // Every pair tied exactly: the changed genes are inert for this genome.
+        let inert = gains.iter().all(|g| *g == 0.0);
+        if n >= cfg.min_pairs && (hopeless || clear_win || inert) {
             break;
         }
     }
