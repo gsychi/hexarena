@@ -29,6 +29,10 @@ const MAX_BATCH: u32 = 20;
 const MAX_RUNNING: usize = 100;
 /// Entrant seats in each self-play game; the rest are the champion and roster CPUs.
 const AUTOPLAY_ENTRANTS: usize = 4;
+/// Arena entrants stay scheduled while they rank in this many places of the standings.
+const ACTIVE_TOP: usize = 20;
+/// Games an entrant plays before it can be retired for its ranking.
+const TRIAL_GAMES: u32 = 12;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -386,6 +390,7 @@ async fn autoplay(app: Shared) {
         if app.running() > 0 {
             continue;
         }
+        retire_outside_top(&app, &app.catalog());
         let catalog = app.catalog();
         let seed = random_seed();
         let lineup = autoplay_lineup(&app, &catalog, seed);
@@ -406,13 +411,13 @@ async fn arena_info(State(app): State<Shared>) -> Json<serde_json::Value> {
                 .count();
             serde_json::json!({
                 "id": e.id, "name": e.name, "author": e.author, "note": e.note,
-                "created_at": e.created_at, "retired": e.retired, "games": games,
+                "created_at": e.created_at, "retired": e.retired, "retired_reason": e.retired_reason, "games": games,
                 "brain": if e.params.brain.is_empty() { "expander" } else { e.params.brain.as_str() },
                 "own_build": e.program.is_some(),
             })
         })
         .collect();
-    Json(serde_json::json!({ "autoplay": app.autoplay, "entrants": entrants }))
+    Json(serde_json::json!({ "autoplay": app.autoplay, "top": ACTIVE_TOP, "trial_games": TRIAL_GAMES, "entrants": entrants }))
 }
 
 async fn one(State(app): State<Shared>, Path(id): Path<String>) -> Response {
@@ -461,8 +466,29 @@ struct BoardQuery {
 /// the league's 8-player lobbies, where generations and roster CPUs are rated and
 /// one-off challengers are left out.
 async fn leaderboard(State(app): State<Shared>, Query(q): Query<BoardQuery>) -> Json<serde_json::Value> {
-    let rules = RulesConfig::default().version;
     let catalog = app.catalog();
+    let board = board(&app, &catalog, q.source);
+    Json(serde_json::json!({
+        "games": board.games,
+        "arena_games": board.arena_games,
+        "league_games": board.league_games,
+        "rules_version": RulesConfig::default().version,
+        "start_elo": START_ELO,
+        "k": K,
+        "top": ACTIVE_TOP,
+        "bots": board.rows,
+    }))
+}
+
+struct Board {
+    games: usize,
+    arena_games: usize,
+    league_games: usize,
+    rows: Vec<standings::BotStanding>,
+}
+
+fn board(app: &AppState, catalog: &Catalog, source: Source) -> Board {
+    let rules = RulesConfig::default().version;
     let current = catalog.league.as_ref();
     let matches = app.matches.lock().unwrap();
     let mut done: Vec<&Summary> = matches
@@ -472,10 +498,10 @@ async fn leaderboard(State(app): State<Shared>, Query(q): Query<BoardQuery>) -> 
     done.sort_by(|a, b| a.created_at.cmp(&b.created_at).then(a.id.cmp(&b.id)));
     let mut cache = app.league_games.lock().unwrap();
     cache.refresh(&app.league_dir);
-    let league_current = current.as_ref().is_some_and(|l| l.rules_version == rules);
+    let league_current = current.is_some_and(|l| l.rules_version == rules);
 
     let mut games: Vec<(u64, Vec<SeatResult>)> = vec![];
-    if q.source != Source::League {
+    if source != Source::League {
         games.extend(done.iter().map(|m| {
             let seats = m
                 .standings
@@ -491,9 +517,9 @@ async fn leaderboard(State(app): State<Shared>, Query(q): Query<BoardQuery>) -> 
             (m.created_at, seats)
         }));
     }
-    let arena_games = if q.source == Source::League { 0 } else { done.len() };
+    let arena_games = if source == Source::League { 0 } else { done.len() };
     let mut league_games = 0;
-    if q.source != Source::Arena && league_current {
+    if source != Source::Arena && league_current {
         let names = &cache.names;
         league_games = cache.games.len();
         games.extend(cache.games.iter().map(|g| {
@@ -518,15 +544,31 @@ async fn leaderboard(State(app): State<Shared>, Query(q): Query<BoardQuery>) -> 
     games.sort_by_key(|(at, _)| *at);
     let games: Vec<Vec<SeatResult>> = games.into_iter().map(|(_, g)| g).collect();
     let rows = standings(&games, |id| catalog.display_name(id));
-    Json(serde_json::json!({
-        "games": games.len(),
-        "arena_games": arena_games,
-        "league_games": league_games,
-        "rules_version": rules,
-        "start_elo": START_ELO,
-        "k": K,
-        "bots": rows,
-    }))
+    Board { games: games.len(), arena_games, league_games, rows }
+}
+
+/// Retires arena entrants that have had a fair trial and sit outside the top
+/// [`ACTIVE_TOP`] of the overall standings.
+fn retire_outside_top(app: &AppState, catalog: &Catalog) {
+    let rows = board(app, catalog, Source::All).rows;
+    let cut = rows.get(ACTIVE_TOP - 1).map(|r| r.elo);
+    for e in catalog.active_entrants() {
+        let Some(row) = rows.iter().find(|r| r.bot == e.id) else { continue };
+        if row.games < TRIAL_GAMES || row.rank as usize <= ACTIVE_TOP {
+            continue;
+        }
+        let reason = format!(
+            "ranked #{} with Elo {:.0} after {} games; the top {ACTIVE_TOP} cut was {:.0}",
+            row.rank,
+            row.elo,
+            row.games,
+            cut.unwrap_or(row.elo)
+        );
+        match hexarena_arena::entrants::retire(&app.arena_dir, &e.id, Some(reason.clone())) {
+            Ok(_) => println!("retired {}: {reason}", e.id),
+            Err(err) => eprintln!("couldn't retire {}: {err}", e.id),
+        }
+    }
 }
 
 fn env<T: std::str::FromStr>(key: &str) -> Option<T> {

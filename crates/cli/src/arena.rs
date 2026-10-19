@@ -12,7 +12,8 @@ const USAGE: &str = "usage: hexarena arena <publish|retire|list> [--dir data/are
           (--params cand.json | --brain predator) [--note TEXT] [--builtin]
           freezes a copy of this hexarena binary, with the brains compiled into it, and
           lists the version in the arena; --builtin plays it with the server's own brains
-  retire  --id predator-v2      stop scheduling a version (its results stay)
+  retire  --id predator-v2      stop scheduling a version (its results stay); the server
+                                also retires versions outside the top 20 after 12 games
   list                          every published version
 --dir defaults to $HEXARENA_ARENA or data/arena; the server reads the same directory.";
 
@@ -29,7 +30,7 @@ pub fn main(rest: &[String]) -> Result<(), String> {
     match rest.first().map(String::as_str) {
         Some("publish") => publish_cmd(&f),
         Some("retire") => {
-            let e = retire(&dir(&f), f.get("id").ok_or(USAGE)?)?;
+            let e = retire(&dir(&f), f.get("id").ok_or(USAGE)?, Some("retired by hand".into()))?;
             println!("retired {} ({})", e.id, e.name);
             Ok(())
         }
@@ -59,6 +60,7 @@ fn publish_cmd(f: &HashMap<String, String>) -> Result<(), String> {
         note: f.get("note").cloned(),
         created_at: now_ms(),
         retired: false,
+        retired_reason: None,
         params,
         program: None,
     };

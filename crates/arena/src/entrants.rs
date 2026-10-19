@@ -22,6 +22,8 @@ pub struct Entrant {
     /// Retired entrants keep their results but are no longer scheduled.
     #[serde(default)]
     pub retired: bool,
+    #[serde(default)]
+    pub retired_reason: Option<String>,
     pub params: BotParams,
     /// The frozen program that plays it; `None` uses the brains compiled into the server.
     #[serde(default)]
@@ -100,11 +102,12 @@ pub fn publish(dir: &Path, mut entrant: Entrant, exe: Option<&Path>) -> Result<E
     Ok(entrant)
 }
 
-pub fn retire(dir: &Path, id: &str) -> Result<Entrant, String> {
+pub fn retire(dir: &Path, id: &str, reason: Option<String>) -> Result<Entrant, String> {
     let path = entrant_path(dir, id);
     let bytes = std::fs::read(&path).map_err(|_| format!("no entrant '{id}'"))?;
     let mut e: Entrant = serde_json::from_slice(&bytes).map_err(|e| e.to_string())?;
     e.retired = true;
+    e.retired_reason = reason;
     std::fs::write(&path, serde_json::to_vec_pretty(&e).unwrap()).map_err(|e| e.to_string())?;
     Ok(e)
 }
