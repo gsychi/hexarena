@@ -19,6 +19,8 @@ fn main() {
     let mut lost = [0u64; BINS];
     let mut gathers = [0u64; BINS];
     let mut repelled = [0u64; BINS];
+    let mut internal = [0u64; BINS];
+    let mut noops = [0u64; BINS];
     let (mut lost_fresh, mut lost_total) = (0u64, 0u64);
     let mut lost_garrison_hist = [0u64; 8];
     let (mut recaps, mut caps_enemy_total) = (0u64, 0u64);
@@ -48,6 +50,11 @@ fn main() {
             for (p, cmd) in cmds {
                 if !mine[*p as usize] {
                     continue;
+                }
+                match &cmd.action {
+                    Action::Move { to, .. } if pre.cell(*to).is_some_and(|c| c.owner == Some(*p)) => internal[bin] += 1,
+                    Action::NoOp => noops[bin] += 1,
+                    _ => {}
                 }
                 if let Action::Gather { .. } = cmd.action {
                     gathers[bin] += 1;
@@ -154,16 +161,18 @@ fn main() {
     }
     let s = seats as f64;
     println!("seats {seats}");
-    println!("bin(250t)  cap_neutral cap_enemy  lost  gathers repelled   (per seat)");
+    println!("bin(250t)  cap_neutral cap_enemy  lost  gathers repelled internal noop  (per seat)");
     for b in 0..BINS {
         println!(
-            "{:>5}  {:>8.1} {:>8.1} {:>8.1} {:>7.1} {:>7.1}",
+            "{:>5}  {:>8.1} {:>8.1} {:>8.1} {:>7.1} {:>7.1} {:>7.1} {:>7.1}",
             b * 250,
             cap_neutral[b] as f64 / s,
             cap_enemy[b] as f64 / s,
             lost[b] as f64 / s,
             gathers[b] as f64 / s,
-            repelled[b] as f64 / s
+            repelled[b] as f64 / s,
+            internal[b] as f64 / s,
+            noops[b] as f64 / s
         );
     }
     println!(
