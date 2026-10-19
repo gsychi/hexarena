@@ -317,6 +317,10 @@ pub struct Core {
     duel: Option<Knobs>,
     ffa_duel_when: usize,
     ffa_duel_share: usize,
+    /// Knobs for a multi-player endgame: every `end_X` knob replaces `X` once at most
+    /// `ffa_end_when` players are alive in a bigger lobby (until the duel knobs take over).
+    end: Option<Knobs>,
+    ffa_end_when: usize,
     /// We held `ffa_duel_share` of the board last tick.
     dominant: bool,
     name: String,
@@ -351,17 +355,27 @@ pub struct Core {
 }
 
 impl Core {
-    pub fn new(style: Style) -> Self {
-        let mut duel_style = style.clone();
+    /// The genome's knobs with every `PREFIX_X` knob replacing `X`, if it has any.
+    fn overridden(style: &Style, prefix: &str) -> Option<Knobs> {
         let overrides: Vec<(String, i64)> = style
             .params
             .knobs
             .iter()
-            .filter_map(|(n, v)| n.strip_prefix("duel_").map(|b| (b.to_string(), *v)))
+            .filter_map(|(n, v)| n.strip_prefix(prefix).map(|b| (b.to_string(), *v)))
             .collect();
-        duel_style.params.knobs.extend(overrides.iter().cloned());
+        if overrides.is_empty() {
+            return None;
+        }
+        let mut s = style.clone();
+        s.params.knobs.extend(overrides);
+        Some(Knobs::read(&s))
+    }
+
+    pub fn new(style: Style) -> Self {
         Core {
-            duel: (!overrides.is_empty()).then(|| Knobs::read(&duel_style)),
+            duel: Self::overridden(&style, "duel_"),
+            end: Self::overridden(&style, "end_"),
+            ffa_end_when: style.params.knob("ffa_end_when", 0).max(0) as usize,
             ffa_duel_when: style.params.knob("ffa_duel_when", 0).max(0) as usize,
             ffa_duel_share: style.params.knob("ffa_duel_share", 0).max(0) as usize,
             dominant: false,
@@ -1112,11 +1126,14 @@ impl Bot for Core {
             self.rules = r.clone();
         }
         self.win = self.rules.attacker_win_milli(view.tick);
-        if self.duel.is_some() {
-            let alive = view.public_players.iter().filter(|p| p.alive).count();
-            if view.public_players.len() == 2 || alive <= self.ffa_duel_when || self.dominant {
-                self.k = self.duel.take().unwrap();
-            }
+        let alive = view.public_players.iter().filter(|p| p.alive).count();
+        let lobby = view.public_players.len();
+        if self.duel.is_some() && (lobby == 2 || alive <= self.ffa_duel_when || self.dominant) {
+            self.k = self.duel.take().unwrap();
+            self.end = None;
+        }
+        if self.end.is_some() && lobby > 2 && alive <= self.ffa_end_when {
+            self.k = self.end.take().unwrap();
         }
         if self.k.open_until > 0 {
             self.k.opening(view.tick);
