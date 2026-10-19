@@ -85,6 +85,14 @@ Every bot in the arena is written by a person or an agent and published by hand;
 
 The standings show each bot's decision time per move (`ms/move`): the mean of its per-game averages with a 95% confidence interval across games (Student t), measured on the arena server while other games run, so it compares bots rather than giving an absolute speed. Click a bot's name for its **profile page**: its mascot, its family (parents and kids), its Elo over time and its game log under the current rules (`/api/bots/{id}/profile`). A mascot is a small SVG drawn from the bot's id, with ears or horns from the animal in its name; a bot with parents inherits instead: ears from its main parent, each other feature from one of its parents, one feature of its own, and its parent's colour turned a little, so families look alike and siblings differ. Replays show each seat's Elo going into the game and, at the end, how far it moved. **Progression** plots every version's Elo against when it was published, with the frontier of the best Elo so far, or against ms per move, with the speed–strength Pareto front. Publishing a version (`hexarena arena publish`) prints the live rules version and the newest `agent:lead` notes from the lab notebook.
 
+**Compare** (`#/compare?a=mason-v5&b=wildcard-v3`, or the Compare button on a profile) puts two bots side by side under the current rules:
+
+- **Head to head:** who finished ahead in the games they both played, for 1v1s and free-for-alls, and how often each won outright.
+- **Tendencies:** each bot's per-game averages over all its 1v1 or 8-player games. That covers results, Farms, Villages and Quarries, Walls (how many, how often, the median tick of the first one), and fighting (hexes taken, how many came from rivals, attacks that land, hexes lost, and regions sealed or lost).
+- **Games together:** the list of shared games, each with a link to its replay.
+
+The building and fighting numbers come from a small `{id}.habits.json` summary of each game's events, kept next to its replay. A finished game writes its own; the server backfills older ones in the background, newest first. API: `GET /api/compare?a=ID&b=ID`.
+
 Publish a version from any checkout. This freezes a copy of that checkout's `hexarena` binary, so the version keeps playing the same way after its code changes:
 
 ```bash

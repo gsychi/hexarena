@@ -1,4 +1,4 @@
-import { BookOpen, BookText, Gamepad2, House, Swords, TrendingUp, Trophy } from 'lucide-react'
+import { BookOpen, BookText, Gamepad2, GitCompareArrows, House, Swords, TrendingUp, Trophy } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import { StrictMode, useEffect, useRef, useState } from 'react'
 import { createRoot } from 'react-dom/client'
@@ -11,13 +11,14 @@ import { api } from './api'
 import { Viewer } from './App.tsx'
 import { BotAvatar } from './BotAvatar.tsx'
 import { BotPage } from './BotPage.tsx'
+import { ComparePage } from './Compare.tsx'
 import { NotebookPage } from './Notebook.tsx'
 import { BotsPage, GamesPage, HomePage, ProgressPage } from './Pages.tsx'
 import { LiveGame, PlayPage } from './Play.tsx'
 import { RulesPage } from './Rules.tsx'
 
-type Section = 'home' | 'play' | 'rules' | 'games' | 'bots' | 'progress' | 'notes'
-type Route = { page: Section } | { page: 'match'; id: string } | { page: 'bot'; id: string } | { page: 'live'; id: string }
+type Section = 'home' | 'play' | 'rules' | 'games' | 'bots' | 'compare' | 'progress' | 'notes'
+type Route = { page: Exclude<Section, 'compare'> } | { page: 'compare'; a: string | null; b: string | null } | { page: 'match'; id: string } | { page: 'bot'; id: string } | { page: 'live'; id: string }
 
 const NAV: { page: Section; label: string; icon: LucideIcon; hash: string }[] = [
   { page: 'home', label: 'Home', icon: House, hash: '/' },
@@ -25,6 +26,7 @@ const NAV: { page: Section; label: string; icon: LucideIcon; hash: string }[] = 
   { page: 'rules', label: 'Rules', icon: BookText, hash: '/rules' },
   { page: 'games', label: 'Games', icon: Swords, hash: '/games' },
   { page: 'bots', label: 'Bots', icon: Trophy, hash: '/bots' },
+  { page: 'compare', label: 'Compare', icon: GitCompareArrows, hash: '/compare' },
   { page: 'progress', label: 'Progression', icon: TrendingUp, hash: '/progress' },
   { page: 'notes', label: 'Lab notebook', icon: BookOpen, hash: '/notes' },
 ]
@@ -32,7 +34,12 @@ const NAV: { page: Section; label: string; icon: LucideIcon; hash: string }[] = 
 function parse(hash: string): Route {
   const live = hash.match(/^#\/play\/(p\d+)/)
   if (live) return { page: 'live', id: live[1] }
-  for (const n of NAV) if (n.hash !== '/' && new RegExp(`^#${n.hash}\\b`).test(hash)) return { page: n.page }
+  const cmp = hash.match(/^#\/compare\b\??(.*)$/)
+  if (cmp) {
+    const q = new URLSearchParams(cmp[1])
+    return { page: 'compare', a: q.get('a'), b: q.get('b') }
+  }
+  for (const n of NAV) if (n.page !== 'compare' && n.hash !== '/' && new RegExp(`^#${n.hash}\\b`).test(hash)) return { page: n.page }
   const bot = hash.match(/^#\/bot\/([^/?#]+)/)
   if (bot) return { page: 'bot', id: decodeURIComponent(bot[1]) }
   const m = hash.match(/^#\/match\/([A-Za-z0-9]+)/)
@@ -44,6 +51,12 @@ function hashOf(r: Route): string {
     case 'match': return `/match/${r.id}`
     case 'live': return `/play/${r.id}`
     case 'bot': return `/bot/${encodeURIComponent(r.id)}`
+    case 'compare': {
+      const q = new URLSearchParams()
+      if (r.a) q.set('a', r.a)
+      if (r.b) q.set('b', r.b)
+      return `/compare${q.size ? `?${q}` : ''}`
+    }
     case 'home': case 'play': case 'rules': case 'games': case 'bots': case 'progress': case 'notes': return NAV.find((n) => n.page === r.page)!.hash
     default: { const never: never = r; return never }
   }
@@ -55,7 +68,7 @@ function sectionOf(r: Route): Section {
     case 'match': return isLiveId(r.id) ? 'play' : 'games'
     case 'live': return 'play'
     case 'bot': return 'bots'
-    case 'home': case 'play': case 'rules': case 'games': case 'bots': case 'progress': case 'notes': return r.page
+    case 'home': case 'play': case 'rules': case 'games': case 'bots': case 'compare': case 'progress': case 'notes': return r.page
     default: { const never: never = r; return never }
   }
 }
@@ -79,6 +92,7 @@ function Content({ route, backTo }: { route: Route; backTo: string }) {
     case 'bots': return <div className="h-full overflow-y-auto"><BotsPage onBot={openBot} /></div>
     case 'progress': return <div className="h-full overflow-y-auto"><ProgressPage onBot={openBot} /></div>
     case 'notes': return <NotebookPage onOpen={openMatch} />
+    case 'compare': return <div className="h-full overflow-y-auto"><ComparePage a={route.a} b={route.b} onBot={openBot} onOpen={openMatch} /></div>
     case 'bot': return <BotPage key={route.id} id={route.id} onBack={() => go('/bots')} onOpen={openMatch} onBot={openBot} />
     case 'match': {
       if (isLiveId(route.id)) return <Viewer key={route.id} src={`/api/play/${route.id}/viewer`} label={`Your game ${route.id}`} onBack={() => go(backTo)} />

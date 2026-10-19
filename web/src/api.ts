@@ -205,6 +205,7 @@ async function json<T>(res: Response): Promise<T> {
 export const api = {
   /** Every bot, also recorded as lineage so mascots can inherit their parents' looks. */
   bots: () => fetch('/api/bots').then((r) => json<BotInfo[]>(r)).then((b) => { registerBots(b); return b }),
+  compare: (a: string, b: string) => fetch(`/api/compare?a=${encodeURIComponent(a)}&b=${encodeURIComponent(b)}`).then((r) => json<Comparison>(r)),
   profile: (id: string) => fetch(`/api/bots/${encodeURIComponent(id)}/profile`).then((r) => json<BotProfile>(r)),
   matches: () => fetch('/api/matches').then((r) => json<MatchSummary[]>(r)),
   /** The newest `limit` games plus how many games there are in all. */
@@ -300,3 +301,57 @@ export interface Note {
   tags: string[]
 }
 
+
+export type CompareFormat = 'duel' | 'ffa' | 'other'
+
+/** One bot's record against the other in the games both played. */
+export interface HeadToHead { games: number; a_ahead: number; b_ahead: number; even: number; a_won: number; b_won: number }
+
+/** How a bot plays in one format, averaged per game. Habit stats are null until its games are processed. */
+export interface Tendencies {
+  games: number
+  avg_place?: number
+  win_pct?: number
+  finish_pct?: number
+  avg_land?: number
+  avg_ticks?: number
+  ms_per_move?: number | null
+  habit_games?: number
+  farms?: number | null
+  villages?: number | null
+  quarries?: number | null
+  walls?: number | null
+  wall_pct?: number | null
+  first_wall?: number | null
+  demolished?: number | null
+  captures?: number | null
+  rival_captures?: number | null
+  attack_success_pct?: number | null
+  lost?: number | null
+  sealed?: number | null
+  sealed_lost?: number | null
+}
+
+export interface SharedGame {
+  id: string
+  created_at: number
+  players: number
+  map?: MapPreset | null
+  auto: boolean
+  ending: Ending | null
+  final_tick: number | null
+  winner: string | null
+  a: { place_start: number; place_end: number; land: number }
+  b: { place_start: number; place_end: number; land: number }
+}
+
+export interface Comparison {
+  rules_version: string
+  a: { id: string; name: string; retired: boolean }
+  b: { id: string; name: string; retired: boolean }
+  head_to_head: Partial<Record<CompareFormat, HeadToHead>>
+  shared_total: number
+  shared: SharedGame[]
+  tendencies: { a: Partial<Record<'duel' | 'ffa', Tendencies>>; b: Partial<Record<'duel' | 'ffa', Tendencies>> }
+  coverage: { games: number; with_habits: number }
+}

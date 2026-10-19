@@ -1,4 +1,4 @@
-import { ArrowLeft, Gauge, Hash, Loader2, Play, Sprout, Swords, Trophy, TriangleAlert } from 'lucide-react'
+import { ArrowLeft, Gauge, GitCompareArrows, Hash, Loader2, Play, Sprout, Swords, Trophy, TriangleAlert } from 'lucide-react'
 import { useCallback, useEffect, useState } from 'react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -167,7 +167,10 @@ export function BotPage({ id, onBack, onOpen, onBot }: { id: string; onBack: () 
   return (
     <div className="h-full overflow-y-auto">
       <div className="mx-auto flex max-w-5xl flex-col gap-6 p-4 sm:p-6">
-        <div>{back}</div>
+        <div className="flex items-center justify-between gap-2">
+          {back}
+          <Button variant="outline" size="sm" onClick={() => { location.hash = `/compare?a=${encodeURIComponent(bot.id)}` }}><GitCompareArrows />Compare</Button>
+        </div>
 
         <header className="flex flex-col items-center gap-4 text-center sm:flex-row sm:items-center sm:text-left">
           <BotAvatar id={bot.id} name={bot.name} size={120} className="shrink-0 drop-shadow-lg" />
