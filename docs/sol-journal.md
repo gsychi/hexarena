@@ -586,3 +586,28 @@ Relay's proven capture garrisons and spare-stack routing.
   late game.
 - Economy: five-Quarry 160-site lattice through tick 7000; compact, low-forward Relay.
 - Result and replay lesson: pending 50-game sample.
+
+### Batch 5 verdict
+
+All five versions reached the rating threshold and missed the top-20 Elo cut. Jackal was
+best at 51 games, Elo 1542 and AVP8 5.26 ± 0.25; Gazelle finished at 51, 1524 and
+5.47 ± 0.27; Heron at 51, 1485 and 5.35 ± 0.27; Aurochs at 51, 1476 and
+5.67 ± 0.25; Mole at 50, 1464 and 5.77 ± 0.25. Aurochs won m02165 with 32 Villages,
+362 land and 1.62M troops. Representative survivors made 9,200–9,879 moves, proving
+Relay fixed idleness, but last-place seats usually died at ticks 708–1313 before building.
+Sparse early economy was least harmful; deep and Quarry-heavy plans did not repay.
+
+## Batch 6 — Linked contact fortifications
+
+Grazer now identifies owned hexes touching visible enemies, builds Walls where the
+largest hostile stack makes defense most valuable, and links adjacent ready Walls one
+pair per tick. The batch separates early survival Walls from late conversion Walls and
+compares wall-only, lattice, Village, and Quarry economies.
+
+### tortoise-v1 — Tortoise
+
+- Hypothesis: early contact Walls address the pre-economy death mode directly; spending
+  no actions on Farms or Villages leaves maximum Relay tempo while up to 100 linked
+  Walls turn the active border into a durable ratchet.
+- Economy: none; contact Walls from tick 800 through 7000, conservative Relay.
+- Result and replay lesson: pending 50-game sample.

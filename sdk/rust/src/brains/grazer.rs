@@ -8,8 +8,28 @@
 
 use super::relay::Relay;
 use crate::{Bot, Style};
-use hexarena_protocol::{Action, Building, Hex, PlayerCommand, RulesConfig, View};
+use hexarena_protocol::{
+    Action, Building, Hex, ManagementCommand, PlayerCommand, RulesConfig, View, VisibleHex,
+};
 use std::collections::VecDeque;
+
+fn visible(view: &View, hex: Hex) -> Option<&VisibleHex> {
+    view.visible_hexes.iter().find(|cell| cell.hex == hex)
+}
+
+fn terrain_height(view: &View, hex: Hex) -> i8 {
+    let width = 2 * view.radius + 1;
+    if hex.q.abs() > view.radius || hex.r.abs() > view.radius || (hex.q + hex.r).abs() > view.radius
+    {
+        return 0;
+    }
+    let index = ((hex.r + view.radius) * width + hex.q + view.radius) as usize;
+    view.public_terrain
+        .get(index)
+        .copied()
+        .flatten()
+        .map_or(0, |terrain| terrain.height)
+}
 
 struct Knobs {
     mode: i64,
@@ -21,6 +41,12 @@ struct Knobs {
     land_min: usize,
     depth: u32,
     keep: u32,
+    wall_start: u32,
+    wall_stop: u32,
+    wall_every: u32,
+    wall_cap: usize,
+    wall_keep: u32,
+    wall_contact_only: bool,
 }
 
 impl Knobs {
@@ -36,6 +62,12 @@ impl Knobs {
             land_min: k("economy_land_min", 45) as usize,
             depth: k("economy_depth", 2) as u32,
             keep: k("economy_keep", 20) as u32,
+            wall_start: k("wall_start", 1000) as u32,
+            wall_stop: k("wall_stop", 8000) as u32,
+            wall_every: k("wall_every", 4).max(1) as u32,
+            wall_cap: k("wall_cap", 0) as usize,
+            wall_keep: k("wall_keep", 30) as u32,
+            wall_contact_only: k("wall_contact_only", 1) != 0,
         }
     }
 }
@@ -47,6 +79,8 @@ pub struct Grazer {
     k: Knobs,
     last_build: Option<u32>,
     builds: usize,
+    last_wall: Option<u32>,
+    walls: usize,
 }
 
 impl Grazer {
@@ -58,7 +92,118 @@ impl Grazer {
             k: Knobs::read(&style),
             last_build: None,
             builds: 0,
+            last_wall: None,
+            walls: 0,
         }
+    }
+
+    fn wall_site(&self, view: &View, busy: Option<Hex>) -> Option<Hex> {
+        if self.walls >= self.k.wall_cap
+            || view.tick < self.k.wall_start
+            || view.tick >= self.k.wall_stop
+            || self
+                .last_wall
+                .is_some_and(|tick| view.tick < tick + self.k.wall_every)
+        {
+            return None;
+        }
+        let mut best: Option<(u64, Hex)> = None;
+        for cell in &view.visible_hexes {
+            if cell.owner != Some(view.you)
+                || cell.building.is_some()
+                || busy == Some(cell.hex)
+                || !self
+                    .rules
+                    .terrain_allowed(Building::Wall, terrain_height(view, cell.hex))
+            {
+                continue;
+            }
+            let discounted = cell.hex.neighbors().into_iter().any(|neighbor| {
+                visible(view, neighbor).is_some_and(|other| {
+                    other.owner == Some(view.you)
+                        && other
+                            .building
+                            .as_ref()
+                            .is_some_and(|building| building.kind == Building::Quarry)
+                })
+            });
+            let cost = self.rules.build_cost(Building::Wall, discounted);
+            if cell.troops <= cost.troops + self.k.wall_keep {
+                continue;
+            }
+            let mut enemy_contacts = 0u64;
+            let mut largest_enemy = 0u64;
+            let mut foreign_contacts = 0u64;
+            let mut adjacent_walls = 0u64;
+            let mut own_neighbors = 0u64;
+            for neighbor in cell.hex.neighbors() {
+                let Some(other) = visible(view, neighbor) else {
+                    continue;
+                };
+                if other.owner == Some(view.you) {
+                    own_neighbors += 1;
+                    if other
+                        .building
+                        .as_ref()
+                        .is_some_and(|building| building.kind == Building::Wall)
+                    {
+                        adjacent_walls += 1;
+                    }
+                } else {
+                    foreign_contacts += 1;
+                    if other.owner.is_some() {
+                        enemy_contacts += 1;
+                        largest_enemy = largest_enemy.max(other.troops as u64);
+                    }
+                }
+            }
+            if foreign_contacts == 0 || (self.k.wall_contact_only && enemy_contacts == 0) {
+                continue;
+            }
+            let score = enemy_contacts * 2_000
+                + largest_enemy * 10
+                + adjacent_walls * 700
+                + own_neighbors * 30
+                + cell.troops as u64;
+            if best.is_none_or(|current| score > current.0) {
+                best = Some((score, cell.hex));
+            }
+        }
+        best.map(|(_, hex)| hex)
+    }
+
+    fn wall_link(&self, view: &View) -> Option<ManagementCommand> {
+        for cell in &view.visible_hexes {
+            let Some(wall) = cell.building.as_ref().filter(|building| {
+                cell.owner == Some(view.you)
+                    && building.kind == Building::Wall
+                    && building.link_cooldown == 0
+                    && building.links.len() < self.rules.wall.max_links as usize
+            }) else {
+                continue;
+            };
+            for neighbor in cell.hex.neighbors() {
+                let Some(other) = visible(view, neighbor) else {
+                    continue;
+                };
+                let Some(_other_wall) = other.building.as_ref().filter(|building| {
+                    other.owner == Some(view.you)
+                        && building.kind == Building::Wall
+                        && building.link_cooldown == 0
+                        && building.links.len() < self.rules.wall.max_links as usize
+                }) else {
+                    continue;
+                };
+                if !wall.links.contains(&neighbor) {
+                    return Some(ManagementCommand::SetWallLink {
+                        wall_a: cell.hex,
+                        wall_b: neighbor,
+                        enabled: true,
+                    });
+                }
+            }
+        }
+        None
     }
 
     fn site(&self, view: &View, busy: Option<Hex>) -> Option<(Hex, Building)> {
@@ -235,10 +380,20 @@ impl Bot for Grazer {
             Action::NoOp => None,
             Action::Gather { .. } | Action::Build { .. } => return command,
         };
-        if let Some((at, building)) = self.site(view, busy) {
+        if let Some(at) = self.wall_site(view, busy) {
+            command.action = Action::Build {
+                at,
+                building: Building::Wall,
+            };
+            self.last_wall = Some(view.tick);
+            self.walls += 1;
+        } else if let Some((at, building)) = self.site(view, busy) {
             command.action = Action::Build { at, building };
             self.last_build = Some(view.tick);
             self.builds += 1;
+        }
+        if let Some(link) = self.wall_link(view) {
+            command.management.push(link);
         }
         command
     }
