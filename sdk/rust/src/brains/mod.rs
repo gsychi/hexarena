@@ -8,6 +8,7 @@
 //! [`BotParams::knob`]: crate::BotParams::knob
 
 pub mod mason;
+pub mod wildcard;
 pub mod predator;
 pub mod relay;
 pub mod ridgeline;
@@ -35,7 +36,7 @@ pub fn build(style: Style) -> Result<Box<dyn Bot>, String> {
         "predator" => Ok(Box::new(Settler::wrap(Box::new(predator::Predator::new(style.clone())), &style))),
         "ridgeline" => Ok(Box::new(Settler::wrap(Box::new(ridgeline::Ridgeline::new(style.clone())), &style))),
         "mason" => Ok(Box::new(mason::Mason::new(style))),
-        "wildcard" => Ok(Box::new(mason::Mason::new(style))),
+        "wildcard" => Ok(Box::new(wildcard::Wildcard::new(style))),
         other => Err(format!(
             "unknown brain '{other}' (known: {})",
             BRAINS.join(", ")
