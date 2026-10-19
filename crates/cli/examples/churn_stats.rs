@@ -28,6 +28,8 @@ fn main() {
     let mut lost_def_height = std::collections::BTreeMap::<i8, u64>::new();
     let mut own_height = std::collections::BTreeMap::<i8, u64>::new();
     let mut src_left_frontier = (0u64, 0u64);
+    let mut lost_to = std::collections::BTreeMap::<String, u64>::new();
+    let mut caps_from = std::collections::BTreeMap::<String, u64>::new();
     for path in &paths {
         let replay: Replay = serde_json::from_slice(&std::fs::read(path).unwrap()).unwrap();
         let names: Vec<String> = replay.players.iter().map(|p| p.name.clone()).collect();
@@ -86,7 +88,13 @@ fn main() {
                             }
                         }
                         if let Some(o) = previous_owner {
+                            if mine[*player as usize] {
+                                let k = names[*o as usize].split(' ').next().unwrap().to_string();
+                                *caps_from.entry(k).or_default() += 1;
+                            }
                             if mine[*o as usize] {
+                                let k = names[*player as usize].split(' ').next().unwrap().to_string();
+                                *lost_to.entry(k).or_default() += 1;
                                 lost[bin] += 1;
                                 lost_total += 1;
                                 lost_this_tick[*o as usize] += 1;
@@ -176,6 +184,8 @@ fn main() {
         gather_windows,
         loss_base as f64 / base_ticks.max(1) as f64
     );
+    println!("hexes lost to: {:?}", lost_to);
+    println!("enemy hexes captured from: {:?}", caps_from);
     println!(
         "source left on frontier after capture: {} times, avg troops left {:.1}",
         src_left_frontier.0,

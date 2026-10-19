@@ -199,6 +199,12 @@ fn main() {
                 s.rejected, last.frontier, last.edges_open, last.edges_enemy, last.edges_impass
             );
         }
+        if std::env::var("PERSEAT").is_ok() {
+            for s in &seats {
+                let tl: Vec<String> = s.samples.iter().map(|(t, sn)| format!("{}:{}", t, sn.land)).collect();
+                println!("    {:<16} {}", s.name, tl.join(" "));
+            }
+        }
         for s in seats.iter_mut() {
             s.neutral_left_tick = neutral_gone;
         }
