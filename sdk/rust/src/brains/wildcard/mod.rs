@@ -33,6 +33,7 @@ pub mod rings;
 
 use self::core::Core;
 use self::rings::{Board, Tarjan};
+use super::keystone::Pangolin as KeystoneBot;
 use crate::{Action, Bot, Building, Hex, ManagementCommand, PlayerCommand, PlayerId, RulesConfig, Style, View};
 use std::collections::VecDeque;
 
@@ -186,6 +187,8 @@ impl Knobs {
 pub struct Wildcard {
     /// The genome, until the first view shows whether this is a 1v1 or a free-for-all.
     style: Option<Style>,
+    /// In a free-for-all with `portfolio` set, Keystone plays until the 1v1 switch below.
+    delegate: Option<Box<dyn Bot>>,
     /// In a free-for-all, switch to the 1v1 knobs once this few players are alive (0 = never).
     duel_when: usize,
     duel_style: Option<Style>,
@@ -249,6 +252,7 @@ impl Wildcard {
         }
         Wildcard {
             style: Some(style.clone()),
+            delegate: None,
             duel_when: 0,
             duel_style: None,
             inner: Core::new(style.clone()),
@@ -745,13 +749,23 @@ impl Wildcard {
             self.k = Knobs::read(&s);
             self.duel_when = if duel { 0 } else { s.params.knob("duel_when", 0).max(0) as usize };
             self.duel_style = (self.duel_when > 0).then(|| Self::for_format(&style, "duel_"));
+            if !duel && s.params.knob("portfolio", 0) > 0 {
+                self.delegate = Some(Box::new(KeystoneBot::new(s)));
+            }
         }
         if self.duel_when > 0 && view.public_players.iter().filter(|p| p.alive).count() <= self.duel_when {
             if let Some(s) = self.duel_style.take() {
-                self.inner.retune(&s);
+                if self.delegate.take().is_some() {
+                    self.inner = Core::new(s.clone());
+                } else {
+                    self.inner.retune(&s);
+                }
                 self.k = Knobs::read(&s);
                 self.duel_when = 0;
             }
+        }
+        if let Some(d) = self.delegate.as_mut() {
+            return d.act(view);
         }
         if let Some(r) = &view.rules {
             self.rules = r.clone();
