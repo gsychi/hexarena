@@ -1,0 +1,3 @@
+e_seal RESULT gain +0.111 ± 0.095 over 96 games; closes cand 0 base 0; cand mean 0.283 ms wall-max 59.769 ms cpu-max 5.541 ms over 277606 moves; base cpu-max 2.343 ms
+e_back RESULT gain -0.021 ± 0.061 over 96 games; closes cand 0 base 0; cand mean 0.305 ms wall-max 48.407 ms cpu-max 3.526 ms over 278316 moves; base cpu-max 0.200 ms
+e_sealback RESULT gain +0.045 ± 0.098 over 96 games; closes cand 0 base 0; cand mean 0.307 ms wall-max 73.101 ms cpu-max 2.099 ms over 276119 moves; base cpu-max 2.702 ms

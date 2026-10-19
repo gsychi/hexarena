@@ -1,0 +1,11 @@
+{
+  "against": "pangolin-v9",
+  "base_closes": 0,
+  "base_score": 3.8680555555555554,
+  "candidate_closes": 0,
+  "candidate_score": 3.451388888888889,
+  "gain": 0.4166666666666667,
+  "gain_se": 0.1232771774493202,
+  "games": 48,
+  "secs": 1662.347092347
+}

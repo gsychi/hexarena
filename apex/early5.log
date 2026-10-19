@@ -1,0 +1,5 @@
+e_s15 RESULT gain +0.441 ± 0.113 over 96 games; closes cand 0 base 0; cand mean 0.322 ms wall-max 97.277 ms cpu-max 5.990 ms over 280984 moves; base cpu-max 0.964 ms
+e_s25 RESULT gain +0.226 ± 0.117 over 96 games; closes cand 0 base 0; cand mean 0.183 ms wall-max 99.063 ms cpu-max 2.115 ms over 280553 moves; base cpu-max 1.163 ms
+e_d3 RESULT gain +0.201 ± 0.105 over 96 games; closes cand 0 base 0; cand mean 0.186 ms wall-max 74.127 ms cpu-max 0.350 ms over 280970 moves; base cpu-max 1.619 ms
+e_roi5 RESULT gain +0.285 ± 0.093 over 96 games; closes cand 0 base 0; cand mean 0.173 ms wall-max 126.831 ms cpu-max 5.690 ms over 283924 moves; base cpu-max 2.076 ms
+e_gu800 RESULT gain +0.382 ± 0.114 over 96 games; closes cand 0 base 0; cand mean 0.173 ms wall-max 90.653 ms cpu-max 1.079 ms over 280861 moves; base cpu-max 5.170 ms

@@ -1,0 +1,11 @@
+{
+  "against": "burrow-v9",
+  "base_closes": 2,
+  "base_score": 3.757677083333333,
+  "candidate_closes": 0,
+  "candidate_score": 3.659722222222222,
+  "gain": 0.09795486111111124,
+  "gain_se": 0.1565929812149324,
+  "games": 48,
+  "secs": 1460.488936932
+}

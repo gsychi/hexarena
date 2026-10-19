@@ -1,0 +1,25 @@
+pair 0 seed 500000: cand 3.67 base 3.67 gain +0.00 | running +0.000 ± NaN | [cpu max 0.16ms @t0] [cpu max 0.16ms @t0] t10000 cNone t10000 cNone | 36s
+pair 1 seed 500001: cand 3.83 base 3.17 gain -0.67 | running -0.333 ± 0.333 | [cpu max 6.45ms @t9145] t10000 cNone t10000 cNone | 96s
+pair 2 seed 500002: cand 3.67 base 3.67 gain +0.00 | running -0.222 ± 0.222 | t10000 cNone t10000 cNone | 134s
+pair 3 seed 500003: cand 3.50 base 3.39 gain -0.11 | running -0.194 ± 0.160 | t8397 cSome("base") t10000 cNone | 171s
+pair 4 seed 500004: cand 3.67 base 3.83 gain +0.17 | running -0.122 ± 0.143 | t10000 cNone t10000 cNone | 233s
+pair 5 seed 500005: cand 3.33 base 3.83 gain +0.50 | running -0.018 ± 0.156 | t10000 cNone t10000 cNone | 290s
+pair 6 seed 500006: cand 4.00 base 3.50 gain -0.50 | running -0.087 ± 0.149 | t10000 cNone t10000 cNone | 348s
+pair 7 seed 500007: cand 3.50 base 3.50 gain +0.00 | running -0.076 ± 0.129 | t10000 cNone t10000 cNone | 372s
+pair 8 seed 500008: cand 3.83 base 3.17 gain -0.67 | running -0.142 ± 0.132 | t10000 cNone t10000 cNone | 412s
+pair 9 seed 500009: cand 3.00 base 4.33 gain +1.33 | running +0.006 ± 0.189 | t10000 cNone t10000 cNone | 449s
+pair 10 seed 500010: cand 3.33 base 3.67 gain +0.33 | running +0.035 ± 0.173 | t10000 cNone t10000 cNone | 493s
+pair 11 seed 500011: cand 3.37 base 3.36 gain -0.01 | running +0.031 ± 0.158 | t7376 cSome("candidate") t6604 cSome("base") | 522s
+pair 12 seed 500012: cand 4.17 base 3.33 gain -0.83 | running -0.035 ± 0.160 | t10000 cNone t10000 cNone | 558s
+pair 13 seed 500013: cand 3.67 base 3.33 gain -0.33 | running -0.056 ± 0.150 | t10000 cNone t10000 cNone | 594s
+pair 14 seed 500014: cand 4.67 base 3.84 gain -0.83 | running -0.108 ± 0.149 | t10000 cNone t5316 cSome("base") | 623s
+pair 15 seed 500015: cand 3.33 base 3.67 gain +0.33 | running -0.080 ± 0.142 | t10000 cNone t10000 cNone | 663s
+pair 16 seed 500016: cand 3.83 base 3.67 gain -0.17 | running -0.085 ± 0.133 | t10000 cNone t10000 cNone | 691s
+pair 17 seed 500017: cand 4.33 base 4.17 gain -0.17 | running -0.090 ± 0.126 | t10000 cNone t10000 cNone | 730s
+pair 18 seed 500018: cand 3.33 base 3.67 gain +0.33 | running -0.068 ± 0.121 | t10000 cNone t10000 cNone | 757s
+pair 19 seed 500019: cand 3.33 base 3.67 gain +0.33 | running -0.048 ± 0.116 | t10000 cNone t10000 cNone | 787s
+pair 20 seed 500020: cand 3.67 base 3.50 gain -0.17 | running -0.053 ± 0.111 | t10000 cNone t10000 cNone | 824s
+pair 21 seed 500021: cand 3.83 base 4.00 gain +0.17 | running -0.043 ± 0.106 | t10000 cNone t10000 cNone | 860s
+pair 22 seed 500022: cand 4.50 base 4.00 gain -0.50 | running -0.063 ± 0.103 | t10000 cNone t10000 cNone | 890s
+pair 23 seed 500023: cand 3.56 base 3.33 gain -0.23 | running -0.070 ± 0.099 | t10000 cNone t8647 cSome("candidate") | 916s
+RESULT gain -0.070 ± 0.099 over 48 games; closes cand 2 base 3; cand mean 0.278 ms wall-max 103.392 ms cpu-max 6.452 ms over 941119 moves; base cpu-max 3.102 ms

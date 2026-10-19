@@ -1,0 +1,5 @@
+pair 0 seed 500000: cand 4.17 base 3.01 gain -1.16 | running -1.159 ± NaN | [cpu max 0.15ms @t0] [cpu max 0.23ms @t0] t5462 cSome("base") t10000 cNone | 16s
+pair 1 seed 500001: cand 5.00 base 2.00 gain -3.00 | running -2.079 ± 0.921 | t10000 cNone t10000 cNone | 34s
+pair 2 seed 500002: cand 4.17 base 3.21 gain -0.96 | running -1.706 ± 0.650 | [cpu max 0.31ms @t4552] t5495 cSome("base") t6998 cSome("base") | 45s
+pair 3 seed 500003: cand 4.00 base 2.86 gain -1.14 | running -1.564 ± 0.481 | t10000 cNone t6728 cSome("base") | 61s
+pair 4 seed 500004: cand 4.50 base 3.17 gain -1.33 | running -1.518 ± 0.375 | t10000 cNone [cpu max 0.43ms @t983] t10000 cNone | 94s

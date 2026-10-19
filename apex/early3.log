@@ -1,0 +1,5 @@
+e_bf100 RESULT gain +0.240 ± 0.081 over 96 games; closes cand 0 base 0; cand mean 0.072 ms wall-max 36.080 ms cpu-max 0.872 ms over 278428 moves; base cpu-max 2.430 ms
+e_bf50 RESULT gain +0.066 ± 0.098 over 96 games; closes cand 0 base 0; cand mean 0.064 ms wall-max 37.940 ms cpu-max 0.719 ms over 277822 moves; base cpu-max 1.854 ms
+e_bf0 RESULT gain +0.146 ± 0.101 over 96 games; closes cand 0 base 0; cand mean 0.070 ms wall-max 46.824 ms cpu-max 1.272 ms over 278412 moves; base cpu-max 0.613 ms
+e_bf100g1 RESULT gain +0.135 ± 0.068 over 96 games; closes cand 0 base 0; cand mean 0.112 ms wall-max 40.583 ms cpu-max 2.004 ms over 279224 moves; base cpu-max 3.291 ms
+e_bf100r40 RESULT gain +0.207 ± 0.080 over 96 games; closes cand 0 base 0; cand mean 0.145 ms wall-max 47.875 ms cpu-max 0.338 ms over 277908 moves; base cpu-max 1.502 ms
