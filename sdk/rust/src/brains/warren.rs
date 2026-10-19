@@ -184,6 +184,11 @@ struct BuildKnobs {
     carpet_tick: u32,
     /// Resource the carpet leaves for Walls.
     carpet_reserve: u32,
+    /// Late minimum garrison of enemy-facing hexes (troops behind no Wall; 0 = off),
+    /// ramped in over `guard_ramp` ticks from `guard_from`.
+    guard_late: u64,
+    guard_from: u32,
+    guard_ramp: u32,
 }
 
 impl BuildKnobs {
@@ -203,6 +208,9 @@ impl BuildKnobs {
             wall_tick: k("wall_tick", 0) as u32,
             carpet_tick: k("carpet_tick", 0) as u32,
             carpet_reserve: k("carpet_reserve", 10) as u32,
+            guard_late: k("guard_late", 0) as u64,
+            guard_from: k("guard_from", 800) as u32,
+            guard_ramp: k("guard_ramp", 600) as u32,
         }
     }
 }
@@ -260,6 +268,7 @@ pub struct Warren {
     seen: Vec<Option<Cell>>,
     /// Slot of the thumper stack, while one is on the move.
     army: Option<usize>,
+    tick: u32,
     /// Border hex the feed builds up until it can breach, while no thumper is out.
     rally: Option<usize>,
 }
@@ -279,6 +288,7 @@ impl Warren {
             geo: None,
             seen: vec![],
             army: None,
+            tick: 0,
             rally: None,
         }
     }
@@ -713,7 +723,14 @@ impl Warren {
             let k = self.kills(stack, self.defense(geo, n, h, wall));
             worst = Some(worst.map_or(k, |w| w.max(k)));
         }
-        worst.map(|k| self.k.guard + k * self.k.margin_pct / 100)
+        let late = if self.b.guard_late > 0 && self.tick > self.b.guard_from {
+            let ramp = (self.tick - self.b.guard_from) as u64;
+            (self.b.guard_late * ramp / self.b.guard_ramp.max(1) as u64).min(self.b.guard_late) * MILLI as u64
+                / wall.max(MILLI) as u64
+        } else {
+            0
+        };
+        worst.map(|k| self.k.guard.max(late) + k * self.k.margin_pct / 100)
     }
 
     /// How safe (milli) a hex holding `troops` is against `want`: concave, full at `want`.
@@ -1083,6 +1100,7 @@ impl Bot for Warren {
     }
 
     fn act(&mut self, view: &View) -> PlayerCommand {
+        self.tick = view.tick;
         let geo = self.geo.take().unwrap_or_else(|| Geometry::new(view));
         if self.seen.is_empty() {
             self.seen = vec![None; geo.passable.len()];
