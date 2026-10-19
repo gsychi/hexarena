@@ -234,6 +234,11 @@ fn play(seed: u64, seats: &[Style], tallies: &mut BTreeMap<String, Tally>, log: 
         closer.map(|p| seats[p as usize].id.clone()),
         (0..n).map(|i| format!("{}={:.0}/w{}l{}/d{}/{:.1}ms@{}", seats[i].id, t[i].avp, t[i].region_won, t[i].region_lost, t[i].demolished, t[i].slowest.as_secs_f64() * 1000.0, t[i].slowest_tick)).collect::<Vec<_>>().join(" ")
     );
+    if n == 2 {
+        // A duel scores +1 for a candidate win, -1 for a loss.
+        let avp = |id: &str| (0..n).find(|&i| seats[i].id == id).map_or(0.0, |i| t[i].avp);
+        return (avp("base") - avp("cand")) / 7.0;
+    }
     base_score.0 / base_score.1.max(1) as f64 - cand_score.0 / cand_score.1.max(1) as f64
 }
 
@@ -244,8 +249,15 @@ fn main() {
         f.insert(w[0].trim_start_matches("--").to_string(), w.get(1).cloned().unwrap_or_default());
     }
     let arena = f.get("arena").cloned().unwrap_or_else(|| "/workspace/data/arena".into());
-    let cand = Style { id: "cand".into(), ..seat_style(&f["cand"], &arena) };
-    let base = Style { id: "base".into(), ..seat_style(&f["base"], &arena) };
+    // Entrants play from source unless --frozen 1 spawns their published binaries.
+    let frozen = f.get("frozen").is_some_and(|v| v == "1");
+    let load = |id: &str| {
+        let s = seat_style(id, &arena);
+        if frozen { s } else { Style { program: None, ..s } }
+    };
+    let cand = Style { id: "cand".into(), ..load(&f["cand"]) };
+    let base = Style { id: "base".into(), ..load(&f["base"]) };
+    let duel = f.get("duel").is_some_and(|v| v == "1");
     let pairs: u64 = f.get("pairs").map_or(4, |v| v.parse().unwrap());
     let seed0: u64 = f.get("seed").map_or(900_000, |v| v.parse().unwrap());
     let pool: Vec<Style> = match f.get("pool").map(|s| s.as_str()) {
@@ -257,9 +269,9 @@ fn main() {
     for k in 0..pairs {
         let seed = seed0 + k;
         let mut rng = Rng(seed ^ 0x9E37_79B9_7F4A_7C15);
-        let mut seats = vec![cand.clone(); 3];
-        seats.extend(vec![base.clone(); 3]);
-        for _ in 0..2 {
+        let mut seats = if duel { vec![cand.clone()] } else { vec![cand.clone(); 3] };
+        seats.extend(vec![base.clone(); if duel { 1 } else { 3 }]);
+        for _ in 0..if duel { 0 } else { 2 } {
             seats.push(if pool.is_empty() { base.clone() } else { pool[rng.below(pool.len())].clone() });
         }
         for i in (1..seats.len()).rev() {
