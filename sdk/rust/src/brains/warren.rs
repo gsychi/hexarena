@@ -215,6 +215,14 @@ struct StrikeKnobs {
     reach: u32,
     /// Spare stacks of at least this many walk toward the thumper on idle ticks (0 = never).
     feed_min: u64,
+    /// A border stack may become the thumper when what it can send is at least this %
+    /// of a sure breach of its cheapest enemy neighbour (0 = only spare stacks).
+    breach_pct: u64,
+    /// Keep a rally hex for the feed while no breach is affordable.
+    rally: bool,
+    /// Score per own neighbour of a thumper target, and per exposed one.
+    hug: i64,
+    open: i64,
 }
 
 impl StrikeKnobs {
@@ -227,6 +235,10 @@ impl StrikeKnobs {
             depth: k("depth", 30),
             reach: k("reach", 8) as u32,
             feed_min: k("feed_min", 0) as u64,
+            breach_pct: k("breach_pct", 0) as u64,
+            rally: k("rally", 0) > 0,
+            hug: k("strike_hug", 0),
+            open: k("strike_open", 0),
         }
     }
 }
@@ -242,6 +254,8 @@ pub struct Warren {
     seen: Vec<Option<Cell>>,
     /// Slot of the thumper stack, while one is on the move.
     army: Option<usize>,
+    /// Border hex the feed builds up until it can breach, while no thumper is out.
+    rally: Option<usize>,
 }
 
 fn kind_of(c: &VisibleHex) -> Option<Building> {
@@ -259,12 +273,49 @@ impl Warren {
             geo: None,
             seen: vec![],
             army: None,
+            rally: None,
         }
+    }
+
+    fn troops_at(&self, i: usize) -> u64 {
+        self.seen[i].map_or(0, |c| c.troops as u64)
+    }
+
+    /// Troops `s` is short of a sure breach of its cheapest enemy neighbour.
+    fn shortfall(&self, geo: &Geometry, me: PlayerId, s: usize) -> Option<i64> {
+        let have = self.seen[s]?.troops as i64;
+        let mut best: Option<i64> = None;
+        for &t in &geo.nbrs[s] {
+            let Some(tc) = self.seen[t].filter(|c| c.owner.is_some_and(|o| o != me)) else { continue };
+            let defense = self.defense(geo, s, t, tc.wall_milli) as u32;
+            let (mean, sd) = self.loss_stats(tc.troops, defense);
+            let need = ((mean + sd * self.k.sure_x10 / 10).div_ceil(1000) + 1) as i64;
+            let short = need * self.s.breach_pct.max(100) as i64 / 100 * (100 + self.s.leave_pct as i64) / 100 - have;
+            best = Some(best.map_or(short, |b| b.min(short)));
+        }
+        best
+    }
+
+    /// Sticky choice of the border hex closest to affording a breach.
+    fn pick_rally(&mut self, geo: &Geometry, me: PlayerId, mine: &[usize]) {
+        let cur = self
+            .rally
+            .filter(|&r| self.owned(r, me))
+            .and_then(|r| self.shortfall(geo, me, r).map(|s| (s, r)));
+        let best = mine
+            .iter()
+            .filter_map(|&s| self.shortfall(geo, me, s).map(|v| (v, s)))
+            .min();
+        self.rally = match (cur, best) {
+            (Some(c), Some(b)) if b.0 * 2 < c.0 => Some(b.1),
+            (Some(c), _) => Some(c.1),
+            (None, b) => b.map(|b| b.1),
+        };
     }
 
     /// Walks the spare stack that adds the most per step one hex toward the thumper.
     fn feed(&self, geo: &Geometry, me: PlayerId) -> Option<Action> {
-        let a = self.army?;
+        let a = self.army.or(self.rally)?;
         if self.s.feed_min == 0 {
             return None;
         }
@@ -305,10 +356,35 @@ impl Warren {
         if self.s.from == 0 || tick < self.s.from {
             return None;
         }
-        let troops = |i: usize| self.seen[i].map_or(0, |c| c.troops as u64);
         if let Some(a) = self.army {
-            if !self.owned(a, me) || troops(a) < self.s.min / 2 {
+            if !self.owned(a, me) || self.troops_at(a) < self.s.min / 2 {
                 self.army = None;
+            }
+        }
+        if self.army.is_none() && self.s.breach_pct > 0 {
+            let mut best: Option<(u64, usize)> = None;
+            for &s in mine {
+                let have = self.troops_at(s);
+                if have < self.s.min {
+                    continue;
+                }
+                for &t in &geo.nbrs[s] {
+                    let Some(tc) = self.seen[t].filter(|c| c.owner.is_some_and(|o| o != me)) else { continue };
+                    let defense = self.defense(geo, s, t, tc.wall_milli) as u32;
+                    let (mean, sd) = self.loss_stats(tc.troops, defense);
+                    let need = (mean + sd * self.k.sure_x10 / 10).div_ceil(1000) + 1;
+                    let leave = self.want(geo, me, s, t).unwrap_or(1).clamp(1, have * self.s.leave_pct / 100);
+                    let send = have.saturating_sub(leave);
+                    if send * 100 >= need * self.s.breach_pct && best.map_or(true, |b| send - need > b.0) {
+                        best = Some((send - need, s));
+                    }
+                }
+            }
+            self.army = best.map(|(_, s)| s);
+            if self.army.is_none() && self.s.rally {
+                self.pick_rally(geo, me, mine);
+            } else {
+                self.rally = None;
             }
         }
         if self.army.is_none() {
@@ -321,7 +397,7 @@ impl Warren {
                 .map(|(_, i)| i);
         }
         let a = self.army?;
-        let have = troops(a);
+        let have = self.troops_at(a);
         let mut best: Option<(i64, usize, u64)> = None;
         for &t in &geo.nbrs[a] {
             let Some(tc) = self.seen[t] else { continue };
@@ -345,8 +421,12 @@ impl Warren {
                 .filter(|&&n| tc.owner.is_some() && self.seen[n].is_some_and(|c| c.owner == tc.owner))
                 .count() as i64;
             let enemy = tc.owner.is_some() as i64;
+            let hugged = geo.nbrs[t].iter().filter(|&&n| self.owned(n, me)).count() as i64;
+            let exposed = geo.nbrs[t].len() as i64 - hugged;
             let score = self.k.land
                 + enemy * (self.k.enemy + self.s.depth * depth + self.k.enclose * self.enclosure_gain(geo, t, me))
+                + self.s.hug * hugged
+                - self.s.open * exposed
                 - (mean / 1000) as i64 * 100 / (have as i64 / 100).max(1);
             if best.map_or(true, |b| (score, std::cmp::Reverse(t)) > (b.0, std::cmp::Reverse(b.1))) {
                 best = Some((score, t, send));

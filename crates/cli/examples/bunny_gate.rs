@@ -28,6 +28,11 @@ fn genome(path: &str, id: &str) -> Style {
     if let Some(s) = style(path) {
         return s;
     }
+    if !path.ends_with(".json") {
+        let l = hexarena_league::League::load(std::path::Path::new("/workspace/data/league")).expect("league");
+        let g = l.generations.iter().find(|g| g.id == path).expect("generation");
+        return Style { id: id.into(), name: id.into(), blurb: String::new(), params: g.params.clone(), program: None };
+    }
     let p: BotParams = serde_json::from_slice(&std::fs::read(path).expect("genome file")).expect("genome json");
     Style { id: id.into(), name: id.into(), blurb: String::new(), params: p, program: None }
 }
@@ -55,7 +60,7 @@ fn main() {
     let spar: Vec<Style> = f
         .get("spar")
         .map(String::as_str)
-        .unwrap_or("relay,predator")
+        .unwrap_or("g8,g10,g11,ridgeline")
         .split(',')
         .map(|s| genome(s, s))
         .collect();
@@ -67,8 +72,8 @@ fn main() {
             seats.push(("me".into(), me.clone()));
             seats.push(("ch".into(), ch.clone()));
         }
-        seats.push(("sp".into(), spar[(k as usize) % spar.len()].clone()));
-        seats.push(("sp".into(), spar[(k as usize + 1) % spar.len()].clone()));
+        seats.push(("sp".into(), spar[(k as usize * 2) % spar.len()].clone()));
+        seats.push(("sp".into(), spar[(k as usize * 2 + 1) % spar.len()].clone()));
         let rot = (seed as usize * 5) % 8;
         seats.rotate_left(rot);
         let mirrored: Vec<(String, Style)> = seats

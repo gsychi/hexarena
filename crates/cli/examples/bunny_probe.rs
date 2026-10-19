@@ -11,10 +11,10 @@ fn genome(path: &str) -> Style {
     if let Some(s) = style(path) {
         return s;
     }
-    if path == "champ" {
+    if !path.ends_with(".json") {
         let l = hexarena_league::League::load(std::path::Path::new("/workspace/data/league")).unwrap();
-        let g = l.champion();
-        return Style { id: "champ".into(), name: "champ".into(), blurb: String::new(), params: g.params.clone(), program: None };
+        let g = if path == "champ" { l.champion() } else { l.generations.iter().find(|g| g.id == path).unwrap() };
+        return Style { id: path.into(), name: path.into(), blurb: String::new(), params: g.params.clone(), program: None };
     }
     let p: BotParams = serde_json::from_slice(&std::fs::read(path).unwrap()).unwrap();
     let id = std::path::Path::new(path).file_stem().unwrap().to_string_lossy().to_string();
@@ -30,6 +30,7 @@ fn main() {
     let mut bs: Vec<Box<dyn Bot>> = styles.iter().map(|s| brains::build(s.clone()).unwrap()).collect();
     let n = styles.len();
     let mut caps = vec![0u32; n];
+    let mut lost = vec![0u32; n];
     let mut builds = vec![0u32; n];
     let mut moves_own = vec![0u32; n];
     let snaps = [300u32, 600, 1000, 1500, 2000, 2500, 2999];
@@ -48,7 +49,12 @@ fn main() {
         st.step(&cmds);
         for e in &st.last_events {
             match e {
-                Event::Captured { player, .. } => caps[*player as usize] += 1,
+                Event::Captured { player, previous_owner, .. } => {
+                    caps[*player as usize] += 1;
+                    if let Some(o) = previous_owner {
+                        lost[*o as usize] += 1;
+                    }
+                }
                 Event::Built { player, .. } => builds[*player as usize] += 1,
                 _ => {}
             }
@@ -74,7 +80,7 @@ fn main() {
                     }
                 }
                 println!(
-                    "{:>14} land {:4} border {:3} ({:7}/hex) inner {:3} ({:6}/hex) max {:7} caps {:4} own-moves {:4} builds {:3} res {}",
+                    "{:>14} land {:4} border {:3} ({:7}/hex) inner {:3} ({:6}/hex) max {:7} caps {:4} lost {:4} own-moves {:4} builds {:3} res {}",
                     styles[p as usize].id,
                     land,
                     border,
@@ -83,6 +89,7 @@ fn main() {
                     it / inner.max(1) as u64,
                     max,
                     caps[p as usize],
+                    lost[p as usize],
                     moves_own[p as usize],
                     builds[p as usize],
                     st.resources[p as usize]
