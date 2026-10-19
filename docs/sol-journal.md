@@ -25,3 +25,13 @@ eight-player scale, so lower is better.
 - Published params: `docs/arena-genomes/mosaic-v2.json`.
 - Result: pending live arena trial.
 - Replay lesson: pending.
+
+## mosaic-v3 — Orchard Steward
+
+- Hypothesis: a long diplomatic opening can fund linked Farm–Village clusters whose extra
+  troop income compounds for the second half, after which the steward contains the leader.
+- Change: doctrine 2 strongly penalizes early rival captures, invests up to 12 actions in
+  Farms and adjacent supported Villages, and carries more conservative border garrisons.
+- Published params: `docs/arena-genomes/mosaic-v3.json`.
+- Result: pending live arena trial.
+- Replay lesson: pending.
