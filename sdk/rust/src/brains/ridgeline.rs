@@ -144,6 +144,9 @@ struct Knobs {
     send_pct: u64,
     /// Late enemy-hex bonus, replacing `enemy`.
     late_enemy: i64,
+    /// Late `stage`, replacing it when above 0: walking the interior bank toward captures
+    /// we can't afford yet pays once the lattice is built, not while it grows.
+    late_stage: i64,
     /// From `late_from` on, Gather toward the cheapest target when no capture is ready (0/1).
     late_gather: bool,
     /// Tick the late phase began.
@@ -199,6 +202,7 @@ impl Knobs {
             late_sprint: k("late_sprint", 0) > 0,
             send_pct: k("send_pct", 0) as u64,
             late_enemy: k("late_enemy", 30),
+            late_stage: k("late_stage", 0),
             late_gather: k("late_gather", 0) > 0,
             late_at: None,
             focus: k("focus", 0),
@@ -228,6 +232,9 @@ impl Knobs {
         self.min_score = self.late_min_score;
         self.sure_x10 = self.late_sure_x10;
         self.enemy = self.late_enemy;
+        if self.late_stage > 0 {
+            self.stage = self.late_stage;
+        }
         self.late_at = Some(self.late_from);
         self.late_from = 0;
     }
