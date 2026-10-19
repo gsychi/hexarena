@@ -752,3 +752,10 @@ or Predator as the tactical executor.
   64 lattice sites, avoiding Capybara's possible over-fortification.
 - Economy: medium lattice and 24 early contact Walls over Ridgeline.
 - Result and replay lesson: pending 50-game sample.
+
+### tiger-v1 — Tiger
+
+- Hypothesis: Predator's native shrinking-rival hunt can convert Badger's high-throughput
+  80-site economy without Grazer's unsuccessful custom survivor lock.
+- Economy: 80-site lattice and 24 late Walls over Predator.
+- Result and replay lesson: pending 50-game sample.
