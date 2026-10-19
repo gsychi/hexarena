@@ -745,3 +745,10 @@ or Predator as the tactical executor.
   height-aware survival policy rather than Relay's repeated frontier churn.
 - Economy: 28 Villages and up to 100 contact Walls over a Ridgeline core.
 - Result and replay lesson: pending 50-game sample.
+
+### yak-v2 — Yak
+
+- Hypothesis: Ridgeline performs better with a bounded wall budget that leaves room for
+  64 lattice sites, avoiding Capybara's possible over-fortification.
+- Economy: medium lattice and 24 early contact Walls over Ridgeline.
+- Result and replay lesson: pending 50-game sample.
