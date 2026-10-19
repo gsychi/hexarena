@@ -71,7 +71,7 @@ cargo run --release -p hexarena-cli -- league submit --params cand.json --origin
 
 **Brains.** A genome's `brain` field picks the strategy that plays it (`sdk/rust/src/brains/`; the default is `expander`). A new strategy is a new brain module that reads its own tunable `knobs`, which the league mutates like any other gene. `simulate` and `report` accept league generations and genome files as seats (`--bots champion,g2,raider,cand.json`), so you can record replays of any matchup to study.
 
-When the rules version changes, the old league is archived to `data/league/archive/<version>/` and a new one starts with the old champion as its g0. The league lives in `data/league/` (`league.json`, `games.jsonl` with every game, `inbox/`); the server reads it from `HEXARENA_LEAGUE`. All the games use the same Rust engine and rules as everything else. The standings on the start page report AVP on the same 8-player scale.
+When the rules version changes, the old league is archived to `data/league/archive/<version>/` and a new one starts from the old champion. Generation numbers carry on across rules versions, so an id like `g9` only ever names one bot, and the carried-over champion is named for where it came from (`Ridgeline g8 (carried over from v0.2 g6)`). Retirements of roster CPUs and league generations only count under the rules they were earned in. The league lives in `data/league/` (`league.json`, `games.jsonl` with every game, `inbox/`); the server reads it from `HEXARENA_LEAGUE`. All the games use the same Rust engine and rules as everything else. The standings on the start page report AVP on the same 8-player scale.
 
 ## Arena: try bot versions live
 

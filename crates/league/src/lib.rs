@@ -96,11 +96,16 @@ pub struct Submission {
     pub arena: Option<String>,
 }
 
-/// A generation's display name: its brain, its id, and where it came from.
-pub fn lineage_name(gen: u32, params: &BotParams, origin: &str, parents: &[String]) -> String {
+/// `Relay` for a genome playing the relay brain.
+fn brain_label(params: &BotParams) -> String {
     let brain = if params.brain.is_empty() { brains::DEFAULT } else { params.brain.as_str() };
     let mut chars = brain.chars();
-    let brain: String = chars.next().map(|c| c.to_ascii_uppercase()).into_iter().chain(chars).collect();
+    chars.next().map(|c| c.to_ascii_uppercase()).into_iter().chain(chars).collect()
+}
+
+/// A generation's display name: its brain, its id, and where it came from.
+pub fn lineage_name(gen: u32, params: &BotParams, origin: &str, parents: &[String]) -> String {
+    let brain = brain_label(params);
     let from = match (parents, origin.strip_prefix("agent:")) {
         ([], Some(agent)) => format!("(new brain by agent {agent})"),
         ([], None) if origin == "carryover" => "(carried over)".into(),
@@ -198,7 +203,7 @@ impl League {
     pub fn open(dir: &Path) -> Result<League, String> {
         std::fs::create_dir_all(dir.join("inbox")).map_err(|e| e.to_string())?;
         if !Self::path(dir).exists() {
-            return Self::seed(dir, BotParams::default(), None, "seed", "The hand-written Expander".into());
+            return Self::seed(dir, BotParams::default(), None, 0, None, "seed", "The hand-written Expander".into());
         }
         let mut old = Self::load(dir)?;
         if old.rules_version == RulesConfig::default().version {
@@ -221,14 +226,26 @@ impl League {
                 std::fs::rename(dir.join(file), archive.join(file)).map_err(|e| e.to_string())?;
             }
         }
+        // Numbering carries on from the old league, so a generation id always names one bot.
         let c = old.champion();
+        let gen = c.gen + 1;
         let note = format!("Champion {} of the rules {} league, carried over", c.id, old.rules_version);
-        Self::seed(dir, c.params.clone(), c.program.clone(), "carryover", note)
+        let name = format!("{} g{gen} (carried over from {} {})", brain_label(&c.params), old.rules_version, c.id);
+        Self::seed(dir, c.params.clone(), c.program.clone(), gen, Some(name), "carryover", note)
     }
 
-    fn seed(dir: &Path, mut params: BotParams, program: Option<Program>, origin: &str, note: String) -> Result<League, String> {
+    #[allow(clippy::too_many_arguments)]
+    fn seed(
+        dir: &Path,
+        mut params: BotParams,
+        program: Option<Program>,
+        gen: u32,
+        name: Option<String>,
+        origin: &str,
+        note: String,
+    ) -> Result<League, String> {
         fill_knobs(&mut params, program.as_ref())?;
-        let seed = Entrant { id: "g0".into(), params, program };
+        let seed = Entrant { id: format!("g{gen}"), params, program };
         let (bench, logs) = benchmark(&seed, &benchmark_entrants())?;
         let mut league = League {
             rules_version: RulesConfig::default().version,
@@ -236,8 +253,8 @@ impl League {
             updated_at: now_ms(),
             gate_config: GateConfig::default(),
             generations: vec![Generation {
-                gen: 0,
-                name: lineage_name(0, &seed.params, origin, &[]),
+                gen,
+                name: name.unwrap_or_else(|| lineage_name(gen, &seed.params, origin, &[])),
                 id: seed.id,
                 parents: vec![],
                 beat: None,
@@ -420,6 +437,7 @@ impl League {
         let n = self.attempts_total + 1;
         let mut rng = Rng::new(self.started_at ^ n.wrapping_mul(0x9E37_79B9));
         let champion = self.champion_entrant();
+        let champion_gen = self.champion().gen;
         let fam = family(&champion.params, champion.program.as_ref());
         // Crossover partners must play the same way as the champion for their genes to mean the same thing.
         let partners: Vec<(String, BotParams)> = self.generations[..self.generations.len() - 1]
@@ -476,7 +494,7 @@ impl League {
         };
         let mut became = None;
         if result.promoted {
-            let gen = self.generations.len() as u32;
+            let gen = champion_gen + 1;
             let id = format!("g{gen}");
             let entrant = Entrant {
                 id: id.clone(),
