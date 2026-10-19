@@ -57,6 +57,8 @@ struct Knobs {
     build_mode: i64,
     build_start: u32,
     build_stop: u32,
+    build_land_min: usize,
+    build_safe_neighbors: usize,
     build_every: u32,
     build_cap: usize,
     quarry_cap: usize,
@@ -105,6 +107,8 @@ impl Knobs {
             build_mode: k("build_mode", 0),
             build_start: k("build_start", 0).max(0) as u32,
             build_stop: k("build_stop", 10_000).max(0) as u32,
+            build_land_min: k("build_land_min", 0).max(0) as usize,
+            build_safe_neighbors: k("build_safe_neighbors", 0).clamp(0, 6) as usize,
             build_every: k("build_every", 11).max(1) as u32,
             build_cap: k("build_cap", 8).max(0) as usize,
             quarry_cap: k("quarry_cap", 2).max(0) as usize,
@@ -868,10 +872,26 @@ impl Mosaic {
             || view.tick < self.k.build_start
             || view.tick >= self.k.build_stop
             || view.tick < self.last_build + self.k.build_every
+            || self.own.iter().filter(|owned| **owned).count() < self.k.build_land_min
         {
             return None;
         }
         let mode = self.k.build_mode;
+        let open_village = self.seen.iter().enumerate().any(|(v, cell)| {
+            self.own[v]
+                && cell.as_ref().is_some_and(|cell| {
+                    cell.building
+                        .as_ref()
+                        .is_some_and(|building| building.kind == Building::Village)
+                })
+                && self.neighbors[v].iter().any(|&n| {
+                    self.own[n]
+                        && self.seen[n]
+                            .as_ref()
+                            .is_some_and(|cell| cell.building.is_none())
+                        && self.rules.terrain_allowed(Building::Farm, self.height(n))
+                })
+        });
         let quarries = self
             .seen
             .iter()
@@ -897,6 +917,9 @@ impl Mosaic {
                 .iter()
                 .any(|&n| self.enemy(n, view.you).is_some());
             let own_neighbors = self.neighbors[i].iter().filter(|&&n| self.own[n]).count() as i64;
+            if own_neighbors < self.k.build_safe_neighbors as i64 {
+                continue;
+            }
             let adjacent_kind = |kind: Building| {
                 self.neighbors[i]
                     .iter()
@@ -972,15 +995,18 @@ impl Mosaic {
                         if adjacent_villages == 0 {
                             continue;
                         }
-                        800 * adjacent_villages + if discounted { 80 } else { 0 }
+                        1400 * adjacent_villages + if discounted { 80 } else { 0 }
                             - if exposed { 120 } else { 0 }
                     }
                     Building::Village => {
+                        if matches!(mode, 1 | 2) && open_village {
+                            continue;
+                        }
                         let economy = match mode {
                             3 => 320,
-                            2 if discounted => 650,
+                            2 if discounted => 900,
                             2 => 120,
-                            _ => 500,
+                            _ => 700,
                         };
                         economy + adjacent_farms * 120 + potential_farms * 35 + own_neighbors * 8
                             - if exposed { 160 } else { 0 }

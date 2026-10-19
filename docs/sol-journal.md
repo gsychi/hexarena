@@ -351,7 +351,9 @@ Quarry discounts. Ratings below 50 games are treated as provisional.
   odds immediately at tick 3000, converting every troop into prey cleanup rather than
   buildings.
 - Economy: none.
-- Result and replay lesson: pending 50-game sample.
+- Provisional after 9 games: Elo 1418, AVP8 5.89 ± 0.59, no wins.
+- Replay lesson: one survivor moved on 9,619 ticks, surrendered 399 hexes and placed third,
+  validating tactical liquidity, but still did not finish.
 
 ### beaver-v1 — Beaver
 
@@ -359,25 +361,73 @@ Quarry discounts. Ratings below 50 games are treated as provisional.
   valley/plain sites; two complete rings should compound enough troops to dominate overtime
   without paying for dead standalone Farms.
 - Economy: Village-first Farm rings, 14 lifetime builds.
-- Result and replay lesson: pending 50-game sample.
+- Provisional after 9 games: Elo 1480, AVP8 5.33 ± 0.82, no wins.
+- Replay lesson: reached second with 6 Villages and 8 Farms, but another seed spent six
+  build actions by tick 432 and died at tick 458. Rings need delayed safe construction.
 
 ### marmot-v1 — Marmot
 
 - Hypothesis: a 50-troop hill Quarry repays through a discounted 72-troop Village and
   18-troop Farms around it; two compact hubs should beat direct rings on troop efficiency.
 - Economy: Quarry-first discounted Village/Farm clusters, two Quarries maximum.
-- Result and replay lesson: pending 50-game sample.
+- Provisional after 9 games: Elo 1389, AVP8 5.33 ± 0.65, no wins.
+- Replay lesson: completed both Quarries, but one survivor built 13 Villages and only one
+  Farm because discounted Village scores still beat ring completion.
 
 ### bison-v1 — Bison
 
 - Hypothesis: standalone Villages avoid Farm setup risk and each permanently doubles its
   own hex income; a slower twelve-Village carpet may be more robust than fragile rings.
 - Economy: standalone interior Villages only, then aggression from tick 4500.
-- Result and replay lesson: pending 50-game sample.
+- Provisional after 9 games: Elo 1421, AVP8 5.44 ± 0.69, no wins.
+- Replay lesson: reliably completed all 12 Villages around ticks 689–730 and twice survived
+  deep into the game, making it the clean economy baseline.
 
 ### hyena-v1 — Hyena
 
 - Hypothesis: no economy can match the doubled Elo reward if it starts leader suppression
   at overtime and uses 85%-odds late attacks to force the only surviving rival off the map.
 - Economy: none; aggressive leader and reachable-survivor pursuit.
+- Provisional after 9 games: Elo 1358, AVP8 6.33 ± 0.73, no wins.
+- Replay lesson: repeated elimination before tick 3000, often by g18 or Pangolin. Starting
+  broad finisher pressure before holding a lead was fatal.
+
+## Batch 2
+
+Batch 2 requires 40–70 land and a compact interior before investing. Ring planners now
+finish every available Farm around an existing Village before starting another Village.
+
+### otter-v1 — Otter
+
+- Hypothesis: delayed, safe Village-first rings preserve Beaver's income ceiling without
+  exposing six troop investments during the vulnerable opening.
+- Economy: two completed Village/Farm rings after 50 land, four friendly neighbours.
+- Result and replay lesson: pending 50-game sample.
+
+### ibex-v1 — Ibex
+
+- Hypothesis: Quarry-first is viable if the planner completes one discounted ring before
+  opening the next hub.
+- Economy: two delayed Quarry hubs, each followed by a discounted Village and Farms.
+- Result and replay lesson: pending 50-game sample.
+
+### elk-v1 — Elk
+
+- Hypothesis: Bison's robust Village carpet improves if construction waits for 70 land and
+  uses only four-neighbour interior sites.
+- Economy: sixteen standalone safe Villages.
+- Result and replay lesson: pending 50-game sample.
+
+### wolverine-v1 — Wolverine
+
+- Hypothesis: Badger's action liquidity plus later tick-4000 all-out odds can eliminate prey
+  without Hyena's premature universal war.
+- Economy: none; conservative opening, violent overtime cleanup.
+- Result and replay lesson: pending 50-game sample.
+
+### fox-v1 — Fox
+
+- Hypothesis: exactly one seven-build Farm ring captures most adjacency income, then stops
+  construction before overtime and forwards 80% of surplus into closeout.
+- Economy: one delayed safe Village/Farm ring.
 - Result and replay lesson: pending 50-game sample.
