@@ -756,6 +756,7 @@ async fn main() {
         .route("/api/matches/{id}/replay", get(replay))
         .route("/api/matches/{id}/elo", get(match_elo))
         .route("/api/leaderboard", get(leaderboard))
+        .route("/api/rules", get(|| async { Json(RulesConfig::default()) }))
         .route("/api/arena", get(arena_info))
         .route("/api/observations", get(list_notes).post(add_note))
         .route("/api/health", get(|| async { "ok" }))

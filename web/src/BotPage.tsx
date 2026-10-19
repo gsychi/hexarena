@@ -142,7 +142,7 @@ export function BotPage({ id, onBack, onOpen, onBot }: { id: string; onBack: () 
     return () => clearInterval(t)
   }, [load])
 
-  const back = <Button variant="ghost" size="sm" onClick={onBack}><ArrowLeft />Arena</Button>
+  const back = <Button variant="ghost" size="sm" onClick={onBack}><ArrowLeft />Bots</Button>
   if (error && !profile) {
     return (
       <div className="mx-auto max-w-5xl space-y-4 p-4 sm:p-6">

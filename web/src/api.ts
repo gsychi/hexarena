@@ -1,4 +1,5 @@
 import { registerBots } from './lineage'
+import type { Rules } from './model'
 
 export interface BotInfo {
   id: string
@@ -131,6 +132,20 @@ export interface ArenaEntrant {
 /** The self-playing arena: published bot versions and the retirement rule. */
 export interface ArenaInfo { autoplay: boolean; top: number; trial_games: number; entrants: ArenaEntrant[]; retired: Record<string, string> }
 
+/** The rules the server plays now, with the board and lobby settings replays leave out. */
+export interface LiveRules extends Rules {
+  min_players: number
+  max_players: number
+  map_radius_factor: number
+  map_radius_exponent: number
+  impassable_min_pct: number
+  impassable_max_pct: number
+  neutral_min: number
+  neutral_max: number
+  spawn_min_distance: number
+  tick_rate_hz: number
+}
+
 export interface CreateMatch { bots: string[]; seed?: number; count: number }
 
 async function json<T>(res: Response): Promise<T> {
@@ -150,6 +165,7 @@ export const api = {
   recentMatches: (limit: number) =>
     fetch(`/api/matches?limit=${limit}`).then(async (r) => ({ games: await json<MatchSummary[]>(r), total: Number(r.headers.get('x-total-count') ?? 0) })),
   match: (id: string) => fetch(`/api/matches/${id}`).then((r) => json<MatchSummary>(r)),
+  rules: () => fetch('/api/rules').then((r) => json<LiveRules>(r)),
   leaderboard: () => fetch('/api/leaderboard').then((r) => json<Leaderboard>(r)),
   matchElo: (id: string) => fetch(`/api/matches/${id}/elo`).then((r) => json<MatchElo>(r)),
   arena: () => fetch('/api/arena').then((r) => json<ArenaInfo>(r)),
