@@ -21,5 +21,7 @@ for path in sys.argv[1:]:
                     head[0] += w * r; head[1] += w
     closes = sum(1 for l in L if l['closer'] is not None and l['ids'][l['closer']] == 'candidate')
     bcl = sum(1 for l in L if l['closer'] is not None and l['ids'][l['closer']] == 'base')
-    print(path.split('/')[-1], 'games', len(L), 'cand vs field %.3f' % (tot['candidate'][0] / max(tot['candidate'][1], 1e-9)),
+    ended = sorted(l['final_tick'] for l in L if l['closer'] is not None)
+    print(path.split('/')[-1], 'games', len(L), 'conquests %d (%.0f%%) median tick %s' % (
+          len(ended), 100 * len(ended) / max(len(L), 1), ended[len(ended) // 2] if ended else '-'), 'cand vs field %.3f' % (tot['candidate'][0] / max(tot['candidate'][1], 1e-9)),
           'base vs field %.3f' % (tot['base'][0] / max(tot['base'][1], 1e-9)), 'cand vs base %.3f (w %.1f)' % (head[0] / max(head[1], 1e-9), head[1]), 'closes', closes, bcl)
