@@ -16,9 +16,13 @@ struct Counts {
 }
 
 fn main() {
-    println!("replay,player,builds,farms,villages,quarries,walls,final_tick,place");
+    let paths: Vec<String> = std::env::args().skip(1).collect();
+    let summary_only = paths.iter().any(|p| p == "--summary-only");
+    if !summary_only {
+        println!("replay,player,builds,farms,villages,quarries,walls,final_tick,place");
+    }
     let mut summary: BTreeMap<String, (u32, Counts)> = BTreeMap::new();
-    for path in std::env::args().skip(1) {
+    for path in paths.iter().filter(|p| p.as_str() != "--summary-only") {
         let bytes = std::fs::read(&path).expect("read replay");
         let replay: Replay = serde_json::from_slice(&bytes).expect("parse replay");
         let mut counts: BTreeMap<u16, Counts> = BTreeMap::new();
@@ -50,20 +54,25 @@ fn main() {
             total.1.villages += c.villages;
             total.1.quarries += c.quarries;
             total.1.walls += c.walls;
-            println!(
-                "{},{},{},{},{},{},{},{},{place:.1}",
-                path,
-                player.name,
-                c.total,
-                c.farms,
-                c.villages,
-                c.quarries,
-                c.walls,
-                replay.result.final_tick,
-            );
+            if !summary_only {
+                println!(
+                    "{},{},{},{},{},{},{},{},{place:.1}",
+                    path,
+                    player.name,
+                    c.total,
+                    c.farms,
+                    c.villages,
+                    c.quarries,
+                    c.walls,
+                    replay.result.final_tick,
+                );
+            }
         }
     }
-    println!("\nplayer,games,builds_per_game,farms_per_game,villages_per_game,quarries_per_game,walls_per_game");
+    if !summary_only {
+        println!();
+    }
+    println!("player,games,builds_per_game,farms_per_game,villages_per_game,quarries_per_game,walls_per_game");
     for (name, (games, c)) in summary {
         let n = games as f64;
         println!(
