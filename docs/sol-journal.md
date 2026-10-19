@@ -402,32 +402,85 @@ finish every available Farm around an existing Village before starting another V
 - Hypothesis: delayed, safe Village-first rings preserve Beaver's income ceiling without
   exposing six troop investments during the vulnerable opening.
 - Economy: two completed Village/Farm rings after 50 land, four friendly neighbours.
-- Result and replay lesson: pending 50-game sample.
+- Current-rules sample: 3 rated games after the v0.6 reset; no rating judgment.
+- Replay lesson: produced 1V+9F and 3V+11F economies, survived two cutoffs in third, and
+  eliminated Ibex once. Safe ring completion fixed Beaver's immediate deaths.
 
 ### ibex-v1 — Ibex
 
 - Hypothesis: Quarry-first is viable if the planner completes one discounted ring before
   opening the next hub.
 - Economy: two delayed Quarry hubs, each followed by a discounted Village and Farms.
-- Result and replay lesson: pending 50-game sample.
+- Current-rules sample: 3 rated games after the reset; no rating judgment.
+- Replay lesson: built 2Q/3V/11F in a conquest game and 2Q/6V/8F elsewhere, but 880–3025
+  NoOps and deaths to g18/Ridgeline show that two small hubs still lack scale and liquidity.
 
 ### elk-v1 — Elk
 
 - Hypothesis: Bison's robust Village carpet improves if construction waits for 70 land and
   uses only four-neighbour interior sites.
 - Economy: sixteen standalone safe Villages.
-- Result and replay lesson: pending 50-game sample.
+- Current-rules sample: 3 rated games after the reset; no rating judgment.
+- Replay lesson: completed all 16 Villages and placed second in a tick-8388 conquest.
+  Construction safety worked, but it did not create the winner.
 
 ### wolverine-v1 — Wolverine
 
 - Hypothesis: Badger's action liquidity plus later tick-4000 all-out odds can eliminate prey
   without Hyena's premature universal war.
 - Economy: none; conservative opening, violent overtime cleanup.
-- Result and replay lesson: pending 50-game sample.
+- Current-rules sample: 2 rated games after the reset; no rating judgment.
+- Replay lesson: survived one cutoff in third, but g18 killed another at tick 4019. The
+  safer timing is better than Hyena but still has no compounding troop source.
 
 ### fox-v1 — Fox
 
 - Hypothesis: exactly one seven-build Farm ring captures most adjacency income, then stops
   construction before overtime and forwards 80% of surplus into closeout.
 - Economy: one delayed safe Village/Farm ring.
+- Current-rules sample: 2 rated games after the reset; no rating judgment.
+- Replay lesson: completed 1V+6F by tick 714 and reached second with 368 land in m01877;
+  another seed died at tick 3759. Best small-economy mechanism, still highly provisional.
+
+## Batch 3
+
+Notebook evidence from Pangolin and Snowshoe shows that 7–16 buildings are underscaled:
+successful economies use a `(q-r) mod 3` lattice with 100–330 buildings. Mosaic now assigns
+Villages to colour 0 and Farms to colours 1/2, allowing every Farm to boost up to three
+Villages and every Village to touch six Farms.
+
+### hare-v1 — Hare
+
+- Hypothesis: a 120-build three-colour lattice at least three friendly neighbours deep,
+  followed by the notebook's successful tick-4500 push, will dominate both small rings and
+  standalone Villages.
+- Economy: balanced Farm/Village lattice, 120-build cap.
+- Result and replay lesson: pending 50-game sample.
+
+### yak-v1 — Yak
+
+- Hypothesis: captured infrastructure is the main lattice risk, so sacrificing buildable
+  area for five-neighbour depth should yield a smaller but much more durable troop engine.
+- Economy: deep-interior 100-build lattice after 80 land.
+- Result and replay lesson: pending 50-game sample.
+
+### goat-v1 — Goat
+
+- Hypothesis: four hill Quarries embedded in the lattice both discount nearby construction
+  and, under live v0.6 rules, add another +1/tick to adjacent Villages.
+- Economy: 120-build Quarry/Farm/Village lattice.
+- Result and replay lesson: pending 50-game sample.
+
+### wolf-v1 — Wolf
+
+- Hypothesis: stop an 80-build lattice at overtime and immediately exploit rising attacker
+  odds; this tests the aggressive tick-3000 conversion against Hare's safer tick 4500.
+- Economy: medium lattice through tick 3000, then all-out prey closeout.
+- Result and replay lesson: pending 50-game sample.
+
+### lynx-v1 — Lynx
+
+- Hypothesis: in no-storm games the largest possible bank wins; continue a 160-build
+  lattice through tick 7000, then convert the late 71–85% attack odds.
+- Economy: maximum lattice, deliberately late tick-6000 aggression.
 - Result and replay lesson: pending 50-game sample.

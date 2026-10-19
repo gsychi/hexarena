@@ -951,6 +951,8 @@ impl Mosaic {
                 2 => &[Building::Farm, Building::Village, Building::Quarry],
                 3 => &[Building::Village],
                 4 => &[Building::Farm, Building::Village, Building::Wall],
+                5 => &[Building::Farm, Building::Village],
+                6 => &[Building::Farm, Building::Village, Building::Quarry],
                 _ => &[
                     Building::Farm,
                     Building::Village,
@@ -959,6 +961,13 @@ impl Mosaic {
                 ],
             };
             for &kind in choices {
+                let lattice_color = (self.hexes[i].q - self.hexes[i].r).rem_euclid(3);
+                if matches!(mode, 5 | 6)
+                    && ((kind == Building::Village && lattice_color != 0)
+                        || (kind == Building::Farm && lattice_color == 0))
+                {
+                    continue;
+                }
                 if !self.rules.terrain_allowed(kind, self.height(i)) {
                     continue;
                 }
@@ -1015,7 +1024,9 @@ impl Mosaic {
                         (if exposed { 260 } else { 20 }) + if adjacent_wall { 100 } else { 0 }
                     }
                     Building::Quarry => {
-                        600 + own_neighbors * 25 + self.height(i) as i64 * 20
+                        (if mode == 6 { 1500 } else { 600 })
+                            + own_neighbors * 25
+                            + self.height(i) as i64 * 20
                             - if exposed { 180 } else { 0 }
                     }
                 };
