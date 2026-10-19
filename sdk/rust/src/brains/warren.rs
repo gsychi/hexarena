@@ -109,6 +109,11 @@ struct Knobs {
     drop_w: i64,
     /// Captures leaving the new hex less safe (milli) than this are skipped.
     safe_min: i64,
+    /// From this tick (0 = never) border garrisons use `push_margin` and captures need
+    /// only `push_safe`, so the banked garrisons turn into attacks.
+    push_from: u32,
+    push_margin: u64,
+    push_safe: i64,
     supply_every: u32,
     /// Score per hex of backyard a capture seals off.
     seal: i64,
@@ -148,6 +153,9 @@ impl Knobs {
             margin_pct: k("margin_pct", 600) as u64,
             drop_w: k("drop_w", 100),
             safe_min: k("safe_min", 300),
+            push_from: k("push_from", 0) as u32,
+            push_margin: k("push_margin", 200) as u64,
+            push_safe: k("push_safe", 100),
             supply_every: k("supply_every", 3) as u32,
             seal: k("seal", 0),
             seal_max: k("seal_max", 40) as u32,
@@ -205,6 +213,9 @@ struct BuildKnobs {
     econ: bool,
     /// Value (tenths of a troop/tick) of each empty partner site next to a candidate.
     econ_pot: i64,
+    /// Lattice builds need every hex within this distance - 1 to be interior (1 = the
+    /// hex itself is interior, 2 = its neighbours are too).
+    econ_depth: u32,
 }
 
 impl BuildKnobs {
@@ -235,6 +246,7 @@ impl BuildKnobs {
             centre: k("centre", 0),
             econ: k("econ", 0) > 0,
             econ_pot: k("econ_pot", 5),
+            econ_depth: k("econ_depth", 1) as u32,
         }
     }
 }
@@ -330,6 +342,18 @@ impl Warren {
             prey: None,
             rally: None,
         }
+    }
+
+    fn pushing(&self) -> bool {
+        self.k.push_from > 0 && self.tick >= self.k.push_from
+    }
+
+    fn margin_pct(&self) -> u64 {
+        if self.pushing() { self.k.push_margin } else { self.k.margin_pct }
+    }
+
+    fn safe_min(&self) -> i64 {
+        if self.pushing() { self.k.push_safe } else { self.k.safe_min }
     }
 
     /// Safe ticks left on slot `i` before the storm reaches it.
@@ -732,8 +756,9 @@ impl Warren {
             let own_kind = |h: Hex| mine.iter().find(|m| m.hex == h).map(|m| kind_of(m));
             let farm_ok = |h: Hex| self.rules.terrain_allowed(Building::Farm, height(h));
             let village_site = |h: Hex| (h.q - h.r).rem_euclid(3) == 0 || !farm_ok(h);
+            let deep = |h: Hex| interior(h) && (self.b.econ_depth < 2 || h.neighbors().iter().all(|&n| interior(n)));
             let site = empty()
-                .filter(|c| interior(c.hex))
+                .filter(|c| deep(c.hex))
                 .filter_map(|c| {
                     let nb = c.hex.neighbors();
                     let (kind, value) = if village_site(c.hex) {
@@ -906,7 +931,7 @@ impl Warren {
         } else {
             0
         };
-        worst.map(|k| self.k.guard.max(late) + k * self.k.margin_pct / 100)
+        worst.map(|k| self.k.guard.max(late) + k * self.margin_pct() / 100)
     }
 
     /// How safe (milli) a hex holding `troops` is against `want`: concave, full at `want`.
@@ -1113,7 +1138,7 @@ impl Warren {
                     pick = (1_000_000, 1000, need);
                 }
                 let (v, st, send) = pick;
-                if st < self.k.safe_min {
+                if st < self.safe_min() {
                     continue;
                 }
                 let gain = self.capture_gain(geo, me, t, tc, seal);

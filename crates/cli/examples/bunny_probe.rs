@@ -12,9 +12,8 @@ fn genome(path: &str) -> Style {
         return s;
     }
     if !path.ends_with(".json") {
-        let l = hexarena_league::League::load(std::path::Path::new("/workspace/data/league")).unwrap();
-        let g = if path == "champ" { l.champion() } else { l.generations.iter().find(|g| g.id == path).unwrap() };
-        return Style { id: path.into(), name: path.into(), blurb: String::new(), params: g.params.clone(), program: g.program.clone() };
+        let all = hexarena_arena::entrants::load_all(std::path::Path::new("/workspace/data/arena"));
+        return all.into_iter().find(|e| e.id == path).unwrap().style();
     }
     let p: BotParams = serde_json::from_slice(&std::fs::read(path).unwrap()).unwrap();
     let id = std::path::Path::new(path).file_stem().unwrap().to_string_lossy().to_string();
