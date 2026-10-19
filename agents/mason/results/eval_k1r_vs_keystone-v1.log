@@ -1,0 +1,11 @@
+{
+  "against": "keystone-v1",
+  "base_closes": 0,
+  "base_score": 3.694444444444444,
+  "candidate_closes": 1,
+  "candidate_score": 3.4861930555555554,
+  "gain": 0.20825138888888864,
+  "gain_se": 0.2636429669802028,
+  "games": 24,
+  "secs": 1913.966356608
+}

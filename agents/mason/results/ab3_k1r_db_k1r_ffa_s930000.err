@@ -1,0 +1,24 @@
+seed 930000 tick 10000 closer None: cand=2/w101l70/d0/0.7ms@4739 cand=7/w0l1/d0/0.8ms@323 base=5/w7l14/d0/0.7ms@3805 base=1/w93l56/d0/6.9ms@6368 base=6/w3l2/d0/0.8ms@0 relay=8/w12l4/d0/0.2ms@0 cand=3/w53l98/d0/0.8ms@7388 predator=4/w2l21/d0/0.1ms@5314
+seed 930000 tick 10000 closer None: base=2/w101l70/d0/34.7ms@661 base=7/w0l1/d0/0.9ms@244 cand=5/w7l14/d0/32.1ms@1566 cand=1/w93l56/d0/1.1ms@1435 cand=6/w3l2/d0/1.2ms@2312 relay=8/w12l4/d0/0.1ms@1435 base=3/w53l98/d0/1.1ms@1221 predator=4/w2l21/d0/0.1ms@1221
+after 1 pairs: gain +0.00 ± NaN
+seed 930001 tick 10000 closer None: cand=3/w32l71/d0/1.2ms@4141 base=5/w3l3/d0/5.1ms@1452 base=6/w12l15/d0/0.8ms@898 raider=8/w0l1/d0/0.0ms@0 cand=4/w13l11/d0/1.1ms@4141 base=2/w175l118/d0/1.0ms@4141 cand=1/w144l149/d0/0.8ms@4572 homesteader=7/w0l6/d0/0.0ms@168
+seed 930001 tick 10000 closer None: base=3/w32l71/d0/11.1ms@4233 cand=5/w3l3/d0/0.7ms@212 cand=6/w12l15/d0/0.6ms@212 raider=8/w0l1/d0/0.0ms@95 base=4/w13l11/d0/44.7ms@3466 cand=2/w175l118/d0/0.9ms@3976 base=1/w144l149/d0/0.9ms@5267 homesteader=7/w0l6/d0/0.0ms@176
+after 2 pairs: gain +0.00 ± 0.00
+seed 930002 tick 10000 closer None: cand=5/w3l12/d0/0.8ms@3139 cand=7/w2l1/d0/0.5ms@0 ridgeline=2/w30l76/d0/0.1ms@3318 base=6/w5l5/d0/28.2ms@3121 raider=8/w0l12/d0/0.1ms@212 base=3/w155l135/d0/1.0ms@3367 cand=4/w13l30/d0/0.9ms@3366 base=1/w191l122/d0/41.1ms@2909
+seed 930002 tick 10000 closer None: base=5/w3l12/d0/0.6ms@2014 base=7/w2l1/d0/0.5ms@170 ridgeline=2/w30l76/d0/0.1ms@8985 cand=6/w5l5/d0/0.6ms@2746 raider=8/w0l12/d0/0.1ms@209 cand=3/w155l135/d0/0.8ms@7778 base=4/w13l30/d0/0.5ms@4280 cand=1/w191l122/d0/0.7ms@8984
+after 3 pairs: gain +0.00 ± 0.00
+seed 930003 tick 10000 closer None: ridgeline=3/w16l142/d0/0.1ms@0 cand=8/w0l0/d0/0.8ms@317 base=1/w238l75/d0/1.0ms@1949 cand=2/w127l163/d0/1.1ms@2157 cand=6/w6l12/d0/1.0ms@1398 base=5/w24l5/d0/1.1ms@317 ridgeline=7/w3l5/d0/0.1ms@0 base=4/w36l42/d0/1.0ms@1948
+seed 930003 tick 10000 closer None: ridgeline=3/w16l142/d0/0.1ms@9619 base=8/w0l0/d0/0.7ms@143 cand=1/w238l75/d0/0.8ms@6796 base=2/w127l163/d0/0.9ms@6241 base=6/w6l12/d0/0.6ms@1479 cand=5/w24l5/d0/5.4ms@3153 ridgeline=7/w3l5/d0/0.1ms@0 cand=4/w36l42/d0/0.7ms@1538
+after 4 pairs: gain +0.00 ± 0.00
+seed 930004 tick 10000 closer None: cand=1/w143l184/d0/80.3ms@6309 cand=5/w4l10/d0/0.7ms@89 base=2/w211l113/d0/0.9ms@7296 relay=4/w3l21/d0/0.1ms@0 warden=8/w0l2/d0/0.0ms@89 base=3/w12l37/d0/0.6ms@4188 cand=7/w3l2/d0/0.6ms@73 base=6/w3l2/d0/0.6ms@71
+seed 930004 tick 9719 closer Some("cand"): base=2/w199l111/d0/37.6ms@8807 base=5/w4l10/d0/0.6ms@273 cand=1/w138l169/d0/0.6ms@1048 relay=4/w3l21/d0/0.0ms@564 warden=8/w0l2/d0/0.0ms@125 cand=3/w12l37/d0/0.7ms@1047 base=7/w3l2/d0/0.8ms@37 cand=6/w3l2/d0/0.5ms@21
+after 5 pairs: gain +0.08 ± 0.08
+seed 930005 tick 10000 closer None: base=2/w143l97/d0/4.5ms@1273 base=1/w74l121/d0/0.9ms@1056 expander=8/w0l0/d0/0.0ms@30 base=5/w19l45/d0/31.6ms@2606 cand=3/w96l52/d0/0.8ms@511 ridgeline=7/w4l4/d0/0.1ms@0 cand=6/w1l3/d0/6.4ms@1815 cand=4/w62l72/d0/41.5ms@441
+seed 930005 tick 10000 closer None: cand=2/w143l97/d0/1.1ms@6995 cand=1/w74l121/d0/0.9ms@8044 expander=8/w0l0/d0/0.0ms@30 cand=5/w19l45/d0/0.9ms@6510 base=3/w96l52/d0/0.9ms@8044 ridgeline=7/w4l4/d0/0.1ms@0 base=6/w1l3/d0/0.5ms@641 base=4/w62l72/d0/0.9ms@6994
+after 6 pairs: gain +0.07 ± 0.07
+seed 930006 tick 10000 closer None: base=7/w0l1/d0/0.6ms@2609 homesteader=6/w0l2/d0/0.0ms@4078 ridgeline=5/w7l18/d0/0.1ms@0 base=4/w50l131/d0/0.8ms@9597 cand=2/w178l56/d0/0.6ms@9458 base=8/w0l2/d0/0.4ms@560 cand=1/w128l75/d0/0.6ms@2487 cand=3/w85l156/d0/0.6ms@9457
+seed 930006 tick 10000 closer None: cand=7/w0l1/d0/1.1ms@2481 homesteader=6/w0l2/d0/0.1ms@4092 ridgeline=5/w7l18/d0/0.1ms@2671 cand=4/w50l131/d0/1.0ms@2671 base=2/w178l56/d0/1.1ms@2477 cand=8/w0l2/d0/0.7ms@968 base=1/w128l75/d0/1.0ms@329 base=3/w85l156/d0/1.1ms@2874
+after 7 pairs: gain +0.06 ± 0.06
+seed 930007 tick 10000 closer None: base=3/w129l151/d0/1.0ms@9752 cand=6/w0l1/d0/0.6ms@473 predator=4/w18l43/d0/0.1ms@6028 cand=2/w193l175/d0/0.9ms@9497 base=8/w0l2/d0/0.5ms@497 relay=7/w5l0/d0/0.1ms@491 base=5/w61l72/d0/0.5ms@4173 cand=1/w93l47/d0/35.8ms@8817
+seed 930007 tick 10000 closer None: cand=3/w129l151/d0/1.1ms@1014 base=6/w0l1/d0/1.1ms@1014 predator=4/w18l43/d0/0.1ms@1140 base=2/w193l175/d0/2.7ms@1627 cand=8/w0l2/d0/0.7ms@392 relay=7/w5l0/d0/0.1ms@392 cand=5/w61l72/d0/0.9ms@1139 base=1/w93l47/d0/1.3ms@1140
+after 8 pairs: gain +0.05 ± 0.05

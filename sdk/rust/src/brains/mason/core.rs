@@ -158,6 +158,12 @@ struct Knobs {
     late_stage: i64,
     /// From `late_from` on, Gather toward the cheapest target when no capture is ready (0/1).
     late_gather: bool,
+    /// Once a single rival is left alive, turn on the late sprint and late Gathers with
+    /// `blitz_send_pct` and `blitz_push` (0/1): with one rival, rolling forward breaks the
+    /// overtime churn; with several, it feeds third parties.
+    duel_blitz: bool,
+    blitz_send_pct: u64,
+    blitz_push: u32,
     /// Tick the late phase began.
     late_at: Option<u32>,
     /// Bonus for an enemy hex of a rival we know `n` hexes of: `focus * 50 / n`, so the
@@ -254,6 +260,9 @@ impl Knobs {
             late_enemy: k("late_enemy", 30),
             late_stage: k("late_stage", 0),
             late_gather: k("late_gather", 0) > 0,
+            duel_blitz: k("duel_blitz", 0) > 0,
+            blitz_send_pct: k("blitz_send_pct", 60) as u64,
+            blitz_push: k("blitz_push", 10) as u32,
             late_at: None,
             focus: k("focus", 0),
             push_gather: k("push_gather", 0) as u32,
@@ -1097,6 +1106,13 @@ impl Bot for Core {
         }
         if self.k.late_from > 0 && view.tick >= self.k.late_from {
             self.k.go_late();
+        }
+        if self.k.duel_blitz && view.public_players.iter().filter(|p| p.alive && p.id != view.you).count() == 1 {
+            self.k.duel_blitz = false;
+            self.k.late_sprint = true;
+            self.k.late_gather = true;
+            self.k.send_pct = self.k.blitz_send_pct;
+            self.k.push_gather = self.k.blitz_push;
         }
         let geo = self.geo.take().unwrap_or_else(|| Geometry::new(view));
         if self.seen.is_empty() {
