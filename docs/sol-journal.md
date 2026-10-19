@@ -731,3 +731,17 @@ exists, and retains extra source troops when a third party touches the launch he
   four-survivor lock, testing whether focused cleanup needs Farm-scale income at all.
 - Economy: 36 Villages, 16 early Walls, balanced four-survivor finisher.
 - Result and replay lesson: pending 50-game sample.
+
+## Batch 9 — Executor portfolio
+
+At 53 games Hedgehog reached arena rank 6 and Elo 1619, but AVP8 remained 5.00 and no
+Sol version won by conquest. The weakest-contact finisher did not improve Relay. Grazer
+can now retain its economy, Wall, and finisher layers while selecting Relay, Ridgeline,
+or Predator as the tactical executor.
+
+### capybara-v1 — Capybara
+
+- Hypothesis: Hedgehog's leading dense-wall Village economy needs Ridgeline's measured,
+  height-aware survival policy rather than Relay's repeated frontier churn.
+- Economy: 28 Villages and up to 100 contact Walls over a Ridgeline core.
+- Result and replay lesson: pending 50-game sample.

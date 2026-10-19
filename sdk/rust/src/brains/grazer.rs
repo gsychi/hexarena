@@ -6,7 +6,7 @@
 //! the live-rule Village adjacency bonus. Construction is restricted by owned-path depth;
 //! every non-build tick is delegated unchanged to Relay.
 
-use super::relay::Relay;
+use super::{predator::Predator, relay::Relay, ridgeline::Ridgeline};
 use crate::{Bot, Style};
 use hexarena_protocol::{
     Action, Building, Hex, ManagementCommand, PlayerCommand, PlayerId, RulesConfig, View,
@@ -33,6 +33,7 @@ fn terrain_height(view: &View, hex: Hex) -> i8 {
 }
 
 struct Knobs {
+    executor_mode: i64,
     mode: i64,
     start: u32,
     stop: u32,
@@ -61,6 +62,7 @@ impl Knobs {
     fn read(style: &Style) -> Self {
         let k = |name: &str, default: i64| style.params.knob(name, default).max(0);
         Self {
+            executor_mode: k("executor_mode", 1),
             mode: k("economy_mode", 1),
             start: k("economy_start", 500) as u32,
             stop: k("economy_stop", 5000) as u32,
@@ -89,7 +91,7 @@ impl Knobs {
 
 pub struct Grazer {
     name: String,
-    inner: Relay,
+    inner: Box<dyn Bot>,
     rules: RulesConfig,
     k: Knobs,
     last_build: Option<u32>,
@@ -101,11 +103,17 @@ pub struct Grazer {
 
 impl Grazer {
     pub fn new(style: Style) -> Self {
+        let k = Knobs::read(&style);
+        let inner: Box<dyn Bot> = match k.executor_mode {
+            2 => Box::new(Ridgeline::new(style.clone())),
+            3 => Box::new(Predator::new(style.clone())),
+            _ => Box::new(Relay::new(style.clone())),
+        };
         Self {
             name: style.id.clone(),
-            inner: Relay::new(style.clone()),
+            inner,
             rules: RulesConfig::default(),
-            k: Knobs::read(&style),
+            k,
             last_build: None,
             builds: 0,
             last_wall: None,
