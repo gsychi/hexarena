@@ -1,0 +1,27 @@
+{
+  "brain": "mosaic",
+  "knobs": {
+    "doctrine": 4,
+    "build_mode": 0,
+    "margin_pct": 150,
+    "endgame_margin_pct": 102,
+    "margin_abs": 5,
+    "guard": 24,
+    "hold_pct": 52,
+    "forward_pct": 72,
+    "enemy": 55,
+    "leader": 240,
+    "cost": 30,
+    "enclose_value": 150,
+    "aggression_tick": 3000,
+    "finish_tick": 2800,
+    "finish_alive": 7,
+    "finish_ratio_pct": 102,
+    "finish_bonus": 760,
+    "finish_target_mode": 1,
+    "hunt_value": 38,
+    "lookahead_value": 70,
+    "relay_patience": 80,
+    "allow_gather": 0
+  }
+}
