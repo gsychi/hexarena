@@ -31,4 +31,12 @@ fn main() {
     for (k, h) in hist {
         println!("  {:<10} places 1..8: {:?}", k, h);
     }
+    if std::env::var("BAD").is_ok() {
+        for l in &logs {
+            let worst = l.ids.iter().zip(&l.avp).filter(|(i, _)| *i == "candidate").map(|(_, a)| *a).fold(0.0, f64::max);
+            if worst >= 4.0 {
+                println!("  bad seed {} final {} seats {} avp {:?}", l.seed, l.final_tick, l.ids.join(","), l.avp);
+            }
+        }
+    }
 }
