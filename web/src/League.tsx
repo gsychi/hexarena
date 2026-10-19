@@ -4,8 +4,9 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
-import type { Attempt, Generation, League } from './api'
+import type { ArenaGate, ArenaInfo, Attempt, Generation, League, Leaderboard } from './api'
 import { api } from './api'
+import { EloScatter } from './EloScatter'
 
 const REFRESH_MS = 4000
 const ROSTER = ['expander', 'homesteader', 'raider', 'warden']
@@ -49,40 +50,7 @@ function Stat({ icon: Icon, label, value, hint }: { icon: typeof Dna; label: str
   )
 }
 
-interface Series { x: number; y: number; label: string }
-
 const W = 560, H = 220, PAD = { l: 40, r: 14, t: 12, b: 26 }
-
-/** A line chart over generations. `invert` puts low values at the top (AVP: lower is better). */
-function LineChart({ points, lo, hi, invert, color, ticks, format }: {
-  points: Series[]; lo: number; hi: number; invert?: boolean; color: string; ticks: number[]; format: (v: number) => string
-}) {
-  const maxX = Math.max(1, ...points.map((p) => p.x))
-  const x = (v: number) => PAD.l + (v / maxX) * (W - PAD.l - PAD.r)
-  const t = (v: number) => (v - lo) / (hi - lo)
-  const y = (v: number) => PAD.t + (invert ? t(v) : 1 - t(v)) * (H - PAD.t - PAD.b)
-  const path = points.map((p, i) => `${i ? 'L' : 'M'}${x(p.x).toFixed(1)},${y(p.y).toFixed(1)}`).join(' ')
-  const xTicks = Array.from(new Set([0, Math.round(maxX / 2), maxX]))
-  return (
-    <svg viewBox={`0 0 ${W} ${H}`} className="h-auto w-full" role="img">
-      {ticks.map((v) => (
-        <g key={v}>
-          <line x1={PAD.l} x2={W - PAD.r} y1={y(v)} y2={y(v)} stroke="currentColor" strokeOpacity={0.1} />
-          <text x={PAD.l - 6} y={y(v) + 3.5} textAnchor="end" className="fill-muted-foreground text-[10px] tabular-nums">{format(v)}</text>
-        </g>
-      ))}
-      {xTicks.map((v) => (
-        <text key={v} x={x(v)} y={H - 8} textAnchor="middle" className="fill-muted-foreground text-[10px] tabular-nums">g{v}</text>
-      ))}
-      <path d={path} fill="none" stroke={color} strokeWidth={2} strokeLinejoin="round" />
-      {points.map((p) => (
-        <circle key={p.x} cx={x(p.x)} cy={y(p.y)} r={3.2} fill={color} stroke="var(--background)" strokeWidth={1.2}>
-          <title>{p.label}</title>
-        </circle>
-      ))}
-    </svg>
-  )
-}
 
 function AttemptsChart({ attempts, minGain }: { attempts: Attempt[]; minGain: number }) {
   if (attempts.length === 0) {
@@ -180,6 +148,69 @@ function GenerationRow({ g, elo, champion, onPlay, playing }: { g: Generation; e
   )
 }
 
+/** Arena versions next to their league gate: the same mirrored test the league's own challengers take. */
+function ArenaGates({ arena, board }: { arena: ArenaInfo; board: Leaderboard | null }) {
+  const rows = arena.entrants.filter((e) => e.gate || !e.retired).sort((a, b) => b.created_at - a.created_at)
+  const elo = new Map([...(board?.bots ?? []), ...(board?.retired_bots ?? [])].map((r) => [r.bot, r.elo]))
+  const promoted = rows.filter((e) => e.gate?.status === 'promoted').length
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Arena versions vs the champion</CardTitle>
+        <CardDescription>
+          Every new arena version is sent to the league for a mirrored gate against the current champion, the same test the league's own challengers take. A version that wins becomes the next generation and champion.
+          {rows.length > 0 && ` ${promoted} of ${rows.filter((e) => e.gate && e.gate.status !== 'queued').length} gated so far were promoted.`}
+        </CardDescription>
+      </CardHeader>
+      <CardContent>
+        {rows.length === 0 ? (
+          <p className="text-sm text-muted-foreground">No arena versions yet. Publish one with <code className="rounded bg-muted px-1.5 py-0.5 text-foreground">hexarena arena publish</code>.</p>
+        ) : (
+          <div className="divide-y rounded-lg border">
+            {rows.slice(0, 12).map((e) => (
+              <div key={e.id} className="flex flex-wrap items-center gap-x-3 gap-y-1 px-3 py-2 text-sm">
+                <span className={`min-w-0 flex-1 truncate ${e.retired ? 'text-muted-foreground' : ''}`} title={e.note ?? undefined}>
+                  <span className="font-medium">{e.name}</span>
+                  <span className="ml-2 text-xs text-muted-foreground">{e.author.replace(/^agent:/, 'agent ')}</span>
+                </span>
+                <span className="w-32 text-xs text-muted-foreground tabular-nums">{e.games} arena games{elo.has(e.id) ? ` · ${Math.round(elo.get(e.id)!)}` : ''}</span>
+                <GateCell gate={e.gate} />
+              </div>
+            ))}
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  )
+}
+
+function GateCell({ gate }: { gate: ArenaGate | null }) {
+  if (!gate) return <Badge variant="outline" className="text-muted-foreground">not sent</Badge>
+  switch (gate.status) {
+    case 'queued':
+      return <Badge variant="outline" className="gap-1 text-muted-foreground"><Loader2 className="size-3 animate-spin" />in the gate queue</Badge>
+    case 'promoted':
+    case 'rejected': {
+      const sign = gate.gain >= 0 ? '+' : ''
+      return (
+        <span className="flex items-center gap-2">
+          <span className={`tabular-nums ${gate.status === 'promoted' ? 'text-emerald-400' : gate.gain < 0 ? 'text-red-400' : 'text-muted-foreground'}`} title={`AVP ${gate.avp.toFixed(2)} vs champion ${gate.champion} ${gate.champion_avp.toFixed(2)}`}>
+            {sign}{gate.gain.toFixed(2)} ± {gate.gain_se.toFixed(2)} vs {gate.champion}
+          </span>
+          <span className="text-xs text-muted-foreground tabular-nums">{gate.games} games</span>
+          {gate.status === 'promoted'
+            ? <Badge className="bg-emerald-500/20 text-emerald-300">became {gate.became}</Badge>
+            : <Badge variant="outline" className="text-muted-foreground">rejected</Badge>}
+        </span>
+      )
+    }
+    default: {
+      const never: never = gate
+      return never
+    }
+  }
+}
+
 export function LeaguePage({ onBack, onOpen }: { onBack: () => void; onOpen: (id: string) => void }) {
   const [league, setLeague] = useState<League | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -187,11 +218,16 @@ export function LeaguePage({ onBack, onOpen }: { onBack: () => void; onOpen: (id
   const [playing, setPlaying] = useState<string | null>(null)
   const [playError, setPlayError] = useState<string | null>(null)
 
+  const [board, setBoard] = useState<Leaderboard | null>(null)
+  const [arena, setArena] = useState<ArenaInfo | null>(null)
+
   const refresh = useCallback(() => {
     api.league()
       .then((l) => { setLeague(l); setError(null) })
       .catch((e) => setError(String(e.message ?? e)))
       .finally(() => setLoading(false))
+    api.leaderboard().then(setBoard).catch(() => {})
+    api.arena().then(setArena).catch(() => {})
   }, [])
 
   useEffect(() => {
@@ -223,19 +259,11 @@ export function LeaguePage({ onBack, onOpen }: { onBack: () => void; onOpen: (id
     const gens = league.generations
     const champ = gens[gens.length - 1]
     const eloOf = (g: Generation) => league.elo[g.id] ?? g.elo
-    const avp = gens.map((g) => ({ x: g.gen, y: g.benchmark.avp, label: `${g.id}: benchmark AVP ${g.benchmark.avp.toFixed(2)}` }))
-    const elo = gens.map((g) => ({ x: g.gen, y: eloOf(g), label: `${g.id}: Elo ${Math.round(eloOf(g))}` }))
-    const elos = elo.map((p) => p.y)
-    const eloLo = Math.floor((Math.min(1500, ...elos) - 20) / 50) * 50
-    const eloHi = Math.ceil((Math.max(1500, ...elos) + 20) / 50) * 50
-    const eloStep = Math.max(50, Math.ceil((eloHi - eloLo) / 4 / 50) * 50)
-    const eloTicks: number[] = []
-    for (let v = eloLo; v <= eloHi; v += eloStep) eloTicks.push(v)
     const recent = [...league.attempts].reverse().slice(0, 10)
     const promotedCount = league.attempts.filter((a) => a.became !== null).length
     const rate = league.play_secs > 0 ? league.games_total / league.play_secs : 0
     const roster = Object.entries(league.elo).filter(([id]) => id.startsWith('r-')).sort((a, b) => b[1] - a[1])
-    return { gens, champ, eloOf, avp, elo, eloLo, eloHi, eloTicks, recent, promotedCount, rate, roster }
+    return { gens, champ, eloOf, recent, promotedCount, rate, roster }
   }, [league])
 
   return (
@@ -292,30 +320,22 @@ export function LeaguePage({ onBack, onOpen }: { onBack: () => void; onOpen: (id
               <Stat icon={Gauge} label="Throughput" value={`${view.rate.toFixed(1)}/s`} hint={`games per second · updated ${ago(league.updated_at)}`} />
             </div>
 
-            <div className="grid gap-4 lg:grid-cols-2">
-              <Card>
-                <CardHeader>
-                  <CardTitle>Benchmark AVP by generation</CardTitle>
-                  <CardDescription>
-                    Average place on the 8-player scale (1 = always first, 8 = always last) over {view.champ.benchmark.games} fixed lobbies: two seats for the generation, six for the hand-written roster. Lower is better, so up is better.
-                  </CardDescription>
-                </CardHeader>
-                <CardContent>
-                  <LineChart points={view.avp} lo={1} hi={8} invert color="#38bdf8" ticks={[1, 2, 3, 4, 5, 6, 7, 8]} format={(v) => String(v)} />
-                </CardContent>
-              </Card>
-              <Card>
-                <CardHeader>
-                  <CardTitle>Elo by generation</CardTitle>
-                  <CardDescription>
-                    Current multiplayer Elo from every league game (K = 32, start 1500). Older generations keep playing as sparring partners, so their ratings keep moving.
-                  </CardDescription>
-                </CardHeader>
-                <CardContent>
-                  <LineChart points={view.elo} lo={view.eloLo} hi={view.eloHi} color="#fbbf24" ticks={view.eloTicks} format={(v) => String(v)} />
-                </CardContent>
-              </Card>
-            </div>
+            <Card>
+              <CardHeader>
+                <CardTitle>Elo over time</CardTitle>
+                <CardDescription>
+                  Every bot at the time it appeared and its current Elo (K = 32, tripled for a bot's first 20 games so new versions settle fast; start 1500). Amber: league generations. Violet: versions published to the arena, hollow once retired.
+                  Grey: rejected league challengers, rated on league games only. The green step line is the frontier, the best Elo anything has reached so far. Dashed lines are the roster CPUs.
+                  Arena versions outside the top {arena?.top ?? board?.top ?? 20} are retired after {arena?.trial_games ?? 12} games (red line).
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="flex flex-col gap-3">
+                {board ? <EloScatter league={league} rows={board.bots} retiredRows={board.retired_bots ?? []} arena={arena} top={arena?.top ?? board.top ?? 20} /> : <div className="flex items-center gap-2 text-sm text-muted-foreground"><Loader2 className="size-4 animate-spin" />Loading ratings…</div>}
+                <Legend items={[['#fbbf24', 'League generation'], ['#a78bfa', 'Arena version'], ['#64748b', 'Rejected challenger'], ['#4ade80', 'Frontier (best so far)']]} />
+              </CardContent>
+            </Card>
+
+            {arena && <ArenaGates arena={arena} board={board} />}
 
             <Card>
               <CardHeader>

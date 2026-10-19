@@ -32,7 +32,9 @@ const AUTOPLAY_ENTRANTS: usize = 4;
 /// Arena entrants stay scheduled while they rank in this many places of the standings.
 const ACTIVE_TOP: usize = 20;
 /// Games an entrant plays before it can be retired for its ranking.
-const TRIAL_GAMES: u32 = 12;
+const TRIAL_GAMES: u32 = 20;
+/// Self-play games kept running at once.
+const AUTOPLAY_PARALLEL: usize = 2;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -346,7 +348,8 @@ fn launch(app: &Shared, styles: &[Style], seed: u64, auto: bool) -> Summary {
 }
 
 /// Seats for the next self-play game: the active entrants with the fewest arena games
-/// (up to [`AUTOPLAY_ENTRANTS`]), the league champion, then roster CPUs, in seed order.
+/// (up to [`AUTOPLAY_ENTRANTS`]), the league champion, then bots drawn from the rest of
+/// the active field (roster CPUs and league generations that aren't retired), in seed order.
 fn autoplay_lineup(app: &AppState, catalog: &Catalog, seed: u64) -> Vec<Style> {
     let mut played: BTreeMap<String, usize> = BTreeMap::new();
     for m in app.matches.lock().unwrap().values() {
@@ -369,13 +372,17 @@ fn autoplay_lineup(app: &AppState, catalog: &Catalog, seed: u64) -> Vec<Style> {
         rng ^= rng << 17;
         rng
     };
-    let mut roster = hexarena_sdk::roster();
-    while seats.len() < MAX_PLAYERS {
-        if roster.is_empty() {
-            roster = hexarena_sdk::roster();
+    let field = catalog.active_field();
+    let mut pool: Vec<Style> = vec![];
+    while seats.len() < MAX_PLAYERS && !field.is_empty() {
+        if pool.is_empty() {
+            pool = field.iter().filter(|s| seats.iter().all(|t| t.id != s.id)).cloned().collect();
+            if pool.is_empty() {
+                pool = field.clone();
+            }
         }
-        let pick = (next() % roster.len() as u64) as usize;
-        seats.push(roster.swap_remove(pick));
+        let pick = (next() % pool.len() as u64) as usize;
+        seats.push(pool.swap_remove(pick));
     }
     for i in (1..seats.len()).rev() {
         seats.swap(i, (next() % (i as u64 + 1)) as usize);
@@ -383,11 +390,13 @@ fn autoplay_lineup(app: &AppState, catalog: &Catalog, seed: u64) -> Vec<Style> {
     seats
 }
 
-/// The self-playing arena: whenever no match is running, start an 8-player game.
+/// The self-playing arena: keeps [`AUTOPLAY_PARALLEL`] 8-player games going, and sends
+/// every new active entrant to the league for a gate against the champion.
 async fn autoplay(app: Shared) {
     loop {
         tokio::time::sleep(std::time::Duration::from_secs(2)).await;
-        if app.running() > 0 {
+        queue_gates(&app, &app.catalog());
+        if app.running() >= AUTOPLAY_PARALLEL {
             continue;
         }
         retire_outside_top(&app, &app.catalog());
@@ -398,8 +407,59 @@ async fn autoplay(app: Shared) {
     }
 }
 
+/// When each entrant was sent to the league's gate, from `gates.json` in the arena dir.
+fn gates_sent(app: &AppState) -> BTreeMap<String, u64> {
+    std::fs::read(app.arena_dir.join("gates.json"))
+        .ok()
+        .and_then(|b| serde_json::from_slice(&b).ok())
+        .unwrap_or_default()
+}
+
+/// Drops each active entrant that hasn't had one into the league inbox, so it gets the
+/// same mirrored gate as the league's own challengers. One that wins becomes the next
+/// league generation, and champion.
+fn queue_gates(app: &AppState, catalog: &Catalog) {
+    let mut sent = gates_sent(app);
+    let mut changed = false;
+    let fresh: Vec<_> = catalog.active_entrants().filter(|e| !sent.contains_key(&e.id)).collect();
+    for e in fresh {
+        let origin = if e.author.starts_with("agent:") { e.author.clone() } else { format!("agent:{}", e.author) };
+        let sub = hexarena_league::Submission {
+            origin: origin.clone(),
+            note: Some(format!("Arena version {}: {}", e.id, e.note.as_deref().unwrap_or(&e.name))),
+            params: e.params.clone(),
+            parents: None,
+            program: e.program.clone(),
+            arena: Some(e.id.clone()),
+        };
+        let at = now_ms();
+        let inbox = app.league_dir.join("inbox");
+        let path = inbox.join(format!("{at}-arena-{}.json", e.id));
+        let written = std::fs::create_dir_all(&inbox)
+            .and_then(|_| std::fs::write(&path, serde_json::to_vec_pretty(&sub).unwrap()));
+        match written {
+            Ok(()) => {
+                println!("sent {} to the league gate", e.id);
+                sent.insert(e.id.clone(), at);
+                changed = true;
+            }
+            Err(err) => eprintln!("couldn't queue {} for a gate: {err}", e.id),
+        }
+    }
+    if changed {
+        let _ = std::fs::write(app.arena_dir.join("gates.json"), serde_json::to_vec_pretty(&sent).unwrap());
+    }
+}
+
 async fn arena_info(State(app): State<Shared>) -> Json<serde_json::Value> {
     let catalog = app.catalog();
+    let sent = gates_sent(&app);
+    let gated: BTreeMap<&str, &hexarena_league::Attempt> = catalog
+        .league
+        .iter()
+        .flat_map(|l| l.attempts.iter())
+        .filter_map(|a| Some((a.arena.as_deref()?, a)))
+        .collect();
     let matches = app.matches.lock().unwrap();
     let entrants: Vec<serde_json::Value> = catalog
         .entrants
@@ -414,10 +474,26 @@ async fn arena_info(State(app): State<Shared>) -> Json<serde_json::Value> {
                 "created_at": e.created_at, "retired": e.retired, "retired_reason": e.retired_reason, "games": games,
                 "brain": if e.params.brain.is_empty() { "expander" } else { e.params.brain.as_str() },
                 "own_build": e.program.is_some(),
+                "gate": match (gated.get(e.id.as_str()), sent.get(&e.id)) {
+                    (Some(a), _) => serde_json::json!({
+                        "status": if a.became.is_some() { "promoted" } else { "rejected" },
+                        "at": a.at, "games": a.gate.games, "gain": a.gate.gain, "gain_se": a.gate.gain_se,
+                        "avp": a.gate.challenger_avp, "champion_avp": a.gate.champion_avp,
+                        "champion": a.parent, "became": a.became.map(|g| format!("g{g}")),
+                    }),
+                    (None, Some(at)) => serde_json::json!({ "status": "queued", "at": at }),
+                    (None, None) => serde_json::Value::Null,
+                },
             })
         })
         .collect();
-    Json(serde_json::json!({ "autoplay": app.autoplay, "top": ACTIVE_TOP, "trial_games": TRIAL_GAMES, "entrants": entrants }))
+    Json(serde_json::json!({
+        "autoplay": app.autoplay,
+        "top": ACTIVE_TOP,
+        "trial_games": TRIAL_GAMES,
+        "entrants": entrants,
+        "retired": catalog.retired_reasons(),
+    }))
 }
 
 async fn one(State(app): State<Shared>, Path(id): Path<String>) -> Response {
@@ -476,7 +552,9 @@ async fn leaderboard(State(app): State<Shared>, Query(q): Query<BoardQuery>) -> 
         "start_elo": START_ELO,
         "k": K,
         "top": ACTIVE_TOP,
+        "retired": catalog.retired_reasons(),
         "bots": board.rows,
+        "retired_bots": board.retired_rows,
     }))
 }
 
@@ -484,7 +562,10 @@ struct Board {
     games: usize,
     arena_games: usize,
     league_games: usize,
+    /// Active bots, ranked among themselves.
     rows: Vec<standings::BotStanding>,
+    /// Retired bots, kept out of the standings. Ratings still count every game.
+    retired_rows: Vec<standings::BotStanding>,
 }
 
 fn board(app: &AppState, catalog: &Catalog, source: Source) -> Board {
@@ -543,18 +624,27 @@ fn board(app: &AppState, catalog: &Catalog, source: Source) -> Board {
     }
     games.sort_by_key(|(at, _)| *at);
     let games: Vec<Vec<SeatResult>> = games.into_iter().map(|(_, g)| g).collect();
-    let rows = standings(&games, |id| catalog.display_name(id));
-    Board { games: games.len(), arena_games, league_games, rows }
+    let (mut rows, retired_rows): (Vec<_>, Vec<_>) = standings(&games, |id| catalog.display_name(id))
+        .into_iter()
+        .partition(|r| !catalog.retired.contains(&r.bot));
+    for (i, r) in rows.iter_mut().enumerate() {
+        r.rank = i as u32 + 1;
+    }
+    Board { games: games.len(), arena_games, league_games, rows, retired_rows }
 }
 
-/// Retires arena entrants that have had a fair trial and sit outside the top
-/// [`ACTIVE_TOP`] of the overall standings.
+/// Retires every bot that has had a fair trial and sits outside the top [`ACTIVE_TOP`]
+/// of the overall standings: arena entrants, roster CPUs and league generations. The
+/// current league champion stays, since it is the bar everything else is measured by.
 fn retire_outside_top(app: &AppState, catalog: &Catalog) {
     let rows = board(app, catalog, Source::All).rows;
     let cut = rows.get(ACTIVE_TOP - 1).map(|r| r.elo);
-    for e in catalog.active_entrants() {
-        let Some(row) = rows.iter().find(|r| r.bot == e.id) else { continue };
+    let champion = catalog.league.as_ref().map(|l| l.champion().id.clone());
+    for row in &rows {
         if row.games < TRIAL_GAMES || row.rank as usize <= ACTIVE_TOP {
+            continue;
+        }
+        if Some(&row.bot) == champion.as_ref() {
             continue;
         }
         let reason = format!(
@@ -564,9 +654,14 @@ fn retire_outside_top(app: &AppState, catalog: &Catalog) {
             row.games,
             cut.unwrap_or(row.elo)
         );
-        match hexarena_arena::entrants::retire(&app.arena_dir, &e.id, Some(reason.clone())) {
-            Ok(_) => println!("retired {}: {reason}", e.id),
-            Err(err) => eprintln!("couldn't retire {}: {err}", e.id),
+        let done = if catalog.entrants.iter().any(|e| e.id == row.bot) {
+            hexarena_arena::entrants::retire(&app.arena_dir, &row.bot, Some(reason.clone())).map(drop)
+        } else {
+            hexarena_arena::entrants::retire_other(&app.arena_dir, &row.bot, reason.clone(), now_ms())
+        };
+        match done {
+            Ok(()) => println!("retired {}: {reason}", row.bot),
+            Err(err) => eprintln!("couldn't retire {}: {err}", row.bot),
         }
     }
 }

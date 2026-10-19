@@ -8,6 +8,7 @@ use hexarena_engine::State;
 use hexarena_sdk::process::{probe, Program};
 use hexarena_sdk::{roster, BotParams, Style};
 use serde::{Deserialize, Serialize};
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -110,6 +111,36 @@ pub fn retire(dir: &Path, id: &str, reason: Option<String>) -> Result<Entrant, S
     e.retired_reason = reason;
     std::fs::write(&path, serde_json::to_vec_pretty(&e).unwrap()).map_err(|e| e.to_string())?;
     Ok(e)
+}
+
+/// Why and when a roster CPU or league generation left the arena.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct Retirement {
+    pub reason: String,
+    pub at: u64,
+}
+
+/// Retired bots that aren't arena entrants (roster CPUs, league generations), from
+/// `retired.json`.
+pub fn retired_others(dir: &Path) -> BTreeMap<String, Retirement> {
+    std::fs::read(dir.join("retired.json"))
+        .ok()
+        .and_then(|b| serde_json::from_slice(&b).ok())
+        .unwrap_or_default()
+}
+
+pub fn retire_other(dir: &Path, id: &str, reason: String, at: u64) -> Result<(), String> {
+    let mut all = retired_others(dir);
+    all.insert(id.to_string(), Retirement { reason, at });
+    std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
+    std::fs::write(dir.join("retired.json"), serde_json::to_vec_pretty(&all).unwrap()).map_err(|e| e.to_string())
+}
+
+/// Every retired id: entrants and other bots.
+pub fn retired_ids(dir: &Path) -> BTreeSet<String> {
+    let mut ids: BTreeSet<String> = retired_others(dir).into_keys().collect();
+    ids.extend(load_all(dir).into_iter().filter(|e| e.retired).map(|e| e.id));
+    ids
 }
 
 #[cfg(test)]

@@ -31,13 +31,16 @@ function Change({ d }: { d: number }) {
 
 const medal = ['text-amber-300', 'text-zinc-300', 'text-orange-400']
 
-function Row({ r, start }: { r: LeaderboardRow; start: number }) {
+function Row({ r, start, retired }: { r: LeaderboardRow; start: number; retired?: string }) {
   return (
     <TableRow className="hover:bg-muted/30">
       <TableCell className="w-10 text-center font-semibold tabular-nums">
         {r.rank <= 3 ? <Trophy className={`mx-auto size-4 ${medal[r.rank - 1]}`} /> : r.rank}
       </TableCell>
-      <TableCell className="font-medium">{r.name}</TableCell>
+      <TableCell className="font-medium">
+        <span className={retired ? 'text-muted-foreground' : ''}>{r.name}</span>
+        {retired && <span className="ml-1.5 text-[10px] uppercase tracking-wide text-red-300" title={retired}>retired</span>}
+      </TableCell>
       <TableCell className="text-right">
         <Tooltip>
           <TooltipTrigger render={<span className="cursor-default text-base font-semibold tabular-nums" />}>{Math.round(r.elo)}</TooltipTrigger>
@@ -69,6 +72,7 @@ export function Standings({ board }: { board: Leaderboard | null }) {
         <CardDescription>
           Elo rating for each CPU style across {board?.games ?? 0} finished game{board?.games === 1 ? '' : 's'} under rules {board?.rules_version ?? 'v0.2'}. Everyone starts at {board?.start_elo ?? 1500}.
           Each free-for-all counts as a head-to-head result between every pair of players, where the better place wins, and ratings update after every game (K = {board?.k ?? 32}). Win % and top half % are per seat; top half means finishing in the top half of the lobby (1st–2nd of 4, 1st–3rd of 6).
+          Any bot outside the top {board?.top ?? 20} after 12 games is retired from the self-playing arena and the league's sparring seats (the league champion excepted) and leaves this table{board?.retired_bots?.length ? ` (${board.retired_bots.length} retired so far)` : ''}. Retired bots stay playable from the lineup picker.
         </CardDescription>
       </CardHeader>
       <CardContent>
@@ -97,7 +101,7 @@ export function Standings({ board }: { board: Leaderboard | null }) {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {board.bots.map((r) => <Row key={r.bot} r={r} start={board.start_elo} />)}
+              {board.bots.map((r) => <Row key={r.bot} r={r} start={board.start_elo} retired={board.retired?.[r.bot]} />)}
             </TableBody>
           </Table>
         )}

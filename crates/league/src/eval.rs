@@ -3,6 +3,7 @@
 use crate::rng::Rng;
 use hexarena_arena::play_result;
 use hexarena_protocol::RulesConfig;
+use hexarena_sdk::process::Program;
 use hexarena_sdk::{BotParams, Style};
 use serde::{Deserialize, Serialize};
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -26,6 +27,15 @@ pub fn avp8(place_start: u16, place_end: u16, players: usize) -> f64 {
 pub struct Entrant {
     pub id: String,
     pub params: BotParams,
+    /// The program that plays it, for bots built outside this binary (arena versions).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub program: Option<Program>,
+}
+
+impl Entrant {
+    pub fn new(id: impl Into<String>, params: BotParams) -> Entrant {
+        Entrant { id: id.into(), params, program: None }
+    }
 }
 
 /// One finished lobby: who sat where and their 8-player-scale placement.
@@ -52,7 +62,7 @@ pub fn play_lobby(seed: u64, seats: &[Entrant]) -> Result<GameLog, String> {
             name: e.id.clone(),
             blurb: String::new(),
             params: e.params.clone(),
-            program: None,
+            program: e.program.clone(),
         })
         .collect();
     let result = play_result(seed, &styles, u32::MAX)?;

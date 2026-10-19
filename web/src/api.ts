@@ -6,6 +6,8 @@ export interface BotInfo {
   /** Arena entrants only: who published the version. */
   author?: string
   own_build?: boolean
+  /** Why it was retired from the arena; retired bots stay playable. */
+  retired?: string | null
 }
 
 export interface Seat { bot: string; name: string }
@@ -59,7 +61,29 @@ export interface LeaderboardRow {
   avg_normalized: number
   history: number[]
 }
-export interface Leaderboard { games: number; rules_version: string; start_elo: number; k: number; bots: LeaderboardRow[] }
+export interface Leaderboard { games: number; rules_version: string; start_elo: number; k: number; top?: number; retired?: Record<string, string>; bots: LeaderboardRow[]; retired_bots?: LeaderboardRow[] }
+
+export interface ArenaEntrant {
+  id: string
+  name: string
+  author: string
+  note: string | null
+  created_at: number
+  retired: boolean
+  retired_reason: string | null
+  games: number
+  brain: string
+  own_build: boolean
+  /** Its mirrored gate against the league champion, once the arena has sent it. */
+  gate: ArenaGate | null
+}
+
+export type ArenaGate =
+  | { status: 'queued'; at: number }
+  | { status: 'promoted' | 'rejected'; at: number; games: number; gain: number; gain_se: number; avp: number; champion_avp: number; champion: string; became: string | null }
+
+/** The self-playing arena: published bot versions and the retirement rule. */
+export interface ArenaInfo { autoplay: boolean; top: number; trial_games: number; entrants: ArenaEntrant[]; retired: Record<string, string> }
 
 export interface CreateMatch { bots: string[]; seed?: number; count: number }
 
@@ -133,6 +157,7 @@ export const api = {
   match: (id: string) => fetch(`/api/matches/${id}`).then((r) => json<MatchSummary>(r)),
   leaderboard: () => fetch('/api/leaderboard').then((r) => json<Leaderboard>(r)),
   league: () => fetch('/api/league').then((r) => json<League>(r)),
+  arena: () => fetch('/api/arena').then((r) => json<ArenaInfo>(r)),
   create: (req: CreateMatch) =>
     fetch('/api/matches', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(req) }).then((r) => json<MatchSummary[]>(r)),
 }

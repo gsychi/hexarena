@@ -1,6 +1,7 @@
 //! League generations as playable CPUs, and the league snapshot for the web page.
 
-use hexarena_arena::entrants::{load_all, Entrant};
+use hexarena_arena::entrants::{load_all, retired_others, Entrant, Retirement};
+use std::collections::{BTreeMap, BTreeSet};
 use hexarena_league::eval::GameLog;
 use hexarena_league::League;
 use hexarena_sdk::{roster, style, Style};
@@ -19,11 +20,42 @@ pub fn load(dir: &Path) -> Option<League> {
 pub struct Catalog {
     pub league: Option<League>,
     pub entrants: Vec<Entrant>,
+    /// Retired roster CPUs and league generations.
+    pub others_retired: BTreeMap<String, Retirement>,
+    /// Every retired id, entrants included.
+    pub retired: BTreeSet<String>,
 }
 
 impl Catalog {
     pub fn load(league_dir: &Path, arena_dir: &Path) -> Catalog {
-        Catalog { league: load(league_dir), entrants: load_all(arena_dir) }
+        let entrants = load_all(arena_dir);
+        let others_retired = retired_others(arena_dir);
+        let mut retired: BTreeSet<String> = others_retired.keys().cloned().collect();
+        retired.extend(entrants.iter().filter(|e| e.retired).map(|e| e.id.clone()));
+        Catalog { league: load(league_dir), entrants, others_retired, retired }
+    }
+
+    /// Why each retired bot was retired, by id.
+    pub fn retired_reasons(&self) -> BTreeMap<String, String> {
+        let mut out: BTreeMap<String, String> =
+            self.others_retired.iter().map(|(id, r)| (id.clone(), r.reason.clone())).collect();
+        for e in self.entrants.iter().filter(|e| e.retired) {
+            out.insert(e.id.clone(), e.retired_reason.clone().unwrap_or_else(|| "retired".into()));
+        }
+        out
+    }
+
+    /// Roster CPUs and league generations that still play in the arena.
+    pub fn active_field(&self) -> Vec<Style> {
+        let champion = self.league.as_ref().map(|l| l.champion().id.clone());
+        let gens = self.league.iter().flat_map(|l| l.generations.iter().map(|g| g.id.clone()));
+        roster()
+            .into_iter()
+            .map(|s| s.id)
+            .chain(gens)
+            .filter(|id| !self.retired.contains(id) && Some(id) != champion.as_ref())
+            .filter_map(|id| self.resolve(&id))
+            .collect()
     }
 
     /// A roster style, a league generation (`g12`), `champion` for the latest generation,
@@ -52,7 +84,7 @@ impl Catalog {
                 (ps, None) => format!("Generation {}, bred from {}.", g.gen, ps.join(" × ")),
             },
             params: g.params.clone(),
-            program: None,
+            program: g.program.clone(),
         })
     }
 
@@ -64,21 +96,33 @@ impl Catalog {
         self.entrants.iter().filter(|e| !e.retired)
     }
 
+    /// Every playable bot, grouped by `kind`: roster CPUs, `champion` plus every league
+    /// generation (newest first), and every arena version (newest first). Retired bots are
+    /// still playable and carry `retired` with the reason.
     pub fn bots(&self) -> Vec<serde_json::Value> {
+        let reasons = self.retired_reasons();
+        let retired = |id: &str| serde_json::json!(reasons.get(id));
         let mut out: Vec<serde_json::Value> = roster()
             .iter()
-            .map(|s| serde_json::json!({ "id": s.id, "name": s.name, "blurb": s.blurb, "kind": "roster" }))
+            .map(|s| serde_json::json!({ "id": s.id, "name": s.name, "blurb": s.blurb, "kind": "roster", "retired": retired(&s.id) }))
             .collect();
         if let Some(l) = &self.league {
             let c = l.champion();
             out.push(serde_json::json!({
                 "id": "champion",
                 "name": format!("League champion: {}", if c.name.is_empty() { &c.id } else { &c.name }),
-                "blurb": format!("The strongest genome the league has evolved so far: generation {}.", c.gen),
+                "blurb": format!("Always the latest champion, currently generation {}.", c.gen),
                 "kind": "league",
+                "retired": null,
             }));
+            for g in l.generations.iter().rev() {
+                let s = self.resolve(&g.id).expect("generation resolves");
+                out.push(serde_json::json!({ "id": g.id, "name": s.name, "blurb": s.blurb, "kind": "league", "retired": retired(&g.id) }));
+            }
         }
-        out.extend(self.active_entrants().map(|e| {
+        let mut entrants: Vec<&Entrant> = self.entrants.iter().collect();
+        entrants.sort_by(|a, b| b.created_at.cmp(&a.created_at));
+        out.extend(entrants.into_iter().map(|e| {
             serde_json::json!({
                 "id": e.id,
                 "name": e.name,
@@ -88,6 +132,7 @@ impl Catalog {
                 "brain": if e.params.brain.is_empty() { "expander" } else { e.params.brain.as_str() },
                 "own_build": e.program.is_some(),
                 "created_at": e.created_at,
+                "retired": retired(&e.id),
             })
         }));
         out

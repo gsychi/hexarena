@@ -199,6 +199,12 @@ fn main() {
                 s.rejected, last.frontier, last.edges_open, last.edges_enemy, last.edges_impass
             );
         }
+        if std::env::var("PERSEAT").is_ok() {
+            for s in &seats {
+                let tl: Vec<String> = s.samples.iter().map(|(t, sn)| format!("{}:{}", t, sn.land)).collect();
+                println!("    {:<16} {}", s.name, tl.join(" "));
+            }
+        }
         for s in seats.iter_mut() {
             s.neutral_left_tick = neutral_gone;
         }
@@ -237,7 +243,8 @@ fn main() {
         }
         let m = v.len() as f64;
         println!(
-            "  per seat: caps {:.0} enemy-caps {:.0} repelled {:.1} sent/cap {:.1} lost-in-repel {:.0} gathers {:.0} noop {:.0} surrender-gain {:.1} ({:.1} events) hexes-lost {:.0} lost-surr {:.1}",
+            "  per seat: internal-moves {:.0} attacks {:.0} caps {:.0} enemy-caps {:.0} repelled {:.1} sent/cap {:.1} lost-in-repel {:.0} gathers {:.0} noop {:.0} surrender-gain {:.1} ({:.1} events) hexes-lost {:.0} lost-surr {:.1}",
+            v.iter().map(|s| s.internal_moves).sum::<u64>() as f64 / m, v.iter().map(|s| s.moves_out).sum::<u64>() as f64 / m,
             caps as f64 / m, ce as f64 / m, rep as f64 / m, sent as f64 / caps.max(1) as f64,
             lostr as f64 / m, gath as f64 / m, noop as f64 / m, surr as f64 / m, se as f64 / m, lost as f64 / m, lsurr as f64 / m
         );

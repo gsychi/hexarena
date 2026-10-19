@@ -8,7 +8,8 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 
 const USAGE: &str = "usage: hexarena league <run|eval|submit|show> [--dir data/league]
-  run    [--attempts N]                          keep evolving (forever by default)
+  run    [--attempts N] [--arena data/arena]     keep evolving (forever by default); bots
+         retired from the arena are left out of the sparring seats
   eval   --params cand.json [--against base.json] [--pairs N] [--seed S]
          gate a genome against the champion on fixed seeds without changing the league
   submit --params cand.json --origin agent:NAME [--note TEXT] [--parents g3,g1]
@@ -50,7 +51,11 @@ fn run(f: &HashMap<String, String>) -> Result<(), String> {
         league.champion().id,
         league.champion().benchmark.avp
     );
+    let arena = PathBuf::from(
+        f.get("arena").cloned().or_else(|| std::env::var("HEXARENA_ARENA").ok()).unwrap_or_else(|| "data/arena".into()),
+    );
     for _ in 0..limit {
+        league.retired = hexarena_arena::entrants::retired_ids(&arena);
         let a = league.attempt(&dir)?;
         let verdict = match a.became {
             Some(g) => format!("PROMOTED → g{g} (benchmark AVP {:.2})", league.champion().benchmark.avp),
@@ -77,13 +82,13 @@ fn eval(f: &HashMap<String, String>) -> Result<(), String> {
     let dir = dir(f);
     let league = League::load(&dir).ok();
     let base = match f.get("against") {
-        Some(p) => Entrant { id: "base".into(), params: read_params(p)? },
+        Some(p) => Entrant::new("base", read_params(p)?),
         None => league
             .as_ref()
             .map(|l| l.champion_entrant())
-            .unwrap_or(Entrant { id: "g0".into(), params: BotParams::default() }),
+            .unwrap_or(Entrant::new("g0", BotParams::default())),
     };
-    let candidate = Entrant { id: "candidate".into(), params: read_params(path)? };
+    let candidate = Entrant::new("candidate", read_params(path)?);
     let pool = league.as_ref().map(|l| l.pool()).unwrap_or_else(roster_entrants);
     let pairs: usize = get(f, "pairs", 24);
     let cfg = GateConfig { min_pairs: pairs, max_pairs: pairs, batch_pairs: pairs.min(12), ..GateConfig::default() };
@@ -109,7 +114,7 @@ fn submit(f: &HashMap<String, String>) -> Result<(), String> {
     let params = read_params(f.get("params").ok_or(USAGE)?)?;
     let origin = f.get("origin").cloned().unwrap_or_else(|| "agent:anonymous".into());
     let parents = f.get("parents").map(|p| p.split(',').map(|s| s.trim().to_string()).filter(|s| !s.is_empty()).collect());
-    let sub = Submission { origin: origin.clone(), note: f.get("note").cloned(), params, parents };
+    let sub = Submission { origin: origin.clone(), note: f.get("note").cloned(), params, parents, program: None, arena: None };
     let inbox = dir(f).join("inbox");
     std::fs::create_dir_all(&inbox).map_err(|e| e.to_string())?;
     let safe: String = origin.chars().map(|c| if c.is_ascii_alphanumeric() { c } else { '-' }).collect();
