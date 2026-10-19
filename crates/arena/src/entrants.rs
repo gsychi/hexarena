@@ -44,6 +44,23 @@ impl Entrant {
     }
 }
 
+/// Which model each author is (`authors.json` in the arena dir, e.g.
+/// `{"agent:bunny-sol": "GPT"}`), so every bot's name can start with the model that wrote it.
+pub fn author_models(dir: &Path) -> BTreeMap<String, String> {
+    std::fs::read(dir.join("authors.json"))
+        .ok()
+        .and_then(|b| serde_json::from_slice(&b).ok())
+        .unwrap_or_default()
+}
+
+/// `GPT-Snowshoe v1` for `Snowshoe v1` by a GPT agent; unchanged if it already says so.
+pub fn with_model(name: &str, model: Option<&str>) -> String {
+    match model {
+        Some(m) if !name.to_lowercase().starts_with(&m.to_lowercase()) => format!("{m}-{name}"),
+        _ => name.to_string(),
+    }
+}
+
 fn entrant_path(dir: &Path, id: &str) -> PathBuf {
     dir.join("entrants").join(format!("{id}.json"))
 }

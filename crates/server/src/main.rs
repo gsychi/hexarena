@@ -10,6 +10,7 @@ use hexarena_arena::{play, seat_names, viewer_json};
 use hexarena_protocol::{PlayerId, RulesConfig};
 use hexarena_sdk::Style;
 use serde::{Deserialize, Serialize};
+use hexarena_arena::entrants::with_model;
 use league::Catalog;
 use standings::{standings, SeatResult, K, START_ELO};
 use std::collections::BTreeMap;
@@ -21,6 +22,7 @@ use tokio::sync::Semaphore;
 use tower_http::services::{ServeDir, ServeFile};
 
 mod league;
+mod notes;
 mod standings;
 
 const MAX_PLAYERS: usize = 8;
@@ -112,6 +114,7 @@ struct AppState {
     next_id: Mutex<u64>,
     workers: Semaphore,
     autoplay: bool,
+    notes: notes::Notebook,
 }
 
 type Shared = Arc<AppState>;
@@ -188,6 +191,7 @@ impl AppState {
             next_id: Mutex::new(next),
             workers: Semaphore::new(workers),
             autoplay: false,
+            notes: notes::Notebook::new(),
         }
     }
 }
@@ -395,7 +399,9 @@ fn autoplay_lineup(app: &AppState, catalog: &Catalog, seed: u64) -> Vec<Style> {
 async fn autoplay(app: Shared) {
     loop {
         tokio::time::sleep(std::time::Duration::from_secs(2)).await;
-        queue_gates(&app, &app.catalog());
+        let catalog = app.catalog();
+        queue_gates(&app, &catalog);
+        note_gate_results(&app, &catalog);
         if app.running() >= AUTOPLAY_PARALLEL {
             continue;
         }
@@ -431,6 +437,7 @@ fn queue_gates(app: &AppState, catalog: &Catalog) {
             parents: None,
             program: e.program.clone(),
             arena: Some(e.id.clone()),
+            label: catalog.models.get(&e.author).map(|m| with_model(&hexarena_league::brain_label(&e.params), Some(m))),
         };
         let at = now_ms();
         let inbox = app.league_dir.join("inbox");
@@ -448,6 +455,53 @@ fn queue_gates(app: &AppState, catalog: &Catalog) {
     }
     if changed {
         let _ = std::fs::write(app.arena_dir.join("gates.json"), serde_json::to_vec_pretty(&sent).unwrap());
+    }
+}
+
+/// Writes each finished arena gate into the notebook once, so the record of what worked
+/// and what didn't builds itself.
+fn note_gate_results(app: &AppState, catalog: &Catalog) {
+    let Some(league) = &catalog.league else { return };
+    let path = app.arena_dir.join("gates_noted.json");
+    let mut noted: std::collections::BTreeSet<String> =
+        std::fs::read(&path).ok().and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or_default();
+    let mut changed = false;
+    for a in &league.attempts {
+        let Some(id) = &a.arena else { continue };
+        if noted.contains(id) {
+            continue;
+        }
+        let Some(e) = catalog.entrants.iter().find(|e| &e.id == id) else { continue };
+        let verdict = match a.became {
+            Some(g) => format!("promoted: it is now league champion g{g}"),
+            None => "rejected".into(),
+        };
+        let text = format!(
+            "Gate: {} ({id}) {:+.2} ± {:.2} places vs champion {} over {} games, {verdict}. Its score {:.2} vs the champion's {:.2} (8-player places, lower is better). Hypothesis: {}",
+            e.name,
+            a.gate.gain,
+            a.gate.gain_se,
+            a.parent,
+            a.gate.games,
+            a.gate.challenger_avp,
+            a.gate.champion_avp,
+            e.note.as_deref().unwrap_or("none given"),
+        );
+        let note = notes::NewNote {
+            author: "server".into(),
+            kind: notes::Kind::Lesson,
+            text,
+            bots: vec![id.clone(), a.parent.clone()],
+            matches: vec![],
+            tags: vec!["gate".into(), e.author.clone()],
+        };
+        if app.notes.add(&app.arena_dir, note, a.at).is_ok() {
+            noted.insert(id.clone());
+            changed = true;
+        }
+    }
+    if changed {
+        let _ = std::fs::write(&path, serde_json::to_vec_pretty(&noted).unwrap());
     }
 }
 
@@ -494,6 +548,17 @@ async fn arena_info(State(app): State<Shared>) -> Json<serde_json::Value> {
         "entrants": entrants,
         "retired": catalog.retired_reasons(),
     }))
+}
+
+async fn list_notes(State(app): State<Shared>, Query(f): Query<notes::Filter>) -> Json<Vec<notes::Note>> {
+    Json(app.notes.list(&app.arena_dir, &f))
+}
+
+async fn add_note(State(app): State<Shared>, Json(new): Json<notes::NewNote>) -> Response {
+    match app.notes.add(&app.arena_dir, new, now_ms()) {
+        Ok(n) => (StatusCode::CREATED, Json(n)).into_response(),
+        Err(e) => err(StatusCode::BAD_REQUEST, e),
+    }
 }
 
 async fn one(State(app): State<Shared>, Path(id): Path<String>) -> Response {
@@ -593,6 +658,7 @@ fn board(app: &AppState, catalog: &Catalog, source: Source) -> Board {
                     normalized: s.normalized,
                     won: s.place_start == 1 && s.place_end == 1,
                     players: m.standings.len(),
+                    ended: matches!(m.ending, Some(Ending::Conquest | Ending::LastStanding)),
                 })
                 .collect();
             (m.created_at, seats)
@@ -616,6 +682,7 @@ fn board(app: &AppState, catalog: &Catalog, source: Source) -> Board {
                         normalized: (n - place) / (n - 1.0),
                         won: place == 1.0,
                         players: g.players,
+                        ended: g.ended,
                     }
                 })
                 .collect();
@@ -695,6 +762,7 @@ async fn main() {
         .route("/api/leaderboard", get(leaderboard))
         .route("/api/league", get(league_snapshot))
         .route("/api/arena", get(arena_info))
+        .route("/api/observations", get(list_notes).post(add_note))
         .route("/api/health", get(|| async { "ok" }))
         .with_state(app);
     if let Ok(web) = std::env::var("HEXARENA_WEB") {

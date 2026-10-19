@@ -158,6 +158,24 @@ export const api = {
   leaderboard: () => fetch('/api/leaderboard').then((r) => json<Leaderboard>(r)),
   league: () => fetch('/api/league').then((r) => json<League>(r)),
   arena: () => fetch('/api/arena').then((r) => json<ArenaInfo>(r)),
+  notes: () => fetch('/api/observations').then((r) => json<Note[]>(r)),
+  addNote: (n: { author: string; kind: NoteKind; text: string; bots?: string[]; tags?: string[] }) =>
+    fetch('/api/observations', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(n) }).then((r) => json<Note>(r)),
   create: (req: CreateMatch) =>
     fetch('/api/matches', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(req) }).then((r) => json<MatchSummary[]>(r)),
 }
+
+export type NoteKind = 'observation' | 'lesson' | 'idea'
+
+/** One entry in the lab notebook: what someone saw in games and learned from it. */
+export interface Note {
+  n: number
+  at: number
+  author: string
+  kind: NoteKind
+  text: string
+  bots: string[]
+  matches: string[]
+  tags: string[]
+}
+

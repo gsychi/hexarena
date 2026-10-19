@@ -165,6 +165,8 @@ impl Knobs {
 pub struct Ridgeline {
     name: String,
     rules: RulesConfig,
+    /// Chance (milli) an attacker wins an exchange this tick; rises in overtime.
+    win: u32,
     k: Knobs,
     geo: Option<Geometry>,
     /// Last seen state of every slot.
@@ -176,6 +178,7 @@ impl Ridgeline {
         Ridgeline {
             name: style.id.clone(),
             rules: RulesConfig::default(),
+            win: RulesConfig::default().attacker_exchange_win_milli,
             k: Knobs::read(&style),
             geo: None,
             seen: vec![],
@@ -188,7 +191,7 @@ impl Ridgeline {
         let d = defense.max(1) as u64;
         let per_win = (1_000_000 + d / 2) / d;
         let wins = (def as u64 * 1000).div_ceil(per_win);
-        let p = self.rules.attacker_exchange_win_milli as u64;
+        let p = self.win as u64;
         let q = 1000 - p;
         let mean = wins * q * 1000 / p;
         // Negative binomial: var = wins * q / p^2.
@@ -198,7 +201,7 @@ impl Ridgeline {
 
     /// Defenders `attackers` troops expect to kill behind `defense` milli going all in.
     fn kills(&self, attackers: u64, defense: u64) -> u64 {
-        let p = self.rules.attacker_exchange_win_milli as u64;
+        let p = self.win as u64;
         attackers * p * 1000 / ((1000 - p) * defense.max(1))
     }
 
@@ -597,6 +600,7 @@ impl Bot for Ridgeline {
     }
 
     fn act(&mut self, view: &View) -> PlayerCommand {
+        self.win = self.rules.attacker_win_milli(view.tick);
         let geo = self.geo.take().unwrap_or_else(|| Geometry::new(view));
         if self.seen.is_empty() {
             self.seen = vec![None; geo.passable.len()];

@@ -13,7 +13,7 @@ import { Board, buildingPips } from './Board'
 import { BuildingIcon, Legend } from './Legend'
 import type { Cell, GameEvent, Placement, ViewerReplay } from './model'
 import {
-  BUILDING_KEYS, BUILDING_NAMES, HEIGHT_STYLE, PLAYER_COLORS, PLAYER_MARKS, buildPreview, defenseMilli, frameCells, hexAt, hexIndex, loadViewer, visibleSet,
+  BUILDING_KEYS, BUILDING_NAMES, HEIGHT_STYLE, PLAYER_COLORS, PLAYER_MARKS, buildPreview, defenseMilli, frameCells, hexAt, hexIndex, loadViewer, usesResource, visibleSet,
 } from './model'
 
 const SPEEDS = [1, 2, 4, 8, 16]
@@ -369,8 +369,8 @@ function HexPanel({ rep, cells, selected, visible }: { rep: ViewerReplay; cells:
                         <div className="font-medium">{BUILDING_NAMES[i]}</div>
                         {p.legal ? (
                           <div className="text-muted-foreground">
-                            {p.discounted && <span className="mr-1 line-through">{p.baseTroops}</span>}<span className="text-foreground">{p.troops}</span> troops ·{' '}
-                            {p.discounted && p.baseResource !== p.resource && <span className="mr-1 line-through">{p.baseResource}</span>}<span className="text-foreground">{p.resource}</span> Resource
+                            {p.discounted && <span className="mr-1 line-through">{p.baseTroops}</span>}<span className="text-foreground">{p.troops}</span> troops
+                            {usesResource(rep.rules) && <>{' · '}{p.discounted && p.baseResource !== p.resource && <span className="mr-1 line-through">{p.baseResource}</span>}<span className="text-foreground">{p.resource}</span> Resource</>}
                             {p.discounted && <span className="ml-1 text-cyan-300">Quarry −{p.baseTroops - p.troops}{p.baseResource !== p.resource ? `, −${p.baseResource - p.resource} Res` : ''}</span>}
                           </div>
                         ) : <div className="text-muted-foreground">{p.reason}</div>}
@@ -396,9 +396,9 @@ function BuildingDetail({ rep, c, wallLinks }: { rep: ViewerReplay; c: Cell; wal
       <BuildingIcon kind={c.building} size={36} pips={buildingPips(c, r)} />
       <div className="space-y-0.5">
         <div className="font-medium">{BUILDING_NAMES[c.building - 1]}</div>
-        {c.building === 1 && <div className="text-muted-foreground"><Link2 className="mr-1 inline size-3" />{linked}/{r.farm.sockets} Villages supported · {cd}<br />+1 Resource in {c.remaining} ticks</div>}
+        {c.building === 1 && <div className="text-muted-foreground"><Link2 className="mr-1 inline size-3" />{linked}/{r.farm.sockets} Villages supported, +{r.village.farm_bonus}/tick each · {cd}{usesResource(r) && <><br />+1 Resource in {c.remaining} ticks</>}</div>}
         {c.building === 2 && <div className="text-muted-foreground">{c.links[0] >= 0 ? <><span className="text-foreground">{r.base_income + r.village.bonus + r.village.farm_bonus}/tick</span> · supported by a Farm</> : <><span className="text-foreground">{r.base_income + r.village.bonus}/tick</span> · unsupported, a Farm link adds +{r.village.farm_bonus}</>}</div>}
-        {c.building === 3 && <div className="text-muted-foreground">+1 Resource in {c.remaining} ticks<br />Adjacent builds: −{r.quarry.troop_discount_pct}% troops, −{r.quarry.resource_discount} Resource</div>}
+        {c.building === 3 && <div className="text-muted-foreground">{usesResource(r) ? <>+1 Resource in {c.remaining} ticks<br />Adjacent builds: −{r.quarry.troop_discount_pct}% troops, −{r.quarry.resource_discount} Resource</> : <>Adjacent Farms, Villages and Walls cost {r.quarry.troop_discount_pct}% fewer troops</>}</div>}
         {c.building === 4 && <div className="text-muted-foreground">{wallLinks}/{r.wall.max_links} links · <span className="text-foreground">{(r.wall.defense_milli_by_links[wallLinks ?? 0] / 1000).toFixed(1)}× wall</span> · {cd}</div>}
       </div>
     </div>
@@ -409,12 +409,14 @@ const StaticLegend = memo(Legend)
 
 const MatchReport = memo(function Report({ rep }: { rep: ViewerReplay }) {
   const rows = BUILDING_KEYS.map((k, i) => ({ k, name: BUILDING_NAMES[i], r: rep.building_report[k] }))
-  const lines: [string, (x: ViewerReplay['building_report']['farm']) => string][] = [
+  type Line = [string, (x: ViewerReplay['building_report']['farm']) => string]
+  const resourceLine: Line[] = usesResource(rep.rules) ? [['Resource made', (x) => x.avg_resource_generated.toFixed(1)]] : []
+  const lines: Line[] = [
     ['Built', (x) => String(x.constructed)],
     ['Avg tick built', (x) => x.avg_construction_tick.toFixed(0)],
     ['Avg troops paid', (x) => x.avg_troops_paid.toFixed(0)],
     ['Captured', (x) => `${(x.captured_share * 100).toFixed(0)}%`],
-    ['Resource made', (x) => x.avg_resource_generated.toFixed(1)],
+    ...resourceLine,
     ['Village bonus', (x) => x.avg_village_bonus_troops.toFixed(0)],
     ['Linked time', (x) => `${(x.linked_share * 100).toFixed(0)}%`],
     ['Avg wall ×', (x) => x.avg_wall_multiplier.toFixed(2)],

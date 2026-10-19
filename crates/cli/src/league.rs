@@ -56,7 +56,14 @@ fn run(f: &HashMap<String, String>) -> Result<(), String> {
     );
     for _ in 0..limit {
         league.retired = hexarena_arena::entrants::retired_ids(&arena);
-        let a = league.attempt(&dir)?;
+        let a = match league.attempt(&dir) {
+            Ok(a) => a,
+            Err(e) => {
+                eprintln!("attempt failed: {e}");
+                std::thread::sleep(std::time::Duration::from_secs(2));
+                continue;
+            }
+        };
         let verdict = match a.became {
             Some(g) => format!("PROMOTED → g{g} (benchmark AVP {:.2})", league.champion().benchmark.avp),
             None => "rejected".into(),
@@ -114,7 +121,7 @@ fn submit(f: &HashMap<String, String>) -> Result<(), String> {
     let params = read_params(f.get("params").ok_or(USAGE)?)?;
     let origin = f.get("origin").cloned().unwrap_or_else(|| "agent:anonymous".into());
     let parents = f.get("parents").map(|p| p.split(',').map(|s| s.trim().to_string()).filter(|s| !s.is_empty()).collect());
-    let sub = Submission { origin: origin.clone(), note: f.get("note").cloned(), params, parents, program: None, arena: None };
+    let sub = Submission { origin: origin.clone(), note: f.get("note").cloned(), params, parents, program: None, arena: None, label: f.get("label").cloned() };
     let inbox = dir(f).join("inbox");
     std::fs::create_dir_all(&inbox).map_err(|e| e.to_string())?;
     let safe: String = origin.chars().map(|c| if c.is_ascii_alphanumeric() { c } else { '-' }).collect();

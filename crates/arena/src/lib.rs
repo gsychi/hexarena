@@ -153,7 +153,7 @@ fn frame(st: &State, initial: &[u32]) -> Vec<i32> {
 fn visible_building(st: &State, h: Hex) -> (u32, [Option<Hex>; 3], u32) {
     let c = st.cell(h).unwrap();
     let remaining = match c.building {
-        Some(Building::Farm | Building::Quarry) => {
+        Some(Building::Farm | Building::Quarry) if st.rules().extractor_output > 0 => {
             st.rules().extractor_period.saturating_sub(c.progress)
         }
         _ => 0,
