@@ -42,7 +42,7 @@ fn analyze(path: &str, replay: &Replay) {
                     }
                 }
                 Action::Gather { .. } => kinds[p][3] += 1,
-                Action::Build { .. } => kinds[p][4] += 1,
+                Action::Build { .. } | Action::Demolish { .. } => kinds[p][4] += 1,
             }
         }
         st.step(cmds);

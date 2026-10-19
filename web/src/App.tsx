@@ -30,6 +30,7 @@ function describe(e: GameEvent, names: string[]): { player: number; text: string
     case 'repelled': return { player: e.attacker, text: `${names[e.attacker]} was repelled (${e.attackers_lost} lost)` }
     case 'built': return { player: e.player, text: `${names[e.player]} built a ${BUILDING_NAMES[kindOf(e.building) - 1]}`, kind: kindOf(e.building) }
     case 'eliminated': return { player: e.player, text: `${names[e.player]} was eliminated` }
+    case 'demolished': return { player: e.player, text: `${names[e.player]} demolished a ${BUILDING_NAMES[kindOf(e.building) - 1]}`, kind: kindOf(e.building) }
     case 'surrendered': return { player: e.capturer, text: `${names[e.capturer]} encircled ${e.hexes.length} hex(es) of ${names[e.from]}` }
     case 'gathered': return { player: e.player, text: `${names[e.player]} gathered troops from ${e.sources} hexes` }
     case 'links_broken': return null

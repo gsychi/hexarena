@@ -179,6 +179,14 @@ function drawPlan(ctx: CanvasRenderingContext2D, rep: ViewerReplay, geo: Geometr
       ctx.strokeStyle = color; ctx.lineWidth = 3; ctx.stroke()
       return
     }
+    case 'demolish': {
+      const p = pos(a.at), r = s * 0.45
+      for (const [stroke, width] of [['rgba(6,7,10,0.9)', 6], [color, 3]] as const) {
+        ctx.strokeStyle = stroke; ctx.lineWidth = width
+        ctx.beginPath(); ctx.moveTo(p.x - r, p.y - r); ctx.lineTo(p.x + r, p.y + r); ctx.moveTo(p.x + r, p.y - r); ctx.lineTo(p.x - r, p.y + r); ctx.stroke()
+      }
+      return
+    }
     case 'rejected':
     case 'pass':
       return

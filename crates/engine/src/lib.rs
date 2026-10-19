@@ -383,6 +383,16 @@ impl State {
                 }
             }
             Action::Build { at, building } => self.can_build(p, *at, *building).map(|_| ()),
+            Action::Demolish { at } => {
+                let c = self.cell(*at).ok_or("off board")?;
+                if c.owner != Some(p) {
+                    return Err("hex not owned");
+                }
+                if c.building.is_none() {
+                    return Err("nothing to demolish");
+                }
+                Ok(())
+            }
         }
     }
 
@@ -545,6 +555,22 @@ impl State {
             at,
             building: b,
         });
+    }
+
+    fn apply_demolish(&mut self, p: PlayerId, at: Hex, ev: &mut Vec<Event>) {
+        let c = self.cell_mut(at);
+        let building = c.building.take().expect("validated");
+        c.built_tick = 0;
+        c.progress = 0;
+        c.links = [None; 3];
+        c.link_ready_tick = 0;
+        c.record = NO_RECORD;
+        ev.push(Event::Demolished {
+            player: p,
+            at,
+            building,
+        });
+        self.sanitize_around(at, ev);
     }
 
     /// Drop links that are no longer valid around a hex whose ownership changed.
@@ -716,6 +742,9 @@ impl State {
     }
 
     fn resolve_encirclement(&mut self, capturer: PlayerId, at: Hex, ev: &mut Vec<Event>) {
+        if self.rules().region_capture {
+            return self.resolve_regions(capturer, at, ev);
+        }
         if !self.rules().encirclement_enabled {
             return;
         }
@@ -740,6 +769,81 @@ impl State {
                     capturer,
                     from: owner,
                     hexes: comp,
+                });
+            }
+        }
+    }
+
+    /// Connected region of hexes not owned by `capturer` containing `start` (impassable
+    /// hexes included), and whether it is enclosed: it never touches the board edge.
+    /// Every hex bordering the region is the capturer's by construction.
+    fn region(&self, start: Hex, capturer: PlayerId, seen: &mut [bool]) -> (Vec<Hex>, bool) {
+        let mut out = vec![start];
+        seen[self.board.index(start).unwrap()] = true;
+        let mut stack = vec![start];
+        let mut enclosed = true;
+        while let Some(c) = stack.pop() {
+            for nb in c.neighbors() {
+                let Some(i) = self.board.index(nb) else {
+                    enclosed = false;
+                    continue;
+                };
+                if !seen[i] && self.cells[i].owner != Some(capturer) {
+                    seen[i] = true;
+                    out.push(nb);
+                    stack.push(nb);
+                }
+            }
+        }
+        (out, enclosed)
+    }
+
+    /// Go-style capture after `capturer` takes `at`: every region next to it that the
+    /// capturer's land now seals off from the board edge changes hands.
+    fn resolve_regions(&mut self, capturer: PlayerId, at: Hex, ev: &mut Vec<Event>) {
+        let mut seen = vec![false; self.board.slots()];
+        seen[self.board.index(at).unwrap()] = true;
+        for nb in at.neighbors() {
+            let Some(i) = self.board.index(nb) else { continue };
+            if seen[i] || self.cells[i].owner == Some(capturer) {
+                continue;
+            }
+            let (mut region, enclosed) = self.region(nb, capturer, &mut seen);
+            if !enclosed {
+                continue;
+            }
+            region.retain(|h| passable(&self.board, &self.terrain, *h));
+            region.sort_unstable();
+            if region.is_empty() {
+                continue;
+            }
+            let mut by_owner: std::collections::BTreeMap<PlayerId, Vec<Hex>> = Default::default();
+            let tick = self.tick;
+            for &h in &region {
+                let c = *self.cell(h).unwrap();
+                match c.owner {
+                    Some(o) => by_owner.entry(o).or_default().push(h),
+                    None => ev.push(Event::Captured {
+                        player: capturer,
+                        at: h,
+                        previous_owner: None,
+                        troops_left: c.troops,
+                        building: c.building,
+                    }),
+                }
+                if c.record != NO_RECORD {
+                    self.records[c.record as usize].captures.push((tick, capturer));
+                }
+                self.cell_mut(h).owner = Some(capturer);
+            }
+            for &h in &region {
+                self.sanitize_around(h, ev);
+            }
+            for (from, hexes) in by_owner {
+                ev.push(Event::Surrendered {
+                    capturer,
+                    from,
+                    hexes,
                 });
             }
         }
@@ -926,6 +1030,7 @@ impl State {
                     Action::Build { at, building } => {
                         self.apply_build(p, *at, *building, &mut events)
                     }
+                    Action::Demolish { at } => self.apply_demolish(p, *at, &mut events),
                 },
             }
             self.mark_eliminations(&mut events);
@@ -1075,6 +1180,7 @@ impl State {
                 Event::Surrendered { hexes, .. } => hexes.iter().any(|h| vis(*h)),
                 Event::Eliminated { .. } => true,
                 Event::Rejected { player: p, .. } => *p == player,
+                Event::Demolished { .. } => false,
             })
             .cloned()
             .collect();

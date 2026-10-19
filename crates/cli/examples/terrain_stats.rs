@@ -120,7 +120,7 @@ fn main() {
                 match &cmd.action {
                     Action::NoOp => s.noop += 1,
                     Action::Gather { .. } => s.gathers += 1,
-                    Action::Build { .. } => s.builds += 1,
+                    Action::Build { .. } | Action::Demolish { .. } => s.builds += 1,
                     Action::Move { from, to, troops } => {
                         if pre.cell(*to).is_some_and(|c| c.owner == Some(*p)) {
                             s.internal_moves += 1;

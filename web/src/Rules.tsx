@@ -93,6 +93,7 @@ export function RulesPage() {
           <li><strong>Move</strong> troops from one of your hexes to an adjacent hex: into your own land to reinforce, or into neutral or enemy land to attack.</li>
           <li><strong>Gather</strong>: every hex with spare troops steps them one hex toward a target through your land.</li>
           <li><strong>Build</strong> on one of your hexes, paying in troops from it.</li>
+          <li><strong>Demolish</strong> the building on one of your hexes. It takes your action for the tick and refunds nothing, but it frees the hex for a different building and leaves nothing for an attacker to take.</li>
           <li><strong>Pass</strong>.</li>
         </ul>
         <p>Every hex you own makes <strong>{r.base_income} troop</strong> per tick, on that hex. There is no other currency: troops pay for everything.</p>
@@ -104,7 +105,11 @@ export function RulesPage() {
         {(r.overtime_win_milli_per_1000 ?? 0) > 0 && (
           <p><strong>Overtime:</strong> from tick {(r.overtime_start ?? 0).toLocaleString()} the attacker&apos;s chance rises {pct(r.overtime_win_milli_per_1000 ?? 0)} every 1,000 ticks, up to {pct(r.overtime_max_win_milli ?? 0)} at about tick {overtimeFull.toLocaleString()}, so held borders eventually break.</p>
         )}
-        <p><strong>Encirclement:</strong> a piece of enemy land surrounded entirely by yours, with no board edge or mountain in the ring, surrenders to you with its troops.</p>
+        {r.region_capture ? (
+          <p><strong>Capture by surrounding</strong>, as in Go: when a capture closes a ring of your land, everything inside it becomes yours with its troops and buildings, whether it was enemy, neutral or a mix. Impassable hexes may sit inside the ring. A region that reaches the board edge is never surrounded, so the ring must be your hexes all the way round.</p>
+        ) : (
+          <p><strong>Encirclement:</strong> a piece of enemy land surrounded entirely by yours, with no board edge or mountain in the ring, surrenders to you with its troops.</p>
+        )}
       </Section>
 
       <Section title="Buildings" description={`A Quarry discounts buildings within ${r.quarry.discount_radius} hex by ${r.quarry.troop_discount_pct}%.`}>
