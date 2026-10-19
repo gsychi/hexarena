@@ -267,10 +267,20 @@ async fn league_snapshot(State(app): State<Shared>) -> Response {
     }
 }
 
-async fn list(State(app): State<Shared>) -> Json<Vec<Summary>> {
-    let mut v: Vec<Summary> = app.matches.lock().unwrap().values().cloned().collect();
+#[derive(Deserialize)]
+struct ListQuery {
+    /// Newest games to return; all of them when absent.
+    limit: Option<usize>,
+}
+
+/// Games newest first; `X-Total-Count` carries how many there are in all.
+async fn list(State(app): State<Shared>, Query(q): Query<ListQuery>) -> Response {
+    let matches = app.matches.lock().unwrap();
+    let total = matches.len();
+    let mut v: Vec<&Summary> = matches.values().collect();
     v.sort_by(|a, b| b.created_at.cmp(&a.created_at).then(b.id.cmp(&a.id)));
-    Json(v)
+    v.truncate(q.limit.unwrap_or(usize::MAX));
+    ([("x-total-count", total.to_string())], Json(v)).into_response()
 }
 
 async fn create(State(app): State<Shared>, Json(req): Json<CreateMatch>) -> Response {

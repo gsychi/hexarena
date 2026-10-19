@@ -1,5 +1,5 @@
 import { BookOpen, Dice5, Dna, Loader2, Play, Plus, Shuffle, Trophy, TriangleAlert, Users } from 'lucide-react'
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { memo, useCallback, useEffect, useMemo, useState } from 'react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
@@ -13,6 +13,9 @@ import { PLAYER_COLORS } from './model'
 import { Standings } from './Standings'
 
 const BATCHES = [1, 5, 10, 20]
+/** Games listed on the home page; the rest stay one click away in their replays. */
+const RECENT = 40
+const POLL_MS = 3000
 const DEFAULT_LINEUP = ['expander', 'homesteader', 'raider', 'warden']
 
 function finish(m: MatchSummary) {
@@ -53,17 +56,13 @@ function StatusBadge({ status }: { status: MatchStatus }) {
 export function Home({ onOpen, onLeague, onNotes }: { onOpen: (id: string) => void; onLeague: () => void; onNotes: () => void }) {
   const [bots, setBots] = useState<BotInfo[]>([])
   const [matches, setMatches] = useState<MatchSummary[] | null>(null)
+  const [total, setTotal] = useState(0)
   const [board, setBoard] = useState<Leaderboard | null>(null)
   const [offline, setOffline] = useState<string | null>(null)
-  const [lineup, setLineup] = useState<string[]>(DEFAULT_LINEUP)
-  const [seed, setSeed] = useState('')
-  const [count, setCount] = useState(1)
-  const [creating, setCreating] = useState(false)
-  const [createError, setCreateError] = useState<string | null>(null)
 
   const refresh = useCallback(() => {
-    Promise.all([api.matches(), api.leaderboard()])
-      .then(([m, l]) => { setMatches(m); setBoard(l); setOffline(null) })
+    Promise.all([api.recentMatches(RECENT), api.leaderboard()])
+      .then(([m, l]) => { setMatches(m.games); setTotal(m.total); setBoard(l); setOffline(null) })
       .catch((e) => setOffline(String(e.message ?? e)))
   }, [])
 
@@ -75,34 +74,17 @@ export function Home({ onOpen, onLeague, onNotes }: { onOpen: (id: string) => vo
   const running = matches?.some((m) => m.status === 'running') ?? false
   useEffect(() => {
     if (!running) return
-    const id = setInterval(refresh, 1200)
+    const id = setInterval(refresh, POLL_MS)
     return () => clearInterval(id)
   }, [running, refresh])
 
-  const setPlayers = (n: number) => setLineup((l) => Array.from({ length: n }, (_, i) => l[i] ?? DEFAULT_LINEUP[i % DEFAULT_LINEUP.length]))
-  const active = bots.filter((b) => !b.retired)
-  const randomize = () => setLineup((l) => l.map(() => active[Math.floor(Math.random() * active.length)]?.id ?? 'expander'))
-  const elo = useMemo(() => new Map([...(board?.bots ?? []), ...(board?.retired_bots ?? [])].map((r) => [r.bot, r.elo])), [board])
-  const byElo = (list: BotInfo[]) => [...list].sort((a, b) => (elo.get(b.id) ?? -Infinity) - (elo.get(a.id) ?? -Infinity) || a.name.localeCompare(b.name))
-  const choices = bots.filter((b) => b.id !== 'champion')
-  const groups = [
-    ['Active', byElo(choices.filter((b) => !b.retired))],
-    ['Retired', byElo(choices.filter((b) => b.retired))],
-  ] as const
-
-  const create = async () => {
-    setCreating(true); setCreateError(null)
-    try {
-      const s = seed.trim() === '' ? undefined : Number(seed)
-      if (s !== undefined && (!Number.isSafeInteger(s) || s < 0)) throw new Error('Seed must be a whole number')
-      const made = await api.create({ bots: lineup, seed: s, count })
-      setMatches((m) => [...made, ...(m ?? [])])
-    } catch (e) {
-      setCreateError(e instanceof Error ? e.message : String(e))
-    } finally {
-      setCreating(false)
-    }
-  }
+  // Rounded ratings as a string, so the lineup picker only re-renders when a shown Elo changes.
+  const eloKey = JSON.stringify([...(board?.bots ?? []), ...(board?.retired_bots ?? [])].map((r) => [r.bot, Math.round(r.elo)]))
+  const elo = useMemo(() => new Map<string, number>(JSON.parse(eloKey)), [eloKey])
+  const onCreated = useCallback((made: MatchSummary[]) => {
+    setMatches((m) => [...made, ...(m ?? [])].slice(0, RECENT))
+    setTotal((t) => t + made.length)
+  }, [])
 
   return (
     <div className="mx-auto flex min-h-full max-w-6xl flex-col gap-6 p-4 sm:p-6">
@@ -137,88 +119,13 @@ export function Home({ onOpen, onLeague, onNotes }: { onOpen: (id: string) => vo
       <Standings board={board} />
 
       <div className="grid gap-6 lg:grid-cols-[minmax(0,26rem)_minmax(0,1fr)]">
-        <Card>
-          <CardHeader>
-            <CardTitle>New game</CardTitle>
-            <CardDescription>Every seat is a CPU. Same seed and lineup always give the same game.</CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-5">
-            <div className="space-y-2">
-              <Label className="flex items-center gap-1.5"><Users className="size-3.5" />Players</Label>
-              <ToggleGroup variant="outline" size="sm" value={[String(lineup.length)]} onValueChange={(v) => v.length && setPlayers(Number(v[v.length - 1]))}>
-                {[2, 3, 4, 5, 6, 7, 8].map((n) => <ToggleGroupItem key={n} value={String(n)} className="w-9 data-pressed:bg-foreground data-pressed:text-background">{n}</ToggleGroupItem>)}
-              </ToggleGroup>
-            </div>
-
-            <div className="space-y-2">
-              <div className="flex items-center justify-between">
-                <Label>Lineup</Label>
-                <Button variant="ghost" size="xs" onClick={randomize} disabled={active.length === 0} title="Random bots that aren't retired"><Shuffle />Randomize</Button>
-              </div>
-              <div className="space-y-1.5">
-                {lineup.map((id, i) => (
-                  <div key={i} className="flex items-center gap-2">
-                    <span className="size-2.5 shrink-0 rounded-full" style={{ background: PLAYER_COLORS[i % 8] }} />
-                    <span className="w-12 text-xs text-muted-foreground">Seat {i + 1}</span>
-                    <Select value={id} onValueChange={(v) => v && setLineup((l) => l.map((x, j) => (j === i ? String(v) : x)))}
-                      items={bots.map((b) => ({ value: b.id, label: b.name }))}>
-                      <SelectTrigger size="sm" className="flex-1"><SelectValue /></SelectTrigger>
-                      <SelectContent className="max-h-[22rem]">
-                        {groups.filter(([, list]) => list.length > 0).map(([title, list], gi) => (
-                          <SelectGroup key={title}>
-                            {gi > 0 && <SelectSeparator />}
-                            {title === 'Retired' && <SelectLabel>Retired</SelectLabel>}
-                            {list.map((b) => (
-                              <SelectItem key={b.id} value={b.id} title={b.retired ?? b.blurb}>
-                                <span className={`flex w-full items-center justify-between gap-3 ${b.retired ? 'opacity-60' : ''}`}>
-                                  <span className="truncate">{b.name}</span>
-                                  <span className="tabular-nums text-muted-foreground">{elo.has(b.id) ? Math.round(elo.get(b.id)!) : '—'}</span>
-                                </span>
-                              </SelectItem>
-                            ))}
-                          </SelectGroup>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            <p className="text-[11px] text-muted-foreground">
-              Every game ends the moment one player is left standing. From tick 3,000 attackers win each exchange more often (47% rising to 85%), and the cutoff is 10,000 ticks, where survivors are ranked by land. A game someone ends before the cutoff counts as much for Elo as 8 cutoff games in an 8-player lobby (N times in an N-player one).
-            </p>
-
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label htmlFor="seed">Seed</Label>
-                <div className="flex gap-1">
-                  <Input id="seed" inputMode="numeric" placeholder="Random" value={seed} onChange={(e) => setSeed(e.target.value.replace(/[^0-9]/g, ''))} />
-                  <Button variant="outline" size="icon" onClick={() => setSeed(String(Math.floor(Math.random() * 1e9)))} aria-label="Random seed"><Dice5 /></Button>
-                </div>
-              </div>
-              <div className="space-y-2">
-                <Label>Games</Label>
-                <ToggleGroup variant="outline" size="sm" value={[String(count)]} onValueChange={(v) => v.length && setCount(Number(v[v.length - 1]))}>
-                  {BATCHES.map((n) => <ToggleGroupItem key={n} value={String(n)} className="px-2.5 data-pressed:bg-foreground data-pressed:text-background">{n}</ToggleGroupItem>)}
-                </ToggleGroup>
-              </div>
-            </div>
-            {count > 1 && <p className="-mt-3 text-[11px] text-muted-foreground">Runs {count} games with consecutive seeds, so each map is different.</p>}
-
-            {createError && <p className="text-sm text-destructive">{createError}</p>}
-            <Button className="w-full" size="lg" onClick={create} disabled={creating || !!offline || bots.length === 0}>
-              {creating ? <Loader2 className="animate-spin" /> : <Plus />}
-              {count === 1 ? 'Create game' : `Create ${count} games`}
-            </Button>
-          </CardContent>
-        </Card>
+        <NewGame bots={bots} elo={elo} offline={!!offline} onCreated={onCreated} />
 
         <div className="flex min-w-0 flex-col gap-6">
           <Card>
             <CardHeader>
               <CardTitle>Games</CardTitle>
-              <CardDescription>{matches ? `${matches.length} game${matches.length === 1 ? '' : 's'}, newest first.` : 'Loading…'}</CardDescription>
+              <CardDescription>{matches ? (total > matches.length ? `Newest ${matches.length} of ${total} games.` : `${total} game${total === 1 ? '' : 's'}, newest first.`) : 'Loading…'}</CardDescription>
             </CardHeader>
             <CardContent>
               {matches === null && !offline && <div className="flex items-center gap-2 text-sm text-muted-foreground"><Loader2 className="size-4 animate-spin" />Loading games…</div>}
@@ -260,3 +167,120 @@ export function Home({ onOpen, onLeague, onNotes }: { onOpen: (id: string) => vo
     </div>
   )
 }
+
+const NewGame = memo(function NewGame({ bots, elo, offline, onCreated }: {
+  bots: BotInfo[]
+  elo: Map<string, number>
+  offline: boolean
+  onCreated: (made: MatchSummary[]) => void
+}) {
+  const [lineup, setLineup] = useState<string[]>(DEFAULT_LINEUP)
+  const [seed, setSeed] = useState('')
+  const [count, setCount] = useState(1)
+  const [creating, setCreating] = useState(false)
+  const [createError, setCreateError] = useState<string | null>(null)
+
+  const setPlayers = (n: number) => setLineup((l) => Array.from({ length: n }, (_, i) => l[i] ?? DEFAULT_LINEUP[i % DEFAULT_LINEUP.length]))
+  const active = useMemo(() => bots.filter((b) => !b.retired), [bots])
+  const randomize = () => setLineup((l) => l.map(() => active[Math.floor(Math.random() * active.length)]?.id ?? 'expander'))
+  const items = useMemo(() => bots.map((b) => ({ value: b.id, label: b.name })), [bots])
+  const groups = useMemo(() => {
+    const byElo = (list: BotInfo[]) => [...list].sort((a, b) => (elo.get(b.id) ?? -Infinity) - (elo.get(a.id) ?? -Infinity) || a.name.localeCompare(b.name))
+    const choices = bots.filter((b) => b.id !== 'champion')
+    return [
+      ['Active', byElo(choices.filter((b) => !b.retired))],
+      ['Retired', byElo(choices.filter((b) => b.retired))],
+    ] as const
+  }, [bots, elo])
+
+  const create = async () => {
+    setCreating(true); setCreateError(null)
+    try {
+      const s = seed.trim() === '' ? undefined : Number(seed)
+      if (s !== undefined && (!Number.isSafeInteger(s) || s < 0)) throw new Error('Seed must be a whole number')
+      onCreated(await api.create({ bots: lineup, seed: s, count }))
+    } catch (e) {
+      setCreateError(e instanceof Error ? e.message : String(e))
+    } finally {
+      setCreating(false)
+    }
+  }
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>New game</CardTitle>
+        <CardDescription>Every seat is a CPU. Same seed and lineup always give the same game.</CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-5">
+        <div className="space-y-2">
+          <Label className="flex items-center gap-1.5"><Users className="size-3.5" />Players</Label>
+          <ToggleGroup variant="outline" size="sm" value={[String(lineup.length)]} onValueChange={(v) => v.length && setPlayers(Number(v[v.length - 1]))}>
+            {[2, 3, 4, 5, 6, 7, 8].map((n) => <ToggleGroupItem key={n} value={String(n)} className="w-9 data-pressed:bg-foreground data-pressed:text-background">{n}</ToggleGroupItem>)}
+          </ToggleGroup>
+        </div>
+
+        <div className="space-y-2">
+          <div className="flex items-center justify-between">
+            <Label>Lineup</Label>
+            <Button variant="ghost" size="xs" onClick={randomize} disabled={active.length === 0} title="Random bots that aren't retired"><Shuffle />Randomize</Button>
+          </div>
+          <div className="space-y-1.5">
+            {lineup.map((id, i) => (
+              <div key={i} className="flex items-center gap-2">
+                <span className="size-2.5 shrink-0 rounded-full" style={{ background: PLAYER_COLORS[i % 8] }} />
+                <span className="w-12 text-xs text-muted-foreground">Seat {i + 1}</span>
+                <Select value={id} onValueChange={(v) => v && setLineup((l) => l.map((x, j) => (j === i ? String(v) : x)))}
+                  items={items}>
+                  <SelectTrigger size="sm" className="flex-1"><SelectValue /></SelectTrigger>
+                  <SelectContent className="max-h-[22rem]">
+                    {groups.filter(([, list]) => list.length > 0).map(([title, list], gi) => (
+                      <SelectGroup key={title}>
+                        {gi > 0 && <SelectSeparator />}
+                        {title === 'Retired' && <SelectLabel>Retired</SelectLabel>}
+                        {list.map((b) => (
+                          <SelectItem key={b.id} value={b.id} title={b.retired ?? b.blurb}>
+                            <span className={`flex w-full items-center justify-between gap-3 ${b.retired ? 'opacity-60' : ''}`}>
+                              <span className="truncate">{b.name}</span>
+                              <span className="tabular-nums text-muted-foreground">{elo.has(b.id) ? Math.round(elo.get(b.id)!) : '—'}</span>
+                            </span>
+                          </SelectItem>
+                        ))}
+                      </SelectGroup>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <p className="text-[11px] text-muted-foreground">
+          Every game ends the moment one player is left standing. From tick 3,000 attackers win each exchange more often (47% rising to 85%), and the cutoff is 10,000 ticks, where survivors are ranked by land. A game someone ends before the cutoff counts as much for Elo as 8 cutoff games in an 8-player lobby (N times in an N-player one).
+        </p>
+
+        <div className="grid grid-cols-2 gap-4">
+          <div className="space-y-2">
+            <Label htmlFor="seed">Seed</Label>
+            <div className="flex gap-1">
+              <Input id="seed" inputMode="numeric" placeholder="Random" value={seed} onChange={(e) => setSeed(e.target.value.replace(/[^0-9]/g, ''))} />
+              <Button variant="outline" size="icon" onClick={() => setSeed(String(Math.floor(Math.random() * 1e9)))} aria-label="Random seed"><Dice5 /></Button>
+            </div>
+          </div>
+          <div className="space-y-2">
+            <Label>Games</Label>
+            <ToggleGroup variant="outline" size="sm" value={[String(count)]} onValueChange={(v) => v.length && setCount(Number(v[v.length - 1]))}>
+              {BATCHES.map((n) => <ToggleGroupItem key={n} value={String(n)} className="px-2.5 data-pressed:bg-foreground data-pressed:text-background">{n}</ToggleGroupItem>)}
+            </ToggleGroup>
+          </div>
+        </div>
+        {count > 1 && <p className="-mt-3 text-[11px] text-muted-foreground">Runs {count} games with consecutive seeds, so each map is different.</p>}
+
+        {createError && <p className="text-sm text-destructive">{createError}</p>}
+        <Button className="w-full" size="lg" onClick={create} disabled={creating || offline || bots.length === 0}>
+          {creating ? <Loader2 className="animate-spin" /> : <Plus />}
+          {count === 1 ? 'Create game' : `Create ${count} games`}
+        </Button>
+      </CardContent>
+    </Card>  )
+})
