@@ -3,7 +3,7 @@
 
 use crate::{get, seat_style};
 use hexarena_arena::entrants::{load_all, publish, retire, set_parents, Entrant, MAX_NAME};
-use hexarena_arena::eval::{compare_with_progress, Comparison};
+use hexarena_arena::eval::{compare_sized, Comparison};
 use hexarena_protocol::RulesConfig;
 use hexarena_sdk::{roster, BotParams};
 use std::collections::HashMap;
@@ -24,12 +24,13 @@ const USAGE: &str = "usage: hexarena arena <publish|parents|retire|list> [--dir 
   list                          every published version
 --dir defaults to $HEXARENA_ARENA or data/arena; the server reads the same directory.";
 
-const EVAL_USAGE: &str = "usage: hexarena eval --params cand.json [--against ID|base.json] [--pairs N] [--seed S] [--author agent:NAME]
+const EVAL_USAGE: &str = "usage: hexarena eval --params cand.json [--against ID|base.json] [--pairs N] [--seed S] [--players 2|8] [--author agent:NAME]
   plays the candidate against a base (an arena version, roster CPU or genome file; the
   roster's first CPU by default) in mirrored pairs of 8-player lobbies: 3 seats each plus
   2 roster CPUs, then the same map with the two swapped. Reports the gain in 8-player
   places (positive is better; ending the game early earns up to 1.5 places). With an
-  author (--author or HEXARENA_AUTHOR) the home page shows the test and its result.";
+  author (--author or HEXARENA_AUTHOR) the home page shows the test and its result.
+  --players 2 plays mirrored 1v1s instead: candidate against base, then seats swapped.";
 
 /// Running results an eval posts before its final one.
 const PROGRESS_REPORTS: usize = 4;
@@ -193,6 +194,8 @@ pub fn eval(f: &HashMap<String, String>) -> Result<(), String> {
         None => roster().remove(0),
     };
     let pairs: usize = get(f, "pairs", 24);
+    let players: usize = get(f, "players", 8);
+    let format = if players == 2 { "1v1 games" } else { "8-player games" };
     let author = f.get("author").cloned().or_else(|| std::env::var("HEXARENA_AUTHOR").ok());
     let label = |s: &hexarena_sdk::Style| {
         let p = std::path::Path::new(&s.id);
@@ -200,10 +203,10 @@ pub fn eval(f: &HashMap<String, String>) -> Result<(), String> {
     };
     let what = format!("{} against {}", label(&candidate), label(&base));
     if let Some(a) = &author {
-        report_work(a, &format!("Testing {what} locally ({pairs} mirrored pairs of 8-player games)"));
+        report_work(a, &format!("Testing {what} locally ({pairs} mirrored pairs of {format})"));
     }
     let se = |r: &Comparison| if r.gain_se.is_finite() { format!("{:.2}", r.gain_se) } else { "n/a".into() };
-    let (r, _) = compare_with_progress(&candidate, &base, &roster(), get(f, "seed", 500_000), pairs, PROGRESS_REPORTS, |r| {
+    let (r, _) = compare_sized(&candidate, &base, &roster(), get(f, "seed", 500_000), pairs, PROGRESS_REPORTS, players, |r| {
         if let Some(a) = &author {
             report_work(a, &format!("Testing {what}: {:+.2} ± {} places after {} of {} games so far", r.gain, se(r), r.games, pairs * 2));
         }
@@ -218,6 +221,7 @@ pub fn eval(f: &HashMap<String, String>) -> Result<(), String> {
         "{}",
         serde_json::to_string_pretty(&serde_json::json!({
             "against": base.id,
+            "players": players,
             "games": r.games,
             "candidate_score": r.candidate_score,
             "base_score": r.base_score,

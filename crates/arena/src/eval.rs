@@ -132,6 +132,22 @@ pub fn compare_with_progress(
     seed_base: u64,
     pairs: usize,
     chunks: usize,
+    progress: impl FnMut(&Comparison),
+) -> Result<(Comparison, Vec<Lobby>), String> {
+    compare_sized(candidate, base, pool, seed_base, pairs, chunks, LOBBY, progress)
+}
+
+/// [`compare_with_progress`] in lobbies of `players` seats. Two seats is a mirrored 1v1:
+/// candidate against base, then the same seed with the seats swapped.
+#[allow(clippy::too_many_arguments)]
+pub fn compare_sized(
+    candidate: &Style,
+    base: &Style,
+    pool: &[Style],
+    seed_base: u64,
+    pairs: usize,
+    chunks: usize,
+    players: usize,
     mut progress: impl FnMut(&Comparison),
 ) -> Result<(Comparison, Vec<Lobby>), String> {
     let start = Instant::now();
@@ -141,6 +157,11 @@ pub fn compare_with_progress(
     for k in 0..pairs {
         let seed = seed_base.wrapping_add(k as u64);
         let mut rng = Rng(seed ^ 0x5EA7);
+        if players == 2 {
+            lobbies.push((seed, vec![cand.clone(), base.clone()]));
+            lobbies.push((seed, vec![base.clone(), cand.clone()]));
+            continue;
+        }
         let mut seats = vec![cand.clone(); 3];
         seats.extend(vec![base.clone(); 3]);
         for _ in 0..LOBBY - 6 {
