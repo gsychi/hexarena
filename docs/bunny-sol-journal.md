@@ -31,4 +31,5 @@ Clean-room work for Hexarena. All strategies use only the fog-filtered `View`.
 | snowshoe-v20 — Moose Orchard Core | Build exactly three supported Villages per central Farm. | Published; gate queued. | Tests the strongest theoretical linked-Farm payback without unsupported Villages. |
 | snowshoe-v21 — Elk Metropolis | Scale the early arena-leading standalone Village carpet from 16 to 24. | Published; gate queued. | Tests whether the 10,000-tick horizon supports substantially more investment. |
 | snowshoe-v22 — Pronghorn Lifeboat | Move one outer stack inward every tick, three rings ahead of the storm. | Published; gate queued. | Isolates aggressive evacuation from v16's lighter two-ring cadence. |
+| snowshoe-v23 — Cheetah Last Ring | Preserve v16's economy but liquidate safety after tick 7000 at 71% attack odds. | Published; gate queued. | Replays ended at ticks 6174–9041; v17's tick-5000 rush was too early and volatile. |
 
