@@ -172,8 +172,9 @@ struct Knobs {
     /// Either way, only while our land is at least this % of every alive rival's known
     /// land: a blitz that isn't leading feeds the bystander.
     finish_lead_pct: u32,
-    /// Finishing mode turns the blitz on (0/1; 0 = only `prey` targeting).
-    finish_blitz: bool,
+    /// What finishing mode turns on besides `prey`: 0 = nothing, 1 = the whole blitz,
+    /// 2 = only its Gathers (mass the bank behind safe captures).
+    finish_blitz: u32,
     /// In finishing mode, score per hex of the alive rival we know the least land of, so
     /// one rival is wiped out before the next.
     prey: i64,
@@ -281,7 +282,7 @@ impl Knobs {
             finish_alive: k("finish_alive", 0) as usize,
             finish_land_pct: k("finish_land_pct", 0) as u32,
             finish_lead_pct: k("finish_lead_pct", 0) as u32,
-            finish_blitz: k("finish_blitz", 1) > 0,
+            finish_blitz: k("finish_blitz", 1) as u32,
             prey: k("prey", 0),
             prey_village: k("prey_village", 0),
             late_at: None,
@@ -1206,12 +1207,14 @@ impl Bot for Core {
                     || (self.k.finish_land_pct > 0 && mine.len() * 100 >= passable * self.k.finish_land_pct as usize));
             let changed = finishing != self.finishing;
             self.finishing = finishing;
-            if changed && self.k.finish_blitz {
+            if changed && self.k.finish_blitz > 0 {
                 if finishing {
                     self.calm_late = Some((self.k.late_sprint, self.k.late_gather, self.k.send_pct, self.k.push_gather));
-                    self.k.late_sprint = true;
+                    if self.k.finish_blitz == 1 {
+                        self.k.late_sprint = true;
+                        self.k.send_pct = self.k.blitz_send_pct;
+                    }
                     self.k.late_gather = true;
-                    self.k.send_pct = self.k.blitz_send_pct;
                     self.k.push_gather = self.k.blitz_push;
                 } else if let Some((sprint, gather, send, push)) = self.calm_late.take() {
                     self.k.late_sprint = sprint;
