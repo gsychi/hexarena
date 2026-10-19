@@ -49,6 +49,8 @@ struct Knobs {
     relay_floor: u64,
     relay_patience: i64,
     allow_gather: bool,
+    adaptive_period: u32,
+    momentum_weight: i64,
     peace_until: u32,
     build_mode: i64,
     build_every: u32,
@@ -89,6 +91,8 @@ impl Knobs {
             relay_floor: k("relay_floor", 1).max(1) as u64,
             relay_patience: k("relay_patience", 1000).max(0),
             allow_gather: k("allow_gather", 1) != 0,
+            adaptive_period: k("adaptive_period", 240).max(30) as u32,
+            momentum_weight: k("momentum_weight", 0),
             peace_until: k("peace_until", 500).max(0) as u32,
             build_mode: k("build_mode", 0),
             build_every: k("build_every", 11).max(1) as u32,
@@ -125,6 +129,14 @@ pub struct Mosaic {
     last_decay: u32,
     last_build: u32,
     build_actions: usize,
+    active_policy: usize,
+    policy_gain: [i64; 3],
+    policy_trials: [u32; 3],
+    policy_started: u32,
+    policy_land: i64,
+    rival_momentum: Vec<i64>,
+    last_land: Vec<i64>,
+    last_model_tick: u32,
 }
 
 impl Mosaic {
@@ -145,6 +157,14 @@ impl Mosaic {
             last_decay: 0,
             last_build: 0,
             build_actions: 0,
+            active_policy: 0,
+            policy_gain: [0; 3],
+            policy_trials: [0; 3],
+            policy_started: 0,
+            policy_land: 0,
+            rival_momentum: vec![],
+            last_land: vec![],
+            last_model_tick: 0,
         }
     }
 
@@ -185,6 +205,8 @@ impl Mosaic {
         self.own = vec![false; slots];
         self.exposed_until = vec![0; slots];
         self.hostility = vec![0; view.public_players.len()];
+        self.rival_momentum = vec![0; view.public_players.len()];
+        self.last_land = vec![0; view.public_players.len()];
     }
 
     fn remember(&mut self, view: &View) {
@@ -250,6 +272,44 @@ impl Mosaic {
                 *heat = *heat * 3 / 4;
             }
             self.last_decay = view.tick;
+        }
+        let land = self.land_counts(view.public_players.len());
+        if view.tick >= self.last_model_tick + 50 {
+            for player in 0..land.len() {
+                let delta = land[player] - self.last_land[player];
+                self.rival_momentum[player] = (self.rival_momentum[player] * 2 + delta * 3) / 3;
+            }
+            self.last_land.clone_from(&land);
+            self.last_model_tick = view.tick;
+        }
+        if self.k.doctrine == 7 {
+            let ours = land.get(view.you as usize).copied().unwrap_or(0);
+            if self.policy_started == 0 {
+                self.policy_started = view.tick;
+                self.policy_land = ours;
+            } else if view.tick >= self.policy_started + self.k.adaptive_period {
+                let policy = self.active_policy;
+                let gain = ours - self.policy_land;
+                self.policy_gain[policy] = if self.policy_trials[policy] == 0 {
+                    gain
+                } else {
+                    (self.policy_gain[policy] * 2 + gain) / 3
+                };
+                self.policy_trials[policy] += 1;
+                self.active_policy = self
+                    .policy_trials
+                    .iter()
+                    .position(|trials| *trials == 0)
+                    .unwrap_or_else(|| {
+                        (0..3)
+                            .max_by_key(|&candidate| {
+                                (self.policy_gain[candidate], std::cmp::Reverse(candidate))
+                            })
+                            .unwrap_or(0)
+                    });
+                self.policy_started = view.tick;
+                self.policy_land = ours;
+            }
         }
     }
 
@@ -397,7 +457,12 @@ impl Mosaic {
         let their_land = land.get(p).copied().unwrap_or(0);
         let living = view.public_players.iter().filter(|p| p.alive).count();
         let endgame = living <= 3 || view.tick >= 1900;
-        match self.k.doctrine {
+        let doctrine = if self.k.doctrine == 7 {
+            [1, 4, 5][self.active_policy]
+        } else {
+            self.k.doctrine
+        };
+        match doctrine {
             // Cartographer: defer wars while neutral room remains, then balance the leader.
             0 => {
                 if !endgame && view.tick < self.k.peace_until {
@@ -465,6 +530,17 @@ impl Mosaic {
                 } else {
                     -self.k.prey
                 }
+            }
+            // Futures trader: attack the rival whose remembered territory has recently
+            // grown fastest, before that compounding action economy becomes the leader.
+            8 => {
+                self.k.enemy
+                    + self.rival_momentum.get(p).copied().unwrap_or(0) * self.k.momentum_weight
+                    + if Some(owner) == leader {
+                        self.k.leader / 3
+                    } else {
+                        0
+                    }
             }
             // Portfolio: choose a diplomatic role from the board instead of committing
             // to one at construction time: finish a weak polity, contain a runaway, or

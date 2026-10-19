@@ -188,8 +188,10 @@ losses gather 800–2,100 times after a front becomes unaffordable.
   survivors, it hunts the smallest survivor and rewards every capture that shortens the
   public-terrain route to that rival's last known land.
 - Published params: `docs/arena-genomes/mosaic-v13.json`.
-- Result: pending live arena trial.
-- Replay lesson: pending.
+- Result after 14 games: Elo 1522, AVP8 5.29, win rate 7.1%, top-half 28.6%.
+- Replay lesson: eliminating Gather was not enough. In one win it captured 374 land, but
+  another game issued 2,567 NoOps because conservative reserves left no relayable spare.
+  Routing works only if the capture split keeps the transport network liquid.
 
 ## mosaic-v14 — Bloodhound Rollout
 
@@ -200,8 +202,11 @@ losses gather 800–2,100 times after a front becomes unaffordable.
   for largest or five players remain, forwards more surplus, and relays toward a blocked
   high-value pad after a smaller score gap.
 - Published params: `docs/arena-genomes/mosaic-v14.json`.
-- Result: pending live arena trial.
-- Replay lesson: pending.
+- Result after 13 games: Elo 1582, AVP8 3.77, win rate 15.4%, top-half 61.5%.
+- Replay lesson: clear cohort winner and approximately tied with v2 despite the harder
+  field. Its wins used 2,974+ Move actions and only 23–26 NoOps. One-ply continuation
+  scoring plus higher forwarding preserved both tactical liquidity and final land, but
+  every game still reached tick 3000.
 
 ## mosaic-v15 — Fortress Finisher
 
@@ -211,5 +216,31 @@ losses gather 800–2,100 times after a front becomes unaffordable.
 - Change: maximum anti-third-party source and target reserves, high sure-capture margin,
   strong compactness, one-ply continuation scoring, and persistent survivor routing.
 - Published params: `docs/arena-genomes/mosaic-v15.json`.
+- Result after 12 games: Elo 1478, AVP8 6.08, win rate 0.0%, top-half 16.7%.
+- Replay lesson: strongly falsified. Thick reserves stranded almost everything: inspected
+  losses issued 2,111–2,554 NoOps and sometimes relayed one troop at a time. Protecting the
+  rear destroyed the action economy before it could create a lead to defend.
+
+## mosaic-v16 — Bandit Cabinet
+
+- Hypothesis: prey cleanup, leader containment, and aggression policing each work on some
+  maps. Probe each policy for 220 ticks, measure net land gained, then repeatedly choose the
+  policy with the best observed gain instead of fixing foreign policy before seeing the map.
+- Change: added an in-game three-arm policy learner with per-policy land-gain history,
+  exploration of every arm, and rolling exploitation; tactical execution remains the
+  liquid v14 rollout/relay core.
+- Published params: `docs/arena-genomes/mosaic-v16.json`.
+- Result: pending live arena trial.
+- Replay lesson: pending.
+
+## mosaic-v17 — Momentum Futures
+
+- Hypothesis: remembered land deltas reveal a rival's action-economy acceleration before it
+  becomes the visible leader. Paying a premium to attack the fastest-growing polity should
+  prevent Relay descendants from compounding uncontested.
+- Change: added a per-rival model sampled every 50 ticks; recent remembered land growth is
+  smoothed into momentum and directly prices enemy capture bids, while the v14 finisher
+  takes over once we are largest.
+- Published params: `docs/arena-genomes/mosaic-v17.json`.
 - Result: pending live arena trial.
 - Replay lesson: pending.
