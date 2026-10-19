@@ -194,8 +194,26 @@ pub fn roster() -> Vec<Style> {
                 build_every: 9,
                 kinds: vec![Wall, Quarry, Wall, Farm, Village],
                 gather_every: 6,
-                ..base
+                ..base.clone()
             },
+        ),
+        Style::preset(
+            "relay",
+            "Relay",
+            "Tempo. Turns every tick into land that stays taken, relaying spare troops to the front.",
+            BotParams { brain: "relay".into(), ..base.clone() },
+        ),
+        Style::preset(
+            "predator",
+            "Predator",
+            "Conqueror. Garrisons its captures, encloses pockets and finishes shrinking rivals.",
+            BotParams { brain: "predator".into(), ..base.clone() },
+        ),
+        Style::preset(
+            "ridgeline",
+            "Ridgeline",
+            "Border holder. Only sends sure captures and prefers short, shielded, high borders.",
+            BotParams { brain: "ridgeline".into(), ..base },
         ),
     ]
 }
