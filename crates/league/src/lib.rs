@@ -24,6 +24,8 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 pub const START_ELO: f64 = 1500.0;
 pub const K: f64 = 32.0;
+/// A game that ends before the cutoff moves ratings this many times as far.
+pub const ENDED_WEIGHT: f64 = 2.0;
 /// Challengers drawn per attempt before one that plays like the champion is gated anyway.
 const SCREEN_TRIES: usize = 12;
 /// Attempts kept in `league.json`; older ones are summarized by the counters.
@@ -36,6 +38,10 @@ pub struct Generation {
     /// The brain and its lineage, e.g. `Relay g3 ← g2` or `Relay g2 (new brain by agent tempo)`.
     #[serde(default)]
     pub name: String,
+    /// What the name starts with instead of the brain, e.g. `Claude-Ridgeline` for a bot
+    /// written by a Claude agent. Descendants inherit it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub label: Option<String>,
     /// The generations this genome was derived from; empty for a seed or a new brain.
     #[serde(default)]
     pub parents: Vec<String>,
@@ -94,10 +100,13 @@ pub struct Submission {
     /// The arena version this is, so its gate result can be shown next to it.
     #[serde(default)]
     pub arena: Option<String>,
+    /// What the generation's name starts with, e.g. `GPT-Snowshoe`; defaults to the brain.
+    #[serde(default)]
+    pub label: Option<String>,
 }
 
 /// `Relay` for a genome playing the relay brain.
-fn brain_label(params: &BotParams) -> String {
+pub fn brain_label(params: &BotParams) -> String {
     let brain = if params.brain.is_empty() { brains::DEFAULT } else { params.brain.as_str() };
     let mut chars = brain.chars();
     chars.next().map(|c| c.to_ascii_uppercase()).into_iter().chain(chars).collect()
@@ -105,7 +114,11 @@ fn brain_label(params: &BotParams) -> String {
 
 /// A generation's display name: its brain, its id, and where it came from.
 pub fn lineage_name(gen: u32, params: &BotParams, origin: &str, parents: &[String]) -> String {
-    let brain = brain_label(params);
+    lineage_name_as(&brain_label(params), gen, origin, parents)
+}
+
+/// [`lineage_name`] with `base` in place of the brain, e.g. `Claude-Thumper`.
+pub fn lineage_name_as(brain: &str, gen: u32, origin: &str, parents: &[String]) -> String {
     let from = match (parents, origin.strip_prefix("agent:")) {
         ([], Some(agent)) => format!("(new brain by agent {agent})"),
         ([], None) if origin == "carryover" => "(carried over)".into(),
@@ -202,8 +215,9 @@ impl League {
     /// hand-written Expander.
     pub fn open(dir: &Path) -> Result<League, String> {
         std::fs::create_dir_all(dir.join("inbox")).map_err(|e| e.to_string())?;
+        Self::requeue_interrupted(dir);
         if !Self::path(dir).exists() {
-            return Self::seed(dir, BotParams::default(), None, 0, None, "seed", "The hand-written Expander".into());
+            return Self::seed(dir, BotParams::default(), None, 0, None, None, "seed", "The hand-written Expander".into());
         }
         let mut old = Self::load(dir)?;
         if old.rules_version == RulesConfig::default().version {
@@ -230,8 +244,9 @@ impl League {
         let c = old.champion();
         let gen = c.gen + 1;
         let note = format!("Champion {} of the rules {} league, carried over", c.id, old.rules_version);
-        let name = format!("{} g{gen} (carried over from {} {})", brain_label(&c.params), old.rules_version, c.id);
-        Self::seed(dir, c.params.clone(), c.program.clone(), gen, Some(name), "carryover", note)
+        let base = c.label.clone().unwrap_or_else(|| brain_label(&c.params));
+        let name = format!("{base} g{gen} (carried over from {} {})", old.rules_version, c.id);
+        Self::seed(dir, c.params.clone(), c.program.clone(), gen, Some(name), c.label.clone(), "carryover", note)
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -241,6 +256,7 @@ impl League {
         program: Option<Program>,
         gen: u32,
         name: Option<String>,
+        label: Option<String>,
         origin: &str,
         note: String,
     ) -> Result<League, String> {
@@ -255,6 +271,7 @@ impl League {
             generations: vec![Generation {
                 gen,
                 name: name.unwrap_or_else(|| lineage_name(gen, &seed.params, origin, &[])),
+                label,
                 id: seed.id,
                 parents: vec![],
                 beat: None,
@@ -333,7 +350,10 @@ impl League {
                 (_, Some(p)) if parent_brain.as_ref() == Some(&g.params.brain) => vec![p.clone()],
                 _ => vec![],
             };
-            let name = lineage_name(g.gen, &g.params, &g.origin, &parents);
+            let name = match &g.label {
+                Some(base) => lineage_name_as(base, g.gen, &g.origin, &parents),
+                None => lineage_name(g.gen, &g.params, &g.origin, &parents),
+            };
             let g = &mut self.generations[i];
             g.parents = parents;
             g.beat = beat;
@@ -409,8 +429,10 @@ impl League {
         Ok(())
     }
 
-    /// The oldest inbox submission, removed from the inbox.
-    fn take_submission(dir: &Path) -> Option<Submission> {
+    /// The next inbox submission, moved to `inbox/active/` until its gate is recorded.
+    /// Agents take turns: the oldest submission from an origin other than the last
+    /// gated one goes first, so one agent shipping many versions can't starve the rest.
+    fn take_submission(&self, dir: &Path) -> Option<(Submission, PathBuf)> {
         let inbox = dir.join("inbox");
         let mut files: Vec<PathBuf> = std::fs::read_dir(&inbox)
             .ok()?
@@ -419,17 +441,38 @@ impl League {
             .filter(|p| p.extension().is_some_and(|x| x == "json"))
             .collect();
         files.sort();
+        let done = inbox.join("done");
+        let active = inbox.join("active");
+        let _ = std::fs::create_dir_all(&done);
+        let _ = std::fs::create_dir_all(&active);
+        let mut parsed = vec![];
         for path in files {
-            let parsed: Result<Submission, String> = read_json(&path);
-            let done = inbox.join("done");
-            let _ = std::fs::create_dir_all(&done);
-            let _ = std::fs::rename(&path, done.join(path.file_name().unwrap()));
-            match parsed {
-                Ok(s) => return Some(s),
-                Err(e) => eprintln!("skipping bad submission: {e}"),
+            match read_json::<Submission>(&path) {
+                Ok(s) => parsed.push((s, path)),
+                Err(e) => {
+                    eprintln!("skipping bad submission: {e}");
+                    let _ = std::fs::rename(&path, done.join(path.file_name().unwrap()));
+                }
             }
         }
-        None
+        let last = self.attempts.iter().rev().find(|a| a.origin.starts_with("agent:")).map(|a| a.origin.clone());
+        let pick = parsed.iter().position(|(s, _)| Some(&s.origin) != last.as_ref()).unwrap_or(0);
+        if parsed.is_empty() {
+            return None;
+        }
+        let (sub, path) = parsed.swap_remove(pick);
+        let moved = active.join(path.file_name().unwrap());
+        std::fs::rename(&path, &moved).ok()?;
+        Some((sub, moved))
+    }
+
+    /// Puts submissions whose gate was interrupted (the league stopped mid-gate) back in
+    /// the inbox.
+    fn requeue_interrupted(dir: &Path) {
+        let inbox = dir.join("inbox");
+        for e in std::fs::read_dir(inbox.join("active")).into_iter().flatten().flatten() {
+            let _ = std::fs::rename(e.path(), inbox.join(e.file_name()));
+        }
     }
 
     /// Runs one challenger through the gate and promotes it if it wins.
@@ -445,7 +488,10 @@ impl League {
             .filter(|g| family(&g.params, g.program.as_ref()) == fam)
             .map(|g| (g.id.clone(), g.params.clone()))
             .collect();
-        let (origin, note, mut params, parents, program, arena) = match Self::take_submission(dir) {
+        let champion_label = self.champion().label.clone();
+        let taken = self.take_submission(dir);
+        let active = taken.as_ref().map(|(_, p)| p.clone());
+        let (origin, note, mut params, parents, program, arena, label) = match taken.map(|(s, _)| s) {
             Some(s) => {
                 let parents = s.parents.unwrap_or_else(|| {
                     if family(&s.params, s.program.as_ref()) == fam {
@@ -454,7 +500,7 @@ impl League {
                         vec![]
                     }
                 });
-                (s.origin, s.note, s.params, parents, s.program, s.arena)
+                (s.origin, s.note, s.params, parents, s.program, s.arena, s.label)
             }
             None if partners.len() >= 2 && rng.chance(0.2) => {
                 let (other, other_params) = partners[rng.below(partners.len())].clone();
@@ -468,11 +514,12 @@ impl League {
                     vec![champion.id.clone(), other],
                     champion.program.clone(),
                     None,
+                    champion_label.clone(),
                 )
             }
             None => {
                 let child = self.screened(&champion, n, &mut rng, |rng| mutate::mutate(&champion.params, rng))?;
-                ("mutation".into(), None, child, vec![champion.id.clone()], champion.program.clone(), None)
+                ("mutation".into(), None, child, vec![champion.id.clone()], champion.program.clone(), None, champion_label.clone())
             }
         };
         fill_knobs(&mut params, program.as_ref())?;
@@ -482,7 +529,18 @@ impl League {
             program,
         };
         let seed_base = 10_000_000 + n * 1000;
-        let (result, logs) = gate(&challenger, &champion, &self.pool(), seed_base, &self.gate_config)?;
+        let (result, logs) = match gate(&challenger, &champion, &self.pool(), seed_base, &self.gate_config) {
+            Ok(r) => r,
+            Err(e) => {
+                // A submission that can't play is set aside instead of retried forever.
+                if let Some(p) = &active {
+                    let failed = dir.join("inbox").join("failed");
+                    let _ = std::fs::create_dir_all(&failed);
+                    let _ = std::fs::rename(p, failed.join(p.file_name().unwrap()));
+                }
+                return Err(format!("{origin} challenger couldn't play: {e}"));
+            }
+        };
         self.play_secs += result.secs;
         self.record_games(dir, &logs)?;
         let changes = if family(&challenger.params, challenger.program.as_ref()) == fam {
@@ -506,7 +564,11 @@ impl League {
             self.elo.insert(id.clone(), elo);
             self.generations.push(Generation {
                 gen,
-                name: lineage_name(gen, &challenger.params, &origin, &parents),
+                name: match &label {
+                    Some(base) => lineage_name_as(base, gen, &origin, &parents),
+                    None => lineage_name(gen, &challenger.params, &origin, &parents),
+                },
+                label: label.clone(),
                 id,
                 parents,
                 beat: Some(champion.id.clone()),
@@ -542,6 +604,9 @@ impl League {
         }
         self.attempts_total = n;
         self.save(dir)?;
+        if let Some(p) = active {
+            let _ = std::fs::rename(&p, dir.join("inbox").join("done").join(p.file_name().unwrap()));
+        }
         Ok(attempt)
     }
 }
@@ -569,7 +634,8 @@ fn plays_like(a: &Entrant, b: &Entrant, pool: &[Entrant], seed: u64) -> Result<b
 
 /// Multiplayer Elo: every pair of seats with different identities is a head-to-head
 /// result (lower 8-player placement wins), scaled by K/(N-1); an identity with several
-/// seats moves by the average of its seats.
+/// seats moves by the average of its seats. Games that ended before the cutoff count
+/// [`ENDED_WEIGHT`] times.
 pub fn apply_elo(elo: &mut BTreeMap<String, f64>, log: &GameLog) {
     let n = log.ids.len();
     if n < 2 {
@@ -594,7 +660,8 @@ pub fn apply_elo(elo: &mut BTreeMap<String, f64>, log: &GameLog) {
             d += actual - expected;
         }
         let e = delta.entry(&log.ids[i]).or_insert((0.0, 0));
-        e.0 += K / (n - 1) as f64 * d;
+        let k = if log.closer.is_some() { K * ENDED_WEIGHT } else { K };
+        e.0 += k / (n - 1) as f64 * d;
         e.1 += 1;
     }
     for (id, (sum, seats)) in delta {

@@ -86,6 +86,8 @@ pub struct Predator {
     name: String,
     k: Knobs,
     rules: RulesConfig,
+    /// Chance (milli) an attacker wins an exchange this tick; rises in overtime.
+    win: u32,
     radius: i32,
     seen: Vec<Option<Seen>>,
     own: Vec<bool>,
@@ -104,6 +106,7 @@ impl Predator {
             name: style.id.clone(),
             k: Knobs::from(&style),
             rules: RulesConfig::default(),
+            win: RulesConfig::default().attacker_exchange_win_milli,
             radius: 0,
             seen: vec![],
             own: vec![],
@@ -191,7 +194,7 @@ impl Predator {
             .max(1);
         let per_win = (1_000_000 + d / 2) / d;
         let wins = (def as u64 * 1000).div_ceil(per_win) as f64;
-        let p = self.rules.attacker_exchange_win_milli as f64 / 1000.0;
+        let p = self.win as f64 / 1000.0;
         (wins * (1.0 - p) / p, (wins * (1.0 - p)).sqrt() / p)
     }
 
@@ -409,6 +412,7 @@ impl Bot for Predator {
     }
 
     fn act(&mut self, view: &View) -> PlayerCommand {
+        self.win = self.rules.attacker_win_milli(view.tick);
         self.remember(view);
         let me = view.you;
         let mine: Vec<(Hex, u32)> = view

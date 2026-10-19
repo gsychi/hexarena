@@ -1,8 +1,8 @@
 export const BUILDING_STYLE = [
-  { name: 'Farm', color: '#86e36a', light: '#c8f6b4', ink: '#0f2a0a', desc: 'Valley extractor. Links to up to 3 adjacent Villages.' },
-  { name: 'Village', color: '#ffb35c', light: '#ffdcae', ink: '#3a1d02', desc: 'Makes 2 troops/tick, or 3 when a Farm supports it.' },
-  { name: 'Quarry', color: '#5cc8f2', light: '#b9eafc', ink: '#062436', desc: 'Hill extractor. Adjacent builds cost 25% fewer troops and 1 less Resource.' },
-  { name: 'Wall', color: '#d5d9e1', light: '#ffffff', ink: '#1a1d24', desc: 'Defense 2.0x, 2.5x with one linked Wall, 3.0x with two.' },
+  { name: 'Farm', color: '#86e36a', light: '#c8f6b4', ink: '#0f2a0a', desc: 'Valleys only, 50 troops. Makes nothing itself: each of up to 3 adjacent Villages it supports makes +1 troop/tick.' },
+  { name: 'Village', color: '#ffb35c', light: '#ffdcae', ink: '#3a1d02', desc: '75 troops. Its hex makes 2 troops/tick, or 3 when a Farm supports it.' },
+  { name: 'Quarry', color: '#5cc8f2', light: '#b9eafc', ink: '#062436', desc: 'Hills only, 50 troops. Makes nothing itself: Farms, Villages and Walls built right next to it cost 25% fewer troops (Village 57, Farm 38, Wall 25).' },
+  { name: 'Wall', color: '#d5d9e1', light: '#ffffff', ink: '#1a1d24', desc: '33 troops. Defense 2.0x, 2.5x with one linked Wall, 3.0x with two.' },
 ] as const
 
 export interface Pips { filled: number; total: number; color: string }
