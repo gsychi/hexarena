@@ -106,3 +106,28 @@ Quarry first lost tempo; and minimum-safe overtime attacks threw armies away.
 Sparse interleaved Quarry rosettes produced the best cutoff land, while late
 contact Walls plus a reachable-rival focus produced the fastest finish.
 
+## Arena-only process: Marmot children
+
+The league and gates were removed. Before this round the active Snowshoe roster
+was reduced to four distinct controls: v1 (Walls), v27 (Quarry economy), v30
+(compact lattice), and v43 (Quarry/Wall closer). Their lineage metadata was set
+to `ridgeline`, v26, v29, and v38+v37 respectively.
+
+Replay study found two very different winning shapes. Pangolin v18 conquered
+m02279 at tick 8511 with 202 builds and 4,117 captures. Burrow v6 conquered
+m02282 at tick 3215 with 181 builds and long-range bank routing. Snowshoe v30
+won m02048 only at cutoff with 27 builds, 1,661 captures, 301 land, and 2.14M
+troops. It survives and moves continuously, but needs more productive depth.
+
+Three children were tested in mirrored 24-pair evaluations:
+
+| Candidate | Change from v30 | Gain vs v30 | Gain vs Pangolin v18 | Decision |
+|---|---|---:|---:|---|
+| v44 — Marmot Rampart | Add up to 40 contact Walls after tick 1500. | -0.108 ± 0.122 | -1.661 ± 0.192 | Do not publish |
+| v45 — Marmot Pursuit | Preserve economy; focus a reachable rival from tick 4500. | -0.183 ± 0.156 | -1.651 ± 0.212 | Do not publish |
+| v46 — Marmot Borough | Double to a 54-building lattice, two rings deep. | +0.160 ± 0.122 | -1.351 ± 0.164 | Publish |
+
+The focused closer produced more local closes but lost placement overall.
+Bounded economic scale was the only child to beat its v30 parent and also
+narrowed the gap to the arena leader.
+

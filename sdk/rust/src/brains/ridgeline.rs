@@ -152,6 +152,8 @@ struct Knobs {
     max_villages: usize,
     max_quarries: usize,
     max_walls: usize,
+    /// Walls wait for the economy and territorial opening even when other builds start early.
+    wall_start: u32,
     lifetime_build_cap: usize,
     wall_enemy_only: bool,
     /// Score penalty per hex of distance from the board centre when building.
@@ -235,6 +237,7 @@ impl Knobs {
             max_villages: k("max_villages", 5) as usize,
             max_quarries: k("max_quarries", 1) as usize,
             max_walls: k("max_walls", 5) as usize,
+            wall_start: k("wall_start", 0) as u32,
             lifetime_build_cap: k("lifetime_build_cap", 0) as usize,
             wall_enemy_only: k("wall_enemy_only", 0) > 0,
             build_center: k("build_center", 0),
@@ -825,7 +828,7 @@ impl Ridgeline {
                             || counts[2] == 0
                             || counts[1] >= counts[2] * self.k.villages_per_quarry)
                 }
-                Building::Wall => counts[3] < self.k.max_walls,
+                Building::Wall => view.tick >= self.k.wall_start && counts[3] < self.k.max_walls,
             };
             if !under_kind_cap {
                 continue;
