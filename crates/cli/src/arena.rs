@@ -3,6 +3,7 @@
 use crate::league::read_params;
 use hexarena_arena::entrants::{load_all, publish, retire, Entrant};
 use hexarena_league::now_ms;
+use hexarena_protocol::RulesConfig;
 use hexarena_sdk::BotParams;
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -73,5 +74,22 @@ fn publish_cmd(f: &HashMap<String, String>) -> Result<(), String> {
         e.author,
         e.program.map(|p| format!(", played by {}", p.exe)).unwrap_or_default()
     );
+    print_briefing(&dir(f));
     Ok(())
+}
+
+/// Live rules and the newest lead notes, so an author publishing mid-run hears about
+/// rule changes without having to go and read the lab notebook.
+fn print_briefing(dir: &std::path::Path) {
+    println!("live rules: {}", RulesConfig::default().version);
+    let Ok(text) = std::fs::read_to_string(dir.join("observations.jsonl")) else { return };
+    let lead: Vec<serde_json::Value> = text
+        .lines()
+        .filter_map(|l| serde_json::from_str::<serde_json::Value>(l).ok())
+        .filter(|n| n["author"].as_str().is_some_and(|a| a == "agent:lead"))
+        .collect();
+    for n in lead.iter().rev().take(2).rev() {
+        println!("lab notebook, agent:lead: {}", n["text"].as_str().unwrap_or_default());
+    }
+    println!("read every note with: curl -s http://127.0.0.1:47240/api/observations");
 }

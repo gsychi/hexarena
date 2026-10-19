@@ -102,8 +102,10 @@ fn hex_count_formula() {
 #[test]
 fn radius_scaling() {
     let r = RulesConfig::default();
-    assert_eq!(r.radius_for_players(4), 15);
-    assert_eq!(r.radius_for_players(8), 21);
+    let radii: Vec<i32> = (2..=8).map(|n| r.radius_for_players(n)).collect();
+    assert_eq!(radii, vec![11, 12, 13, 14, 14, 15, 16]);
+    let v05 = RulesConfig { map_radius_factor: 7.5, map_radius_exponent: 0.5, ..r };
+    assert_eq!((v05.radius_for_players(4), v05.radius_for_players(8)), (15, 21));
 }
 
 #[test]
@@ -190,8 +192,17 @@ fn eight_player_map_scale() {
         .iter()
         .filter(|&&h| passable(&board, &m.terrain, h))
         .count();
-    assert!((1300..=1500).contains(&total), "{total}");
-    assert!((1000..=1250).contains(&open), "{open}");
+    assert_eq!(total, 817);
+    assert!((600..=700).contains(&open), "{open}");
+}
+
+#[test]
+fn compact_boards_still_fit_every_lobby_size() {
+    for players in 2..=8u16 {
+        for seed in 0..40u64 {
+            generate(&settings(players, seed)).unwrap_or_else(|e| panic!("{players}p seed {seed}: {e}"));
+        }
+    }
 }
 
 #[test]
@@ -720,6 +731,32 @@ fn every_adjacent_farm_boosts_a_village_without_links() {
             &ManagementCommand::SetFarmLink { farm, village: v, enabled: true }
         )
         .is_err());
+}
+
+#[test]
+fn an_adjacent_quarry_boosts_a_village_alongside_its_farms() {
+    let mut st = state(2, 21);
+    clear_owners(&mut st);
+    let v = interior_open(&st);
+    set(&mut st, v, Some(0), 1);
+    put_building(&mut st, v, Building::Village);
+    let f = faraway(&st, v);
+    set(&mut st, f, Some(1), 3);
+    st.tick = 1;
+    let quarry = v.add(HEX_DIRECTIONS[0]);
+    set(&mut st, quarry, Some(0), 1);
+    put_building(&mut st, quarry, Building::Quarry);
+    assert_eq!(st.income(v), 3);
+    assert_eq!(st.building_links(quarry), vec![v]);
+    let farm = v.add(HEX_DIRECTIONS[1]);
+    set(&mut st, farm, Some(0), 1);
+    put_building(&mut st, farm, Building::Farm);
+    assert_eq!(st.income(v), 4);
+    set(&mut st, quarry, Some(1), 1);
+    assert_eq!(st.income(v), 3, "an enemy Quarry boosts nothing");
+    st.settings.rules.quarry.village_bonus = 0;
+    set(&mut st, quarry, Some(0), 1);
+    assert_eq!(st.income(v), 3, "rules without the Quarry bonus");
 }
 
 #[test]

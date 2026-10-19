@@ -3,6 +3,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import type { Leaderboard, LeaderboardRow } from './api'
+import { BotAvatar } from './BotAvatar'
 
 function Sparkline({ values, start }: { values: number[]; start: number }) {
   const w = 96, h = 26
@@ -31,14 +32,20 @@ function Change({ d }: { d: number }) {
 
 const medal = ['text-amber-300', 'text-zinc-300', 'text-orange-400']
 
-function Row({ r, start, retired, need }: { r: LeaderboardRow; start: number; retired?: string; need: number }) {
+function speed(ms: number) {
+  return ms.toFixed(ms < 1 ? 3 : 2)
+}
+
+function Row({ r, start, retired, need, onBot }: { r: LeaderboardRow; start: number; retired?: string; need: number; onBot: (id: string) => void }) {
   return (
     <TableRow className="hover:bg-muted/30">
       <TableCell className="w-10 text-center font-semibold tabular-nums">
         {r.rank <= 3 ? <Trophy className={`mx-auto size-4 ${medal[r.rank - 1]}`} /> : r.rank}
       </TableCell>
       <TableCell className="font-medium">
-        <span className={retired ? 'text-muted-foreground' : ''}>{r.name}</span>
+        <button type="button" onClick={() => onBot(r.bot)} className={`cursor-pointer text-left hover:underline hover:underline-offset-4 ${retired ? 'text-muted-foreground' : ''}`} title="Open profile">
+          <span className="inline-flex items-center gap-2"><BotAvatar id={r.bot} name={r.name} size={24} className="shrink-0" />{r.name}</span>
+        </button>
         {retired && <span className="ml-1.5 text-[10px] uppercase tracking-wide text-red-300" title={retired}>retired</span>}
         {!r.rated && <span className="ml-1.5 text-[10px] uppercase tracking-wide text-amber-300" title={`Rating still settling: ${r.games} of ${need} games`}>provisional</span>}
       </TableCell>
@@ -55,6 +62,9 @@ function Row({ r, start, retired, need }: { r: LeaderboardRow; start: number; re
       <TableCell className="text-right tabular-nums">{Math.round(r.win_rate * 100)}%</TableCell>
       <TableCell className="text-right tabular-nums">{Math.round(r.top_half_rate * 100)}%</TableCell>
       <TableCell className="hidden text-right tabular-nums sm:table-cell">{r.avp8.toFixed(2)}<span className="ml-1 text-xs text-muted-foreground">±{r.avp8_se.toFixed(2)}</span></TableCell>
+      <TableCell className="hidden text-right tabular-nums xl:table-cell">
+        {r.ms_per_move != null ? <>{speed(r.ms_per_move)}{r.ms_per_move_ci95 != null && <span className="ml-1 text-xs text-muted-foreground">±{speed(r.ms_per_move_ci95)}</span>}</> : <span className="text-muted-foreground">—</span>}
+      </TableCell>
       <TableCell className="hidden w-36 lg:table-cell">
         <div className="flex items-center gap-2">
           <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-muted"><div className="h-full rounded-full bg-foreground" style={{ width: `${r.avg_normalized * 100}%` }} /></div>
@@ -65,13 +75,13 @@ function Row({ r, start, retired, need }: { r: LeaderboardRow; start: number; re
   )
 }
 
-export function Standings({ board }: { board: Leaderboard | null }) {
+export function Standings({ board, onBot }: { board: Leaderboard | null; onBot: (id: string) => void }) {
   return (
     <Card>
       <CardHeader>
         <CardTitle className="flex items-center gap-2"><Trophy className="size-4 text-amber-300" />Standings</CardTitle>
         <CardDescription>
-          Elo rating for each CPU style across {board?.games ?? 0} finished game{board?.games === 1 ? '' : 's'} under rules {board?.rules_version ?? 'v0.5'}. Everyone starts at {board?.start_elo ?? 1500}.
+          Elo rating for each CPU style across {board?.games ?? 0} finished game{board?.games === 1 ? '' : 's'} under rules {board?.rules_version ?? 'v0.6'}. Everyone starts at {board?.start_elo ?? 1500}.
           Each free-for-all counts as a head-to-head result between every pair of players, where the better place wins, and ratings update after every game (K = {board?.k ?? 32}). Win % and top half % are per seat; top half means finishing in the top half of the lobby (1st–2nd of 4, 1st–3rd of 6).
           A rating is <span className="text-amber-300">provisional</span> until the bot has played {board?.rated_games ?? 50} games: one 8-player result swings by about two places, so it takes about 50 to pin the average place down to ±0.3. The arena schedules the bots with the fewest games first, and a bot's first 20 games move its Elo three times as far.
           Any rated bot outside the top {board?.top ?? 20} is retired from the self-playing arena and the league's sparring seats (the league champion excepted) and leaves this table{board?.retired_bots?.length ? ` (${board.retired_bots.length} retired so far)` : ''}. Retired bots stay playable from the lineup picker.
@@ -99,11 +109,17 @@ export function Standings({ board }: { board: Leaderboard | null }) {
                     <TooltipContent className="max-w-64">Average placement scored as if every game had 8 players: 1st is 1, last is 8, so 2nd of 4 counts as 3.33. Lower is better. ± is one standard error.</TooltipContent>
                   </Tooltip>
                 </TableHead>
+                <TableHead className="hidden text-right xl:table-cell">
+                  <Tooltip>
+                    <TooltipTrigger render={<span className="cursor-help underline decoration-dotted underline-offset-4" />}>ms/move</TooltipTrigger>
+                    <TooltipContent className="max-w-64">Average time the bot takes to decide one move, in milliseconds: the mean of its per-game averages. ± is the 95% confidence interval across games (Student t). Timed on the arena server while other games run, so compare bots with each other rather than read it as an absolute.</TooltipContent>
+                  </Tooltip>
+                </TableHead>
                 <TableHead className="hidden lg:table-cell">Placement score</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
-              {board.bots.map((r) => <Row key={r.bot} r={r} start={board.start_elo} retired={board.retired?.[r.bot]} need={board.rated_games ?? 50} />)}
+              {board.bots.map((r) => <Row key={r.bot} r={r} start={board.start_elo} retired={board.retired?.[r.bot]} need={board.rated_games ?? 50} onBot={onBot} />)}
             </TableBody>
           </Table>
         )}

@@ -378,8 +378,13 @@ impl Expander {
         }
         for off in 0..kinds.len() {
             let kind = kinds[(self.next_kind + off) % kinds.len()];
-            let next_to_farm =
-                |c: &&&VisibleHex| mine.iter().any(|f| f.hex.distance(c.hex) == 1 && is_kind(f, Building::Farm));
+            let quarries_boost = self.rules.quarry.village_bonus > 0;
+            let next_to_booster = |c: &&&VisibleHex| {
+                mine.iter().any(|f| {
+                    f.hex.distance(c.hex) == 1
+                        && (is_kind(f, Building::Farm) || quarries_boost && is_kind(f, Building::Quarry))
+                })
+            };
             let site = |c: &&&VisibleHex| {
                 let h = Self::height(view, c.hex);
                 if !self.rules.terrain_allowed(kind, h) {
@@ -398,7 +403,8 @@ impl Expander {
                         .any(|o| o.hex == *n && o.owner != Some(view.you))
                 });
                 match kind {
-                    // Anywhere off the border pays for itself; a Farm next door adds +1.
+                    // Anywhere off the border pays for itself; each Farm (and Quarry, when
+                    // Quarries boost Villages) next door adds more.
                     Building::Village => !border,
                     Building::Quarry => !mine.iter().any(|q| {
                         q.hex.distance(c.hex) < self.rules.quarry.min_friendly_distance
@@ -410,7 +416,7 @@ impl Expander {
             };
             let empty = || mine.iter().filter(|c| c.building.is_none());
             let at = match kind {
-                Building::Village => empty().filter(site).find(next_to_farm).or_else(|| empty().find(site)),
+                Building::Village => empty().filter(site).find(next_to_booster).or_else(|| empty().find(site)),
                 _ => empty().find(site),
             };
             if let Some(c) = at {

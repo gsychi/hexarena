@@ -86,10 +86,12 @@ pub fn play_lobby(seed: u64, seats: &[Entrant]) -> Result<GameLog, String> {
 
 /// Plays every lobby on all cores, returning logs in input order.
 pub fn play_all(lobbies: &[(u64, Vec<Entrant>)]) -> Result<Vec<GameLog>, String> {
-    let threads = std::thread::available_parallelism()
-        .map(|n| n.get())
+    let threads = std::env::var("HEXARENA_LEAGUE_THREADS")
+        .ok()
+        .and_then(|v| v.parse::<usize>().ok())
+        .or_else(|| std::thread::available_parallelism().map(|n| n.get()).ok())
         .unwrap_or(2)
-        .min(lobbies.len().max(1));
+        .clamp(1, lobbies.len().max(1));
     let next = AtomicUsize::new(0);
     let out: Mutex<Vec<Option<Result<GameLog, String>>>> =
         Mutex::new(vec![None; lobbies.len()]);

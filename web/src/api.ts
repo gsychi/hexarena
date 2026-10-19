@@ -64,8 +64,43 @@ export interface LeaderboardRow {
   rated: boolean
   avg_normalized: number
   history: number[]
+  /** Average decision time per move (mean of per-game averages), when timed. */
+  ms_per_move?: number | null
+  /** Half-width of the 95% confidence interval of ms_per_move. */
+  ms_per_move_ci95?: number | null
+  /** Slowest single move in any timed game. */
+  slowest_ms?: number | null
+  timed_games?: number
 }
 export interface Leaderboard { games: number; rules_version: string; start_elo: number; k: number; top?: number; rated_games?: number; retired?: Record<string, string>; bots: LeaderboardRow[]; retired_bots?: LeaderboardRow[] }
+
+export interface ProfileGame {
+  id: string
+  created_at: number
+  rules_version: string
+  status: MatchStatus
+  ending: Ending | null
+  final_tick: number | null
+  players: number
+  winner: string | null
+  auto: boolean
+  place_start: number | null
+  place_end: number | null
+  ms_per_move: number | null
+  opponents: string[]
+}
+
+export interface EloCurve { rules_version: string; games: number; elo: number; peak_elo: number; points: [number, number][] }
+
+export interface BotProfile {
+  bot: BotInfo & { brain?: string; created_at?: number }
+  rules_version: string
+  start_elo: number
+  rated_games: number
+  standing: { rank: number | null; row: LeaderboardRow } | null
+  curves: EloCurve[]
+  games: ProfileGame[]
+}
 
 export interface ArenaEntrant {
   id: string
@@ -157,7 +192,11 @@ async function json<T>(res: Response): Promise<T> {
 
 export const api = {
   bots: () => fetch('/api/bots').then((r) => json<BotInfo[]>(r)),
+  profile: (id: string) => fetch(`/api/bots/${encodeURIComponent(id)}/profile`).then((r) => json<BotProfile>(r)),
   matches: () => fetch('/api/matches').then((r) => json<MatchSummary[]>(r)),
+  /** The newest `limit` games plus how many games there are in all. */
+  recentMatches: (limit: number) =>
+    fetch(`/api/matches?limit=${limit}`).then(async (r) => ({ games: await json<MatchSummary[]>(r), total: Number(r.headers.get('x-total-count') ?? 0) })),
   match: (id: string) => fetch(`/api/matches/${id}`).then((r) => json<MatchSummary>(r)),
   leaderboard: () => fetch('/api/leaderboard').then((r) => json<Leaderboard>(r)),
   league: () => fetch('/api/league').then((r) => json<League>(r)),
