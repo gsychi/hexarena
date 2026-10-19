@@ -6,6 +6,8 @@ export interface BotInfo {
   /** Arena entrants only: who published the version. */
   author?: string
   own_build?: boolean
+  /** Why it was retired from the arena; retired bots stay playable. */
+  retired?: string | null
 }
 
 export interface Seat { bot: string; name: string }
@@ -59,7 +61,7 @@ export interface LeaderboardRow {
   avg_normalized: number
   history: number[]
 }
-export interface Leaderboard { games: number; rules_version: string; start_elo: number; k: number; top?: number; bots: LeaderboardRow[] }
+export interface Leaderboard { games: number; rules_version: string; start_elo: number; k: number; top?: number; retired?: Record<string, string>; bots: LeaderboardRow[] }
 
 export interface ArenaEntrant {
   id: string
@@ -75,7 +77,7 @@ export interface ArenaEntrant {
 }
 
 /** The self-playing arena: published bot versions and the retirement rule. */
-export interface ArenaInfo { autoplay: boolean; top: number; trial_games: number; entrants: ArenaEntrant[] }
+export interface ArenaInfo { autoplay: boolean; top: number; trial_games: number; entrants: ArenaEntrant[]; retired: Record<string, string> }
 
 export interface CreateMatch { bots: string[]; seed?: number; count: number }
 

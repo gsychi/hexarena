@@ -8,7 +8,8 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 
 const USAGE: &str = "usage: hexarena league <run|eval|submit|show> [--dir data/league]
-  run    [--attempts N]                          keep evolving (forever by default)
+  run    [--attempts N] [--arena data/arena]     keep evolving (forever by default); bots
+         retired from the arena are left out of the sparring seats
   eval   --params cand.json [--against base.json] [--pairs N] [--seed S]
          gate a genome against the champion on fixed seeds without changing the league
   submit --params cand.json --origin agent:NAME [--note TEXT] [--parents g3,g1]
@@ -50,7 +51,11 @@ fn run(f: &HashMap<String, String>) -> Result<(), String> {
         league.champion().id,
         league.champion().benchmark.avp
     );
+    let arena = PathBuf::from(
+        f.get("arena").cloned().or_else(|| std::env::var("HEXARENA_ARENA").ok()).unwrap_or_else(|| "data/arena".into()),
+    );
     for _ in 0..limit {
+        league.retired = hexarena_arena::entrants::retired_ids(&arena);
         let a = league.attempt(&dir)?;
         let verdict = match a.became {
             Some(g) => format!("PROMOTED → g{g} (benchmark AVP {:.2})", league.champion().benchmark.avp),

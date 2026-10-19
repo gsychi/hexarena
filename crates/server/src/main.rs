@@ -346,7 +346,8 @@ fn launch(app: &Shared, styles: &[Style], seed: u64, auto: bool) -> Summary {
 }
 
 /// Seats for the next self-play game: the active entrants with the fewest arena games
-/// (up to [`AUTOPLAY_ENTRANTS`]), the league champion, then roster CPUs, in seed order.
+/// (up to [`AUTOPLAY_ENTRANTS`]), the league champion, then bots drawn from the rest of
+/// the active field (roster CPUs and league generations that aren't retired), in seed order.
 fn autoplay_lineup(app: &AppState, catalog: &Catalog, seed: u64) -> Vec<Style> {
     let mut played: BTreeMap<String, usize> = BTreeMap::new();
     for m in app.matches.lock().unwrap().values() {
@@ -369,13 +370,17 @@ fn autoplay_lineup(app: &AppState, catalog: &Catalog, seed: u64) -> Vec<Style> {
         rng ^= rng << 17;
         rng
     };
-    let mut roster = hexarena_sdk::roster();
-    while seats.len() < MAX_PLAYERS {
-        if roster.is_empty() {
-            roster = hexarena_sdk::roster();
+    let field = catalog.active_field();
+    let mut pool: Vec<Style> = vec![];
+    while seats.len() < MAX_PLAYERS && !field.is_empty() {
+        if pool.is_empty() {
+            pool = field.iter().filter(|s| seats.iter().all(|t| t.id != s.id)).cloned().collect();
+            if pool.is_empty() {
+                pool = field.clone();
+            }
         }
-        let pick = (next() % roster.len() as u64) as usize;
-        seats.push(roster.swap_remove(pick));
+        let pick = (next() % pool.len() as u64) as usize;
+        seats.push(pool.swap_remove(pick));
     }
     for i in (1..seats.len()).rev() {
         seats.swap(i, (next() % (i as u64 + 1)) as usize);
@@ -417,7 +422,13 @@ async fn arena_info(State(app): State<Shared>) -> Json<serde_json::Value> {
             })
         })
         .collect();
-    Json(serde_json::json!({ "autoplay": app.autoplay, "top": ACTIVE_TOP, "trial_games": TRIAL_GAMES, "entrants": entrants }))
+    Json(serde_json::json!({
+        "autoplay": app.autoplay,
+        "top": ACTIVE_TOP,
+        "trial_games": TRIAL_GAMES,
+        "entrants": entrants,
+        "retired": catalog.retired_reasons(),
+    }))
 }
 
 async fn one(State(app): State<Shared>, Path(id): Path<String>) -> Response {
@@ -476,6 +487,7 @@ async fn leaderboard(State(app): State<Shared>, Query(q): Query<BoardQuery>) -> 
         "start_elo": START_ELO,
         "k": K,
         "top": ACTIVE_TOP,
+        "retired": catalog.retired_reasons(),
         "bots": board.rows,
     }))
 }
@@ -547,14 +559,18 @@ fn board(app: &AppState, catalog: &Catalog, source: Source) -> Board {
     Board { games: games.len(), arena_games, league_games, rows }
 }
 
-/// Retires arena entrants that have had a fair trial and sit outside the top
-/// [`ACTIVE_TOP`] of the overall standings.
+/// Retires every bot that has had a fair trial and sits outside the top [`ACTIVE_TOP`]
+/// of the overall standings: arena entrants, roster CPUs and league generations. The
+/// current league champion stays, since it is the bar everything else is measured by.
 fn retire_outside_top(app: &AppState, catalog: &Catalog) {
     let rows = board(app, catalog, Source::All).rows;
     let cut = rows.get(ACTIVE_TOP - 1).map(|r| r.elo);
-    for e in catalog.active_entrants() {
-        let Some(row) = rows.iter().find(|r| r.bot == e.id) else { continue };
+    let champion = catalog.league.as_ref().map(|l| l.champion().id.clone());
+    for row in &rows {
         if row.games < TRIAL_GAMES || row.rank as usize <= ACTIVE_TOP {
+            continue;
+        }
+        if Some(&row.bot) == champion.as_ref() || catalog.retired.contains(&row.bot) {
             continue;
         }
         let reason = format!(
@@ -564,9 +580,14 @@ fn retire_outside_top(app: &AppState, catalog: &Catalog) {
             row.games,
             cut.unwrap_or(row.elo)
         );
-        match hexarena_arena::entrants::retire(&app.arena_dir, &e.id, Some(reason.clone())) {
-            Ok(_) => println!("retired {}: {reason}", e.id),
-            Err(err) => eprintln!("couldn't retire {}: {err}", e.id),
+        let done = if catalog.entrants.iter().any(|e| e.id == row.bot) {
+            hexarena_arena::entrants::retire(&app.arena_dir, &row.bot, Some(reason.clone())).map(drop)
+        } else {
+            hexarena_arena::entrants::retire_other(&app.arena_dir, &row.bot, reason.clone(), now_ms())
+        };
+        match done {
+            Ok(()) => println!("retired {}: {reason}", row.bot),
+            Err(err) => eprintln!("couldn't retire {}: {err}", row.bot),
         }
     }
 }

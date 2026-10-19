@@ -5,7 +5,7 @@ import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectSeparator, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
 import type { BotInfo, Leaderboard, MatchStatus, MatchSummary } from './api'
 import { api } from './api'
@@ -50,6 +50,12 @@ function StatusBadge({ status }: { status: MatchStatus }) {
   }
 }
 
+const BOT_GROUPS: [NonNullable<BotInfo['kind']>, string][] = [
+  ['roster', 'Roster CPUs'],
+  ['league', 'League generations'],
+  ['entrant', 'Arena versions (agents and people)'],
+]
+
 export function Home({ onOpen, onLeague }: { onOpen: (id: string) => void; onLeague: () => void }) {
   const [bots, setBots] = useState<BotInfo[]>([])
   const [matches, setMatches] = useState<MatchSummary[] | null>(null)
@@ -80,7 +86,9 @@ export function Home({ onOpen, onLeague }: { onOpen: (id: string) => void; onLea
   }, [running, refresh])
 
   const setPlayers = (n: number) => setLineup((l) => Array.from({ length: n }, (_, i) => l[i] ?? DEFAULT_LINEUP[i % DEFAULT_LINEUP.length]))
-  const randomize = () => setLineup((l) => l.map(() => bots[Math.floor(Math.random() * bots.length)]?.id ?? 'expander'))
+  const active = bots.filter((b) => !b.retired)
+  const randomize = () => setLineup((l) => l.map(() => active[Math.floor(Math.random() * active.length)]?.id ?? 'expander'))
+  const groups = BOT_GROUPS.map(([kind, title]) => [title, bots.filter((b) => (b.kind ?? 'roster') === kind)] as const).filter(([, list]) => list.length > 0)
 
   const create = async () => {
     setCreating(true); setCreateError(null)
@@ -144,7 +152,7 @@ export function Home({ onOpen, onLeague }: { onOpen: (id: string) => void; onLea
             <div className="space-y-2">
               <div className="flex items-center justify-between">
                 <Label>Lineup</Label>
-                <Button variant="ghost" size="xs" onClick={randomize} disabled={bots.length === 0}><Shuffle />Randomize</Button>
+                <Button variant="ghost" size="xs" onClick={randomize} disabled={active.length === 0} title="Random bots that aren't retired"><Shuffle />Randomize</Button>
               </div>
               <div className="space-y-1.5">
                 {lineup.map((id, i) => (
@@ -154,14 +162,24 @@ export function Home({ onOpen, onLeague }: { onOpen: (id: string) => void; onLea
                     <Select value={id} onValueChange={(v) => v && setLineup((l) => l.map((x, j) => (j === i ? String(v) : x)))}
                       items={bots.map((b) => ({ value: b.id, label: b.name }))}>
                       <SelectTrigger size="sm" className="flex-1"><SelectValue /></SelectTrigger>
-                      <SelectContent>
-                        {bots.map((b) => (
-                          <SelectItem key={b.id} value={b.id}>
-                            <div className="flex flex-col">
-                              <span>{b.name}{b.kind === 'entrant' && <span className="ml-1.5 text-[10px] uppercase tracking-wide text-violet-300">trial · {b.author}</span>}</span>
-                              <span className="text-[11px] text-muted-foreground">{b.blurb}</span>
-                            </div>
-                          </SelectItem>
+                      <SelectContent className="max-h-[22rem]">
+                        {groups.map(([title, list], gi) => (
+                          <SelectGroup key={title}>
+                            {gi > 0 && <SelectSeparator />}
+                            <SelectLabel>{title}</SelectLabel>
+                            {list.map((b) => (
+                              <SelectItem key={b.id} value={b.id}>
+                                <div className={`flex flex-col ${b.retired ? 'opacity-60' : ''}`}>
+                                  <span>
+                                    {b.name}
+                                    {b.kind === 'entrant' && <span className="ml-1.5 text-[10px] uppercase tracking-wide text-violet-300">{b.author}</span>}
+                                    {b.retired && <span className="ml-1.5 text-[10px] uppercase tracking-wide text-red-300">retired</span>}
+                                  </span>
+                                  <span className="text-[11px] text-muted-foreground">{b.retired ?? b.blurb}</span>
+                                </div>
+                              </SelectItem>
+                            ))}
+                          </SelectGroup>
                         ))}
                       </SelectContent>
                     </Select>

@@ -16,7 +16,7 @@ use hexarena_protocol::RulesConfig;
 use hexarena_sdk::{brains, roster, BotParams};
 use rng::Rng;
 use serde::{Deserialize, Serialize};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -112,6 +112,9 @@ pub struct League {
     /// The opponents the stored benchmarks were played against.
     #[serde(default)]
     pub benchmark_roster: Vec<String>,
+    /// Bots retired from the arena (`g1`, `raider`), left out of the sparring pool.
+    #[serde(skip)]
+    pub retired: BTreeSet<String>,
 }
 
 pub fn now_ms() -> u64 {
@@ -221,6 +224,7 @@ impl League {
             play_secs: 0.0,
             elo: BTreeMap::new(),
             benchmark_roster: BENCHMARK_ROSTER.iter().map(|s| s.to_string()).collect(),
+            retired: BTreeSet::new(),
         };
         league.record_games(dir, &logs)?;
         league.save(dir)?;
@@ -285,9 +289,19 @@ impl League {
     }
 
     /// Opponents for the two open seats of a gate lobby: up to the 8 most recent earlier
-    /// champions plus the original roster, so a challenger can't win by exploiting the
-    /// current champion alone.
+    /// champions plus the roster, so a challenger can't win by exploiting the current
+    /// champion alone. Retired bots are left out unless that would leave fewer than two.
     pub fn pool(&self) -> Vec<Entrant> {
+        let all = self.full_pool();
+        let active: Vec<Entrant> = all
+            .iter()
+            .filter(|e| !self.retired.contains(e.id.strip_prefix("r-").unwrap_or(&e.id)))
+            .cloned()
+            .collect();
+        if active.len() >= 2 { active } else { all }
+    }
+
+    fn full_pool(&self) -> Vec<Entrant> {
         let earlier = self.generations.len().saturating_sub(1);
         let mut pool: Vec<Entrant> = self.generations[earlier.saturating_sub(8)..earlier]
             .iter()
