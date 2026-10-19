@@ -33,6 +33,9 @@ pub struct GameLog {
     pub seed: u64,
     pub ids: Vec<String>,
     pub avp: Vec<f64>,
+    /// When the game finished (ms since the epoch); 0 in logs written before it was recorded.
+    #[serde(default)]
+    pub at: u64,
 }
 
 pub fn play_lobby(seed: u64, seats: &[Entrant]) -> Result<GameLog, String> {
@@ -54,6 +57,7 @@ pub fn play_lobby(seed: u64, seats: &[Entrant]) -> Result<GameLog, String> {
         seed,
         ids: seats.iter().map(|e| e.id.clone()).collect(),
         avp,
+        at: crate::now_ms(),
     })
 }
 

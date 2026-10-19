@@ -1,7 +1,7 @@
 //! Hexarena game server: creates CPU matches on the authoritative engine, stores
 //! replays on disk, and serves match summaries, viewer documents and a leaderboard.
 
-use axum::extract::{Path, State};
+use axum::extract::{Path, Query, State};
 use axum::http::{header, StatusCode};
 use axum::response::{IntoResponse, Response};
 use axum::routing::get;
@@ -95,6 +95,7 @@ struct AppState {
     dir: PathBuf,
     league_dir: PathBuf,
     matches: Mutex<BTreeMap<String, Summary>>,
+    league_games: Mutex<league::LeagueGames>,
     next_id: Mutex<u64>,
     workers: Semaphore,
 }
@@ -160,6 +161,7 @@ impl AppState {
             dir,
             league_dir,
             matches: Mutex::new(matches),
+            league_games: Mutex::new(league::LeagueGames::default()),
             next_id: Mutex::new(next),
             workers: Semaphore::new(workers),
         }
@@ -347,20 +349,44 @@ async fn replay(State(app): State<Shared>, Path(id): Path<String>) -> Response {
     artifact(app, id, "replay").await
 }
 
+/// Which finished games the standings count.
+#[derive(Deserialize, Clone, Copy, Default, PartialEq)]
+#[serde(rename_all = "lowercase")]
+enum Source {
+    #[default]
+    All,
+    Arena,
+    League,
+}
+
+#[derive(Deserialize)]
+struct BoardQuery {
+    #[serde(default)]
+    source: Source,
+}
+
 /// Standings only count games played under the current rules, since the rules and
-/// the CPUs change together.
-async fn leaderboard(State(app): State<Shared>) -> Json<serde_json::Value> {
+/// the CPUs change together. Arena games are the ones created here; league games are
+/// the league's 8-player lobbies, where generations and roster CPUs are rated and
+/// one-off challengers are left out.
+async fn leaderboard(State(app): State<Shared>, Query(q): Query<BoardQuery>) -> Json<serde_json::Value> {
     let rules = RulesConfig::default().version;
+    let current = league::load(&app.league_dir);
     let matches = app.matches.lock().unwrap();
     let mut done: Vec<&Summary> = matches
         .values()
         .filter(|m| m.status == Status::Done && m.rules_version == rules)
         .collect();
     done.sort_by(|a, b| a.created_at.cmp(&b.created_at).then(a.id.cmp(&b.id)));
-    let games: Vec<Vec<SeatResult>> = done
-        .iter()
-        .map(|m| {
-            m.standings
+    let mut cache = app.league_games.lock().unwrap();
+    cache.refresh(&app.league_dir);
+    let league_current = current.as_ref().is_some_and(|l| l.rules_version == rules);
+
+    let mut games: Vec<(u64, Vec<SeatResult>)> = vec![];
+    if q.source != Source::League {
+        games.extend(done.iter().map(|m| {
+            let seats = m
+                .standings
                 .iter()
                 .map(|s| SeatResult {
                     bot: &s.bot,
@@ -369,13 +395,41 @@ async fn leaderboard(State(app): State<Shared>) -> Json<serde_json::Value> {
                     won: s.place_start == 1 && s.place_end == 1,
                     players: m.standings.len(),
                 })
-                .collect()
-        })
-        .collect();
-    let current = league::load(&app.league_dir);
+                .collect();
+            (m.created_at, seats)
+        }));
+    }
+    let arena_games = if q.source == Source::League { 0 } else { done.len() };
+    let mut league_games = 0;
+    if q.source != Source::Arena && league_current {
+        let names = &cache.names;
+        league_games = cache.games.len();
+        games.extend(cache.games.iter().map(|g| {
+            let n = g.players as f64;
+            let seats = g
+                .seats
+                .iter()
+                .map(|&(i, avp)| {
+                    let place = 1.0 + (avp - 1.0) * (n - 1.0) / 7.0;
+                    SeatResult {
+                        bot: &names[i],
+                        place,
+                        normalized: (n - place) / (n - 1.0),
+                        won: place == 1.0,
+                        players: g.players,
+                    }
+                })
+                .collect();
+            (g.at, seats)
+        }));
+    }
+    games.sort_by_key(|(at, _)| *at);
+    let games: Vec<Vec<SeatResult>> = games.into_iter().map(|(_, g)| g).collect();
     let rows = standings(&games, |id| league::display_name(id, current.as_ref()));
     Json(serde_json::json!({
-        "games": done.len(),
+        "games": games.len(),
+        "arena_games": arena_games,
+        "league_games": league_games,
         "rules_version": rules,
         "start_elo": START_ELO,
         "k": K,

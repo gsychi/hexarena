@@ -350,6 +350,7 @@ mod tests {
             seed: 0,
             ids: vec!["a".into(), "b".into(), "c".into()],
             avp: vec![1.0, 4.5, 8.0],
+            at: 0,
         };
         apply_elo(&mut elo, &log);
         assert!(elo["a"] > START_ELO && elo["c"] < START_ELO);
