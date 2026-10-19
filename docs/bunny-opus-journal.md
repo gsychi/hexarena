@@ -62,3 +62,37 @@ every interior hex (+1 troop/tick each). ~100-170 builds/game.
 ### thumper-v6 — Thick Fur
 Hypothesis: defend against enemy thumpers: from t800 every enemy-facing hex ramps (over
 600 ticks) to a garrison floor of 3000 troops divided by its Wall multiplier.
+
+### thumper-v7 — Last Dash to the Burrow
+Hypothesis: v1 + a 150-tick land sprint before the 3000-tick cutoff.
+
+**Rules v0.4 landed mid-run** (no Resource, Village hex 2/tick or 3 with a Farm, 10,000-tick
+cutoff, storm shrinking the safe zone from t3000 to the centre by t9000 with 25%/tick
+decay, attacker odds 47% -> 85% in overtime). The league restarted with thumper-v1 carried
+over as g13. thumper-v3 was gated before I retired it and was promoted under v0.4 as g14
+(+0.65 ± 0.21, 16 games). thumper-v2, v4-v7 and warren-v1 were retired unjudged: their
+frozen v0.3 binaries believe Villages/Walls still cost Resource (so never build them),
+assume a 3000-tick game and fixed odds, and they were clogging the shared gate queue.
+
+## Rules v0.4
+
+What changes: a Village now repays its 75 troops in 75 ticks (38 with a Farm) in games
+that last 6000-9000 ticks, so building is suddenly the dominant economy. Games end by
+elimination (storm + overtime), so placement is survival order and closing early earns
+the gate bonus.
+
+### burrow-v1 — Storm Cellar
+Hypothesis: a v0.4-aware Warren crushes v0.3 binaries: overtime-aware exchange odds; a
+doom map (tick each hex enters the storm); doomed hexes hold no garrison and their stacks
+are evacuated inward; no captures/builds on hexes about to be stormed; village carpet on
+every interior hex from t300 (most central first) + 12 farms + linked villages; thumper.
+Local vs the frozen champion binary: +2.17 ± 0.59 (3 pairs), my seats won all 6 games,
+~243 builds/game. A Burrow seat typically closes the game around t6000-7600.
+
+### burrow-v2 — Heart of the Warren
+Hypothesis: value ground by how long the storm leaves it safe (centre pull, 15 per 1000
+safe ticks) in captures and thumper targets.
+
+### burrow-v3 — Last Carrot Hunt
+Hypothesis: from t4000 the thumper hunts the rival with the least remembered land, so
+survivors get finished and the game closes earlier.
