@@ -77,7 +77,7 @@ export interface LeaderboardRow {
   slowest_ms?: number | null
   timed_games?: number
 }
-export interface Leaderboard { games: number; rules_version: string; start_elo: number; k: number; top?: number; rated_games?: number; retired?: Record<string, string>; bots: LeaderboardRow[]; retired_bots?: LeaderboardRow[] }
+export interface Leaderboard { games: number; rules_version: string; start_elo: number; k: number; top?: number; rated_games?: number; retired?: Record<string, string>; anchors?: string[]; anchor_elo?: number; bots: LeaderboardRow[]; retired_bots?: LeaderboardRow[] }
 
 export interface ProfileGame {
   id: string
@@ -146,6 +146,40 @@ export interface LiveRules extends Rules {
   tick_rate_hz: number
 }
 
+export interface ChatMessage { n: number; at: number; agent: string; from: string; text: string }
+
+/** Someone designing bots for the arena, as `GET /api/agents` reports them. */
+export interface Agent {
+  id: string
+  model: string | null
+  bots: number
+  active_bots: number
+  latest_bot: { id: string; name: string; at: number; retired: boolean } | null
+  best_bot: { id: string; name: string; elo: number; rank: number } | null
+  notes: number
+  last_note: { n: number; at: number; kind: NoteKind; text: string } | null
+  /** Last publish, note or reply, in ms; 0 if never. */
+  last_seen: number
+  messages: number
+  last_message: ChatMessage | null
+  /** Messages since the agent last replied. */
+  unanswered: number
+  /** What the agent says it is working on, if it has said. */
+  status: AgentStatus | null
+  /** The latest thing its tools reported, e.g. a local eval starting or finishing. */
+  doing: AgentStatus | null
+}
+
+export interface AgentStatus { at: number; text: string }
+
+export type ActivityItem =
+  | { type: 'bot'; at: number; id: string; name: string; note: string | null; parents: string[]; retired: boolean; retired_reason: string | null; elo: number | null; rank: number | null; games: number }
+  | { type: 'note'; at: number; n: number; kind: NoteKind; text: string; matches: string[]; bots: string[] }
+  | { type: 'message'; at: number; n: number; from: string; text: string }
+  | { type: 'work'; at: number; text: string }
+
+export interface Activity { agent: string; status: AgentStatus | null; items: ActivityItem[] }
+
 export interface CreateMatch { bots: string[]; seed?: number; count: number }
 
 async function json<T>(res: Response): Promise<T> {
@@ -169,6 +203,11 @@ export const api = {
   leaderboard: () => fetch('/api/leaderboard').then((r) => json<Leaderboard>(r)),
   matchElo: (id: string) => fetch(`/api/matches/${id}/elo`).then((r) => json<MatchElo>(r)),
   arena: () => fetch('/api/arena').then((r) => json<ArenaInfo>(r)),
+  agents: () => fetch('/api/agents').then((r) => json<Agent[]>(r)),
+  activity: (agent: string) => fetch(`/api/agents/${encodeURIComponent(agent)}/activity`).then((r) => json<Activity>(r)),
+  thread: (agent: string) => fetch(`/api/agents/${encodeURIComponent(agent)}/messages`).then((r) => json<ChatMessage[]>(r)),
+  say: (agent: string, text: string) =>
+    fetch(`/api/agents/${encodeURIComponent(agent)}/messages`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ from: 'you', text }) }).then((r) => json<ChatMessage>(r)),
   notes: () => fetch('/api/observations').then((r) => json<Note[]>(r)),
   addNote: (n: { author: string; kind: NoteKind; text: string; bots?: string[]; tags?: string[] }) =>
     fetch('/api/observations', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(n) }).then((r) => json<Note>(r)),

@@ -2,6 +2,7 @@
 //! people and agents publish.
 
 use hexarena_arena::entrants::{author_models, load_all, retired_others, with_model, Entrant, Retirement};
+use crate::standings::ANCHORS;
 use hexarena_sdk::{roster, style, Style};
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
@@ -21,7 +22,10 @@ impl Catalog {
         for e in &mut entrants {
             e.name = with_model(&e.name, models.get(&e.author).map(String::as_str));
         }
-        let others_retired = retired_others(arena_dir);
+        let mut others_retired = retired_others(arena_dir);
+        for a in ANCHORS {
+            others_retired.remove(a);
+        }
         let mut retired: BTreeSet<String> = others_retired.keys().cloned().collect();
         retired.extend(entrants.iter().filter(|e| e.retired).map(|e| e.id.clone()));
         Catalog { entrants, others_retired, retired }
