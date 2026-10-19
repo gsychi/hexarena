@@ -724,3 +724,10 @@ exists, and retains extra source troops when a third party touches the launch he
   immediately undoing each focused capture.
 - Economy: 120-site deep lattice, 24 late Walls, delayed three-survivor finisher.
 - Result and replay lesson: pending 50-game sample.
+
+### weasel-v1 — Weasel
+
+- Hypothesis: a low-action Village bank leaves enough tactical turns for a guarded
+  four-survivor lock, testing whether focused cleanup needs Farm-scale income at all.
+- Economy: 36 Villages, 16 early Walls, balanced four-survivor finisher.
+- Result and replay lesson: pending 50-game sample.
