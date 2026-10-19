@@ -658,3 +658,10 @@ unfinished. Batch 7 limits Walls to 16–30 and varies economy scale and timing.
   Walls, allowing a 64-site lattice to complete and reducing defensive NoOps.
 - Economy: medium lattice through tick 4000, 24 early Walls, balanced Relay.
 - Result and replay lesson: pending 50-game sample.
+
+### badger-v2 — Badger
+
+- Hypothesis: late fortification preserves early compounding tempo: complete most of an
+  80-site lattice before spending a 24-Wall budget to ratchet a higher-forward push.
+- Economy: larger lattice through tick 4300, Walls only after tick 3200, aggressive Relay.
+- Result and replay lesson: pending 50-game sample.
