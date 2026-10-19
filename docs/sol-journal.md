@@ -259,8 +259,10 @@ losses gather 800–2,100 times after a front becomes unaffordable.
   encirclement rule. The v14 pursuit core now prices every predicted surrendered hex at 220
   points and starts hunting at tick 1500.
 - Published params: `docs/arena-genomes/mosaic-v18.json`.
-- Result: pending live arena trial.
-- Replay lesson: pending.
+- Result after 25 games: Elo 1577, AVP8 5.00, win rate 20.0%, top-half 40.0%.
+- Replay lesson: enclosure created wins but also long stalls. A good replay surrendered 166
+  hexes; another loss relayed tiny stacks and NoOped 1,456 times. Paying 220 per enclosed
+  hex overcommitted routing to spectacular gaps that were not yet affordable.
 
 ## mosaic-v19 — Ambush Noose
 
@@ -270,8 +272,10 @@ losses gather 800–2,100 times after a front becomes unaffordable.
 - Change: a 320-point eight-tick counterattack window on observed departures of 45+ troops,
   plus enclosure rollout and moderately liquid capture splits.
 - Published params: `docs/arena-genomes/mosaic-v19.json`.
-- Result: pending live arena trial.
-- Replay lesson: pending.
+- Result after 24 games: Elo 1445, AVP8 6.67, win rate 0.0%, top-half 16.7%.
+- Replay lesson: vacated-source bonuses distracted the noose from durable captures. It could
+  produce 178 surrender hexes and still finish seventh; transient tactical bargains are not
+  a substitute for maintaining land in this stronger field.
 
 ## mosaic-v20 — Lean Noose
 
@@ -281,5 +285,29 @@ losses gather 800–2,100 times after a front becomes unaffordable.
 - Change: early largest-player switch, low closeout margin, aggressive forwarding, and
   enclosure scoring on the proven smallest-rival rollout policy.
 - Published params: `docs/arena-genomes/mosaic-v20.json`.
+- Result after 24 games: Elo 1732, AVP8 4.00, win rate 20.8%, top-half 58.3%.
+- Replay lesson: round 2 breakthrough and rank 5 at this snapshot. Lean reserves and high
+  forwarding generated six wins, including 394 land, while moderate enclosure pricing
+  produced 35–85 surrendered hexes in inspected wins. All still ended at tick 3000.
+
+## mosaic-v21 — Reachable Executioner
+
+- Hypothesis: the nominally smallest survivor may be across the map while another can be
+  eliminated immediately. Rank finish targets by remembered land divided by current attack
+  contacts, then apply a much larger elimination bounty to the most reachable victim.
+- Change: new closeout target model counts owned launch pads touching each rival and favors
+  low-land, high-contact survivors; starts execution mode at tick 1350 or six survivors.
+- Published params: `docs/arena-genomes/mosaic-v21.json`.
+- Result: pending live arena trial.
+- Replay lesson: pending.
+
+## mosaic-v22 — Army Disarmer
+
+- Hypothesis: land alone misstates elimination cost. Hunting the rival with the smallest
+  remembered total army should remove an action economy with fewer combat losses, after
+  which surrender routing can consume its remaining territory.
+- Change: alternative finisher target model ranks every living rival by remembered troops,
+  then land; otherwise retains v20's lean relays, continuation rollout, and enclosure model.
+- Published params: `docs/arena-genomes/mosaic-v22.json`.
 - Result: pending live arena trial.
 - Replay lesson: pending.

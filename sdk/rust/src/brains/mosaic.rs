@@ -44,6 +44,7 @@ struct Knobs {
     finish_alive: usize,
     finish_ratio_pct: i64,
     finish_bonus: i64,
+    finish_target_mode: i64,
     hunt_value: i64,
     lookahead_value: i64,
     enclose_value: i64,
@@ -87,6 +88,7 @@ impl Knobs {
             finish_alive: k("finish_alive", 4).max(1) as usize,
             finish_ratio_pct: k("finish_ratio_pct", 110).max(100),
             finish_bonus: k("finish_bonus", 0),
+            finish_target_mode: k("finish_target_mode", 0),
             hunt_value: k("hunt_value", 0),
             lookahead_value: k("lookahead_value", 0),
             enclose_value: k("enclose_value", 0),
@@ -408,10 +410,34 @@ impl Mosaic {
             .iter()
             .filter(|player| player.alive && player.id != view.you)
             .min_by_key(|player| {
-                (
-                    land.get(player.id as usize).copied().unwrap_or(0),
-                    player.id,
-                )
+                let remembered = land.get(player.id as usize).copied().unwrap_or(0);
+                let contact = self
+                    .seen
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, cell)| {
+                        cell.as_ref().and_then(|cell| cell.owner) == Some(player.id)
+                    })
+                    .filter(|(i, _)| self.neighbors[*i].iter().any(|&n| self.own[n]))
+                    .count() as i64;
+                let troops = self
+                    .seen
+                    .iter()
+                    .flatten()
+                    .filter(|cell| cell.owner == Some(player.id))
+                    .map(|cell| cell.troops as i64)
+                    .sum::<i64>();
+                match self.k.finish_target_mode {
+                    // Prefer a small rival we can attack from several pads right now.
+                    1 => (
+                        remembered.max(1) * 100 / (contact + 1),
+                        remembered,
+                        player.id,
+                    ),
+                    // Prefer the smallest remembered army, then its land.
+                    2 => (troops.max(1), remembered, player.id),
+                    _ => (remembered, remembered, player.id),
+                }
             })
             .map(|player| player.id);
         let ours = land.get(me).copied().unwrap_or(0);
