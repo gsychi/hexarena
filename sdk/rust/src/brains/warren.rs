@@ -198,6 +198,8 @@ struct BuildKnobs {
     village_life: u32,
     /// Plain Villages may also go on enemy-facing hexes.
     carpet_border: bool,
+    /// Capture score per 1000 safe ticks a target has left (0 = off).
+    centre: i64,
 }
 
 impl BuildKnobs {
@@ -225,6 +227,7 @@ impl BuildKnobs {
             cap_life: k("cap_life", 0) as u32,
             village_life: k("village_life", 0) as u32,
             carpet_border: k("carpet_border", 0) > 0,
+            centre: k("centre", 0),
         }
     }
 }
@@ -251,6 +254,10 @@ struct StrikeKnobs {
     /// Score per own neighbour of a thumper target, and per exposed one.
     hug: i64,
     open: i64,
+    /// From this tick the thumper hunts the rival with the least known land (0 = never)...
+    hunt_from: u32,
+    /// ...with this score bonus for its hexes.
+    hunt: i64,
 }
 
 impl StrikeKnobs {
@@ -267,6 +274,8 @@ impl StrikeKnobs {
             rally: k("rally", 0) > 0,
             hug: k("strike_hug", 0),
             open: k("strike_open", 0),
+            hunt_from: k("hunt_from", 0) as u32,
+            hunt: k("hunt", 0),
         }
     }
 }
@@ -285,6 +294,8 @@ pub struct Warren {
     tick: u32,
     /// Chance (milli) an attacker wins an exchange this tick; rises in overtime.
     win: u32,
+    /// The rival the thumper is finishing off.
+    prey: Option<PlayerId>,
     /// Tick each slot first lies in the storm (u32::MAX = never).
     doom: Vec<u32>,
     /// Border hex the feed builds up until it can breach, while no thumper is out.
@@ -309,6 +320,7 @@ impl Warren {
             tick: 0,
             win: RulesConfig::default().attacker_exchange_win_milli,
             doom: vec![],
+            prey: None,
             rally: None,
         }
     }
@@ -376,6 +388,31 @@ impl Warren {
         }
         let (troops, s, d) = best?;
         Some(Action::Move { from: geo.hexes[s], to: geo.hexes[d], troops: troops - 1 })
+    }
+
+    /// Score for ground the storm reaches late, per 1000 safe ticks left.
+    fn centre_value(&self, i: usize) -> i64 {
+        if self.b.centre == 0 {
+            return 0;
+        }
+        self.b.centre * self.life(i).min(10_000) as i64 / 1000
+    }
+
+    /// The living rival we remember the least land of.
+    fn find_prey(&self, view: &View) -> Option<PlayerId> {
+        let mut land = vec![0u32; view.public_players.len()];
+        for c in self.seen.iter().flatten() {
+            if let Some(o) = c.owner.filter(|&o| o != view.you) {
+                if let Some(l) = land.get_mut(o as usize) {
+                    *l += 1;
+                }
+            }
+        }
+        view.public_players
+            .iter()
+            .filter(|p| p.alive && p.id != view.you && land[p.id as usize] > 0)
+            .min_by_key(|p| (land[p.id as usize], p.id))
+            .map(|p| p.id)
     }
 
     fn troops_at(&self, i: usize) -> u64 {
@@ -528,6 +565,8 @@ impl Warren {
                 + enemy * (self.k.enemy + self.s.depth * depth + self.k.enclose * self.enclosure_gain(geo, t, me))
                 + self.s.hug * hugged
                 - self.s.open * exposed
+                + self.centre_value(t)
+                + if tc.owner.is_some() && tc.owner == self.prey { self.s.hunt } else { 0 }
                 - (mean / 1000) as i64 * 100 / (have as i64 / 100).max(1);
             if best.map_or(true, |b| (score, std::cmp::Reverse(t)) > (b.0, std::cmp::Reverse(b.1))) {
                 best = Some((score, t, send));
@@ -551,7 +590,10 @@ impl Warren {
                     let defense = self.defense(geo, c, t, tc.wall_milli) as u32;
                     let (mean, sd) = self.loss_stats(tc.troops, defense);
                     let need = (mean + sd * self.k.sure_x10 / 10).div_ceil(1000) + 1;
-                    let cost = need + dist[c] as u64 * have / 50;
+                    let mut cost = need + dist[c] as u64 * have / 50;
+                    if self.s.hunt > 0 && tc.owner == self.prey {
+                        cost /= 2;
+                    }
                     if need * 2 < have && pad.map_or(true, |p| cost < p.0) {
                         pad = Some((cost, c));
                     }
@@ -1060,6 +1102,7 @@ impl Warren {
             gain += self.k.enemy + self.k.enclose * self.enclosure_gain(geo, t, me);
         }
         gain += self.k.hug * hugged - self.k.open * exposed + self.k.height * geo.height[t] as i64;
+        gain += self.centre_value(t);
         if let Some(seal) = seal {
             gain += self.k.seal * seal.cuts[t] as i64;
             if seal.pocket[t] {
@@ -1232,6 +1275,9 @@ impl Bot for Warren {
         let weak_capture = capture.map_or(true, |c| c.score < self.k.min_score + self.b.preempt_below);
         let build = (!sprinting && weak_capture && staging.is_none())
             .then(|| self.build(view, &geo))
+            .flatten();
+        self.prey = (self.s.hunt_from > 0 && view.tick >= self.s.hunt_from)
+            .then(|| self.find_prey(view))
             .flatten();
         let flee = self.flee(&geo, me, &mine);
         let strike = if flee.is_some() { None } else { self.strike(&geo, me, &mine, view.tick) };

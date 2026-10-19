@@ -31,7 +31,7 @@ fn genome(path: &str, id: &str) -> Style {
     if !path.ends_with(".json") {
         let l = hexarena_league::League::load(std::path::Path::new("/workspace/data/league")).expect("league");
         let g = l.generations.iter().find(|g| g.id == path).expect("generation");
-        return Style { id: id.into(), name: id.into(), blurb: String::new(), params: g.params.clone(), program: None };
+        return Style { id: id.into(), name: id.into(), blurb: String::new(), params: g.params.clone(), program: g.program.clone() };
     }
     let p: BotParams = serde_json::from_slice(&std::fs::read(path).expect("genome file")).expect("genome json");
     Style { id: id.into(), name: id.into(), blurb: String::new(), params: p, program: None }
@@ -40,7 +40,7 @@ fn genome(path: &str, id: &str) -> Style {
 fn champion() -> Style {
     let l = hexarena_league::League::load(std::path::Path::new("/workspace/data/league")).expect("league");
     let g = l.champion();
-    Style { id: "champ".into(), name: "champ".into(), blurb: String::new(), params: g.params.clone(), program: None }
+    Style { id: "champ".into(), name: "champ".into(), blurb: String::new(), params: g.params.clone(), program: g.program.clone() }
 }
 
 struct Game {
@@ -60,7 +60,7 @@ fn main() {
     let spar: Vec<Style> = f
         .get("spar")
         .map(String::as_str)
-        .unwrap_or("g8,g10,g11,ridgeline")
+        .unwrap_or("ridgeline,relay,predator")
         .split(',')
         .map(|s| genome(s, s))
         .collect();
@@ -115,7 +115,7 @@ fn main() {
                         _ => {}
                     }
                 }
-                if r.final_tick < 3000 {
+                if r.final_tick < 10_000 {
                     g.closer = r.winner().map(|w| seats[w as usize].0.clone());
                 }
                 eprintln!(
@@ -131,7 +131,7 @@ fn main() {
         let v = if who == "me" { &g.me } else { &g.ch };
         let mut m = v.iter().map(|x| x.0).sum::<f64>() / v.len() as f64;
         if g.closer.as_deref() == Some(who) {
-            m -= 0.5 + (3000.0 - g.tick as f64) / 3000.0;
+            m -= 0.5 + (10_000.0 - g.tick as f64) / 10_000.0;
         }
         m
     };
