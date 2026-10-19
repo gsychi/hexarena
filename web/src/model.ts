@@ -310,7 +310,7 @@ export function buildPreview(rep: ViewerReplay, cells: Map<number, Cell>, idx: n
   if (!t || t.kind !== 'open') reason = 'impassable'
   else if (owner < 0) reason = 'not owned'
   else if (cell && cell.building > 0) reason = 'hex already has a building'
-  else if (kind === 1 && !r.farm.allowed_heights.includes(t.height)) reason = 'Farms need height −2 or −1'
+  else if (kind === 1 && !r.farm.allowed_heights.includes(t.height)) reason = 'no Farms on hills'
   else if (kind === 3 && !r.quarry.allowed_heights.includes(t.height)) reason = 'Quarries need height +1 or +2'
   else if (kind === 3 && near(r.quarry.min_friendly_distance - 1, 3, owner)) reason = `within ${r.quarry.min_friendly_distance - 1} hexes of your Quarry`
   return { kind, legal: reason === null, reason, baseTroops: rule.troop_cost, baseResource: rule.resource_cost, troops, resource, discounted: disc }

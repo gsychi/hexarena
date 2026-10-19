@@ -17,7 +17,7 @@ struct Gene {
 const GENES: &[Gene] = &[
     Gene { name: "attack_margin_pct", min: 100, max: 260, get: |p| p.attack_margin_pct as i64, set: |p, v| p.attack_margin_pct = v as u64 },
     Gene { name: "enemy_bonus", min: -40, max: 160, get: |p| p.enemy_bonus, set: |p, v| p.enemy_bonus = v },
-    Gene { name: "build_cap", min: 0, max: 30, get: |p| p.build_cap as i64, set: |p, v| p.build_cap = v as usize },
+    Gene { name: "build_cap", min: 0, max: 120, get: |p| p.build_cap as i64, set: |p, v| p.build_cap = v as usize },
     Gene { name: "build_every", min: 1, max: 60, get: |p| p.build_every as i64, set: |p, v| p.build_every = v as u32 },
     Gene { name: "gather_every", min: 1, max: 24, get: |p| p.gather_every as i64, set: |p, v| p.gather_every = v as u32 },
     Gene { name: "land_value", min: 0, max: 160, get: |p| p.land_value, set: |p, v| p.land_value = v },

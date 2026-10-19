@@ -702,7 +702,7 @@ fn build_rules_terrain_spacing_and_leave_one_troop() {
     set(&mut st, c, Some(0), 49);
     let f = faraway(&st, c);
     set(&mut st, f, Some(1), 3);
-    set_height(&mut st, c, 0);
+    set_height(&mut st, c, 1);
     st.step(&act(
         0,
         Action::Build {
@@ -712,8 +712,9 @@ fn build_rules_terrain_spacing_and_leave_one_troop() {
     ));
     assert!(
         st.cell(c).unwrap().building.is_none(),
-        "farm needs a valley"
+        "no farms on hills"
     );
+    assert!(RulesConfig::default().terrain_allowed(Building::Farm, 0), "plains are fine");
     set_height(&mut st, c, -1);
     st.step(&act(
         0,

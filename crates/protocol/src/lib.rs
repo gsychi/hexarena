@@ -260,7 +260,7 @@ fn is_zero(v: &u32) -> bool {
 impl Default for RulesConfig {
     fn default() -> Self {
         RulesConfig {
-            version: "v0.4".into(),
+            version: "v0.5".into(),
             min_players: 2,
             max_players: 8,
             map_radius_factor: 7.5,
@@ -292,7 +292,7 @@ impl Default for RulesConfig {
             farm: FarmRules {
                 troop_cost: 50,
                 resource_cost: 0,
-                allowed_heights: vec![-2, -1],
+                allowed_heights: vec![-2, -1, 0],
                 sockets: 3,
                 relink_cooldown: 10,
             },
@@ -569,6 +569,10 @@ pub struct View {
     /// [`RulesConfig::storm_radius`]); `None` while the whole board is safe.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub storm_radius: Option<i32>,
+    /// The match's rules, sent with the tick-0 view only. Bots should play by these
+    /// rather than the defaults they were compiled with.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rules: Option<RulesConfig>,
 }
 
 pub type FixedPoints = FixedScore;

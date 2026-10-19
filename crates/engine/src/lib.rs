@@ -1053,11 +1053,18 @@ impl State {
             public_terrain,
             visible_hexes,
             own_economy: PlayerEconomy {
-                resource: self.resources[player as usize],
+                // Bots frozen under Resource rules compare costs they compiled in against
+                // this balance, so a troops-only match reports it as unlimited.
+                resource: if self.rules().extractor_output == 0 {
+                    u32::MAX / 2
+                } else {
+                    self.resources[player as usize]
+                },
             },
             own_queue: vec![],
             visible_events,
             storm_radius: self.storm_radius(),
+            rules: (self.tick == 0).then(|| self.rules().clone()),
         }
     }
 
