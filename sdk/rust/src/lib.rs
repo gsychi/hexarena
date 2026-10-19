@@ -50,6 +50,18 @@ pub struct BotParams {
     pub settle_every: u32,
     /// Whether the army marches on the weakest rival.
     pub march: bool,
+    /// Scored building placement: score per ring of distance between a site and the
+    /// frontier. 0 keeps the first-legal-hex placement and disables the genes below.
+    pub site_safety: i64,
+    /// Scored placement: bonus per free Village slot around a Farm site (and per
+    /// unsupported Village it could feed).
+    pub pair_value: i64,
+    /// Scored placement: how far from the army a build kit may walk to reach a safer
+    /// site than any hex that can pay right now (0 = never walk).
+    pub kit_steps: u32,
+    /// Scored placement: when non-zero, a Village is tried before the cycle whenever
+    /// a supported slot and the Resource exist.
+    pub village_first: u32,
 }
 
 impl Default for BotParams {
@@ -68,6 +80,10 @@ impl Default for BotParams {
             grab_every: 3,
             settle_every: 2,
             march: true,
+            site_safety: 0,
+            pair_value: 0,
+            kit_steps: 0,
+            village_first: 0,
         }
     }
 }
@@ -159,6 +175,26 @@ pub struct Expander {
     staging: Option<Hex>,
     /// The opponent everyone should be finishing off; see [`Expander::focus`].
     focus_player: Option<PlayerId>,
+    /// Troops walking from the army to a planned building site.
+    kit: Option<Kit>,
+}
+
+#[derive(Clone, Copy)]
+struct Kit {
+    at: Hex,
+    site: Hex,
+    kind: Building,
+    started: u32,
+    from_cycle: Option<usize>,
+}
+
+/// Per-build-tick map of our land: how far each owned hex is from the frontier.
+struct LandMap {
+    owned: Vec<Option<usize>>,
+    /// Rings to the nearest owned hex touching unowned passable land (255 = unknown).
+    edge: Vec<u8>,
+    /// Rings to the nearest owned hex touching enemy land.
+    enemy: Vec<u8>,
 }
 
 impl Default for Expander {
@@ -221,6 +257,7 @@ impl Expander {
             last_build: 0,
             staging: None,
             focus_player: None,
+            kit: None,
         }
     }
 
@@ -268,7 +305,235 @@ impl Expander {
         out
     }
 
+    fn land_map(&self, view: &View, mine: &[&VisibleHex]) -> LandMap {
+        let n = self.seen.cells.len();
+        let mut owned = vec![None; n];
+        for (i, c) in mine.iter().enumerate() {
+            if let Some(s) = self.seen.slot(&c.hex) {
+                owned[s] = Some(i);
+            }
+        }
+        let bfs = |touches: &dyn Fn(Option<PlayerId>) -> bool| {
+            let mut dist = vec![u8::MAX; n];
+            let mut queue = VecDeque::new();
+            for c in mine {
+                let edge = c.hex.neighbors().iter().any(|nb| {
+                    terrain_at(view, *nb).is_some_and(|t| t.passable())
+                        && touches(self.seen.get(nb).and_then(|v| v.owner))
+                });
+                if edge {
+                    if let Some(s) = self.seen.slot(&c.hex) {
+                        dist[s] = 0;
+                        queue.push_back(c.hex);
+                    }
+                }
+            }
+            while let Some(h) = queue.pop_front() {
+                let d = dist[self.seen.slot(&h).unwrap()];
+                for nb in h.neighbors() {
+                    let Some(s) = self.seen.slot(&nb) else { continue };
+                    if owned[s].is_some() && dist[s] == u8::MAX {
+                        dist[s] = d.saturating_add(1);
+                        queue.push_back(nb);
+                    }
+                }
+            }
+            dist
+        };
+        let you = view.you;
+        let edge = bfs(&|o| o != Some(you));
+        let enemy = bfs(&|o| o.is_some_and(|o| o != you));
+        LandMap { owned, edge, enemy }
+    }
+
+    fn mine_at<'a>(&self, map: &LandMap, mine: &[&'a VisibleHex], h: Hex) -> Option<&'a VisibleHex> {
+        let s = self.seen.slot(&h)?;
+        map.owned[s].map(|i| mine[i])
+    }
+
+    fn near_quarry(&self, map: &LandMap, mine: &[&VisibleHex], h: Hex) -> bool {
+        h.neighbors()
+            .iter()
+            .any(|n| self.mine_at(map, mine, *n).is_some_and(|q| is_kind(q, Building::Quarry)))
+    }
+
+    /// Spare supported-Village slots on a Farm, counting Villages next to it that
+    /// management will link.
+    fn farm_spare(&self, map: &LandMap, mine: &[&VisibleHex], farm: &VisibleHex) -> i64 {
+        let Some(b) = farm.building.as_ref().filter(|b| b.kind == Building::Farm) else {
+            return 0;
+        };
+        let pending = farm
+            .hex
+            .neighbors()
+            .iter()
+            .filter_map(|n| self.mine_at(map, mine, *n))
+            .filter(|v| matches!(&v.building, Some(vb) if vb.kind == Building::Village && vb.links.is_empty()))
+            .count();
+        self.rules.farm.sockets as i64 - b.links.len() as i64 - pending as i64
+    }
+
+    /// Desirability of building `kind` on the empty owned hex `c`, ignoring whether it
+    /// can pay. `None` when the site is illegal or useless for that kind.
+    fn site_score(
+        &self,
+        view: &View,
+        map: &LandMap,
+        mine: &[&VisibleHex],
+        kind: Building,
+        c: &VisibleHex,
+    ) -> Option<i64> {
+        if c.building.is_some() || !self.rules.terrain_allowed(kind, Self::height(view, c.hex)) {
+            return None;
+        }
+        let s = self.seen.slot(&c.hex)?;
+        let (edge, enemy) = (map.edge[s].min(4) as i64, map.enemy[s].min(6) as i64);
+        let safety = self.p.site_safety * (2 * edge + enemy) / 2;
+        let discount = if kind != Building::Quarry && self.near_quarry(map, mine, c.hex) { 20 } else { 0 };
+        let neighbours = || c.hex.neighbors().into_iter().filter_map(|n| self.mine_at(map, mine, n));
+        match kind {
+            Building::Village => {
+                let fed = neighbours().any(|f| self.farm_spare(map, mine, f) > 0);
+                fed.then_some(safety + discount)
+            }
+            Building::Farm => {
+                let open = neighbours()
+                    .filter(|v| v.building.is_none() && map.edge[self.seen.slot(&v.hex).unwrap()] > 0)
+                    .count()
+                    .min(self.rules.farm.sockets as usize) as i64;
+                let hungry = neighbours()
+                    .filter(|v| matches!(&v.building, Some(b) if b.kind == Building::Village && b.links.is_empty()))
+                    .count() as i64;
+                Some(safety + discount + self.p.pair_value * (open + 2 * hungry))
+            }
+            Building::Quarry => {
+                let crowded = mine.iter().any(|q| {
+                    q.hex.distance(c.hex) < self.rules.quarry.min_friendly_distance
+                        && is_kind(q, Building::Quarry)
+                });
+                (!crowded).then_some(safety)
+            }
+            Building::Wall => {
+                if map.edge[s] != 0 {
+                    return None;
+                }
+                let threat: i64 = c
+                    .hex
+                    .neighbors()
+                    .iter()
+                    .filter_map(|n| self.seen.get(n))
+                    .filter(|v| v.owner.is_some_and(|o| o != view.you))
+                    .map(|v| 10 + v.troops.min(200) as i64 / 4)
+                    .sum();
+                let partners = neighbours().filter(|w| is_kind(w, Building::Wall)).count() as i64;
+                Some(discount + threat + self.p.pair_value * partners)
+            }
+        }
+    }
+
+    fn affordable(&self, view: &View, map: &LandMap, mine: &[&VisibleHex], kind: Building, c: &VisibleHex) -> bool {
+        let cost = self.rules.build_cost(kind, self.near_quarry(map, mine, c.hex));
+        view.own_economy.resource >= cost.resource && c.troops >= cost.troops + 1
+    }
+
+    fn placed(&mut self, view: &View, kind: Building, at: Hex, from_cycle: Option<usize>) -> Action {
+        if let Some(i) = from_cycle {
+            self.next_kind = (i + 1) % self.p.kinds.len();
+        }
+        self.last_build = view.tick;
+        self.kit = None;
+        Action::Build { at, building: kind }
+    }
+
+    /// Walks the build kit one hex toward its site, or builds once it arrives.
+    fn continue_kit(&mut self, view: &View, mine: &[&VisibleHex]) -> Option<Action> {
+        let kit = self.kit.take()?;
+        if view.tick > kit.started + 2 * self.p.kit_steps + 2 {
+            return None;
+        }
+        let map = self.land_map(view, mine);
+        let at = self.mine_at(&map, mine, kit.at)?;
+        let site = self.mine_at(&map, mine, kit.site)?;
+        self.site_score(view, &map, mine, kit.kind, site)?;
+        let cost = self.rules.build_cost(kit.kind, self.near_quarry(&map, mine, kit.site));
+        if kit.at == kit.site {
+            return self
+                .affordable(view, &map, mine, kit.kind, site)
+                .then(|| self.placed(view, kit.kind, kit.site, kit.from_cycle));
+        }
+        if view.own_economy.resource < cost.resource || at.troops < cost.troops + 2 {
+            return None;
+        }
+        let d = kit.at.distance(kit.site);
+        let next = kit.at.neighbors().into_iter().find(|n| {
+            n.distance(kit.site) < d && self.mine_at(&map, mine, *n).is_some()
+        })?;
+        self.kit = Some(Kit { at: next, ..kit });
+        Some(Action::Move { from: kit.at, to: next, troops: cost.troops + 1 })
+    }
+
+    fn smart_build(&mut self, view: &View, mine: &[&VisibleHex]) -> Option<Action> {
+        if self.kit.is_some() {
+            if let Some(a) = self.continue_kit(view, mine) {
+                return Some(a);
+            }
+        }
+        let buildings = mine.iter().filter(|c| c.building.is_some()).count();
+        if buildings >= self.p.build_cap || view.tick < self.last_build + self.p.build_every || self.p.kinds.is_empty() {
+            return None;
+        }
+        let map = self.land_map(view, mine);
+        let n = self.p.kinds.len();
+        let mut order: Vec<(Building, Option<usize>)> = vec![];
+        if self.p.village_first > 0 {
+            order.push((Building::Village, None));
+        }
+        order.extend((0..n).map(|off| {
+            let i = (self.next_kind + off) % n;
+            (self.p.kinds[i], Some(i))
+        }));
+        let army = mine.iter().copied().max_by_key(|c| (c.troops, std::cmp::Reverse(c.hex)));
+        let reach = self.p.kit_steps as i32;
+        for (kind, from_cycle) in order {
+            let mut paid: Option<(i64, Hex)> = None;
+            let mut walk: Option<(i64, Hex)> = None;
+            for c in mine {
+                let Some(score) = self.site_score(view, &map, mine, kind, c) else { continue };
+                if self.affordable(view, &map, mine, kind, c) {
+                    if paid.map_or(true, |(s, _)| score > s) {
+                        paid = Some((score, c.hex));
+                    }
+                } else if let Some(a) = army.filter(|a| reach > 0 && a.hex.distance(c.hex) <= reach) {
+                    let cost = self.rules.build_cost(kind, self.near_quarry(&map, mine, c.hex));
+                    let can_walk = view.own_economy.resource >= cost.resource
+                        && a.troops >= cost.troops + 2
+                        && map.edge[self.seen.slot(&c.hex).unwrap()] > 0;
+                    if can_walk && walk.map_or(true, |(s, _)| score > s) {
+                        walk = Some((score, c.hex));
+                    }
+                }
+            }
+            match (paid, walk, army) {
+                (_, Some((ws, site)), Some(a)) if paid.map_or(true, |(ps, _)| ws > ps) => {
+                    self.kit = Some(Kit { at: a.hex, site, kind, started: view.tick, from_cycle });
+                    if let Some(act) = self.continue_kit(view, mine) {
+                        return Some(act);
+                    }
+                    if let Some((_, at)) = paid {
+                        return Some(self.placed(view, kind, at, from_cycle));
+                    }
+                }
+                (Some((_, at)), _, _) => return Some(self.placed(view, kind, at, from_cycle)),
+                _ => {}
+            }
+        }
+        None
+    }
+
     fn build(&mut self, view: &View, mine: &[&VisibleHex]) -> Option<Action> {
+        if self.p.site_safety > 0 {
+            return self.smart_build(view, mine);
+        }
         let buildings = mine.iter().filter(|c| c.building.is_some()).count();
         if buildings >= self.p.build_cap || view.tick < self.last_build + self.p.build_every
         {
