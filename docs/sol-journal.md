@@ -702,3 +702,10 @@ exists, and retains extra source troops when a third party touches the launch he
   contact sequentially instead of spending the endgame in symmetric leader churn.
 - Economy: Badger-sized lattice, 24 late Walls, focused finisher from tick 4500.
 - Result and replay lesson: pending 50-game sample.
+
+### orca-v1 — Orca
+
+- Hypothesis: starting the lock with five survivors can accelerate cleanup safely if each
+  attack retains 45 troops against third parties and leaves a 30-troop capture garrison.
+- Economy: Mongoose's one-Quarry lattice and 20 Walls; conservative early finisher.
+- Result and replay lesson: pending 50-game sample.
