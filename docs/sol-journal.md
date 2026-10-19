@@ -534,4 +534,22 @@ path distance from foreign land rather than neighbour count.
 - Hypothesis: with fallback feeding available, a 160-build Quarry lattice can bank longer
   without wasting its output, then convert at tick 5500.
 - Economy: maximum depth-2 Quarry lattice and late aggression.
+- At 41 games: Elo 1455, AVP8 5.53 ± 0.35, one win.
+- Replay lesson: won m02045 with 5 Quarries, 67 Villages, 88 Farms, 9,840 moves,
+  3,416 captures, 497 surrenders and zero NoOps. The production and fallback routing
+  work; Mosaic's weak opening still makes the overall result poor.
+
+## Batch 5 — Relay economy graft
+
+Grazer delegates every non-build tick to the live-rule Relay brain. It only replaces a
+Relay move when a safe interior site can afford a geometry-aware build, preserving
+Relay's proven capture garrisons and spare-stack routing.
+
+### gazelle-v1 — Gazelle
+
+- Hypothesis: Relay's opening fixes Mosaic's dominant failure mode while an 80-site
+  depth-two Farm/Village lattice supplies enough late troops without consuming too much
+  expansion tempo.
+- Economy: balanced lattice from tick 550 to 4500; Gather disabled; standard Relay
+  capture margins with slightly stronger border safety.
 - Result and replay lesson: pending 50-game sample.

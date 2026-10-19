@@ -8,6 +8,7 @@
 //! [`BotParams::knob`]: crate::BotParams::knob
 
 pub mod bastion;
+pub mod grazer;
 pub mod mosaic;
 pub mod predator;
 pub mod relay;
@@ -28,6 +29,7 @@ pub const BRAINS: &[&str] = &[
     "relay",
     "predator",
     "ridgeline",
+    "grazer",
     "mosaic",
     "bastion",
 ];
@@ -40,6 +42,7 @@ pub fn build(style: Style) -> Result<Box<dyn Bot>, String> {
     match style.params.brain.as_str() {
         DEFAULT => Ok(Box::new(Expander::new(style))),
         "bastion" => Ok(Box::new(bastion::Bastion::new(style))),
+        "grazer" => Ok(Box::new(grazer::Grazer::new(style))),
         "mosaic" => Ok(Box::new(mosaic::Mosaic::new(style))),
         "relay" => Ok(Box::new(Settler::wrap(
             Box::new(relay::Relay::new(style.clone())),
