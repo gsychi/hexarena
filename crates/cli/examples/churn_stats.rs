@@ -19,6 +19,8 @@ fn main() {
     let mut lost = [0u64; BINS];
     let mut gathers = [0u64; BINS];
     let mut repelled = [0u64; BINS];
+    let mut internal = [0u64; BINS];
+    let mut noops = [0u64; BINS];
     let (mut lost_fresh, mut lost_total) = (0u64, 0u64);
     let mut lost_garrison_hist = [0u64; 8];
     let (mut recaps, mut caps_enemy_total) = (0u64, 0u64);
@@ -28,6 +30,8 @@ fn main() {
     let mut lost_def_height = std::collections::BTreeMap::<i8, u64>::new();
     let mut own_height = std::collections::BTreeMap::<i8, u64>::new();
     let mut src_left_frontier = (0u64, 0u64);
+    let mut lost_to = std::collections::BTreeMap::<String, u64>::new();
+    let mut caps_from = std::collections::BTreeMap::<String, u64>::new();
     for path in &paths {
         let replay: Replay = serde_json::from_slice(&std::fs::read(path).unwrap()).unwrap();
         let names: Vec<String> = replay.players.iter().map(|p| p.name.clone()).collect();
@@ -46,6 +50,11 @@ fn main() {
             for (p, cmd) in cmds {
                 if !mine[*p as usize] {
                     continue;
+                }
+                match &cmd.action {
+                    Action::Move { to, .. } if pre.cell(*to).is_some_and(|c| c.owner == Some(*p)) => internal[bin] += 1,
+                    Action::NoOp => noops[bin] += 1,
+                    _ => {}
                 }
                 if let Action::Gather { .. } = cmd.action {
                     gathers[bin] += 1;
@@ -86,7 +95,13 @@ fn main() {
                             }
                         }
                         if let Some(o) = previous_owner {
+                            if mine[*player as usize] {
+                                let k = names[*o as usize].split(' ').next().unwrap().to_string();
+                                *caps_from.entry(k).or_default() += 1;
+                            }
                             if mine[*o as usize] {
+                                let k = names[*player as usize].split(' ').next().unwrap().to_string();
+                                *lost_to.entry(k).or_default() += 1;
                                 lost[bin] += 1;
                                 lost_total += 1;
                                 lost_this_tick[*o as usize] += 1;
@@ -146,16 +161,18 @@ fn main() {
     }
     let s = seats as f64;
     println!("seats {seats}");
-    println!("bin(250t)  cap_neutral cap_enemy  lost  gathers repelled   (per seat)");
+    println!("bin(250t)  cap_neutral cap_enemy  lost  gathers repelled internal noop  (per seat)");
     for b in 0..BINS {
         println!(
-            "{:>5}  {:>8.1} {:>8.1} {:>8.1} {:>7.1} {:>7.1}",
+            "{:>5}  {:>8.1} {:>8.1} {:>8.1} {:>7.1} {:>7.1} {:>7.1} {:>7.1}",
             b * 250,
             cap_neutral[b] as f64 / s,
             cap_enemy[b] as f64 / s,
             lost[b] as f64 / s,
             gathers[b] as f64 / s,
-            repelled[b] as f64 / s
+            repelled[b] as f64 / s,
+            internal[b] as f64 / s,
+            noops[b] as f64 / s
         );
     }
     println!(
@@ -176,6 +193,8 @@ fn main() {
         gather_windows,
         loss_base as f64 / base_ticks.max(1) as f64
     );
+    println!("hexes lost to: {:?}", lost_to);
+    println!("enemy hexes captured from: {:?}", caps_from);
     println!(
         "source left on frontier after capture: {} times, avg troops left {:.1}",
         src_left_frontier.0,
