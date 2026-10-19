@@ -2,7 +2,7 @@ import { Eye, EyeOff, Maximize2, ZoomIn, ZoomOut } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { BUILDING_KEYS, HEIGHT_STYLE, HEX_DIRS, PLAYER_COLORS, PLAYER_MARKS, addHex, hexAt, hexIndex, onBoard } from './model'
+import { BUILDING_KEYS, HEIGHT_STYLE, HEX_DIRS, PLAYER_COLORS, PLAYER_MARKS, addHex, hexAt, hexDist, hexIndex, onBoard, stormFloor, stormRadius } from './model'
 import type { Cell, Hex, Rules, ViewerReplay } from './model'
 import { BUILDING_STYLE, drawBuilding, drawHeightMark, drawPlot } from './icons'
 import type { Pips } from './icons'
@@ -189,6 +189,8 @@ export function Board({ rep, cells, perspective, visible, selected, heightMode, 
     [rep, cells, selected, visible])
 
   const geo = useMemo(() => geometry(rep, all), [rep, all])
+  const floor = useMemo(() => stormFloor(rep), [rep])
+  const storm = stormRadius(rep.rules, tick, rep.radius, floor)
   const terrainLayer = useRef<{ key: string; canvas: HTMLCanvasElement } | null>(null)
 
   useEffect(() => {
@@ -229,6 +231,12 @@ export function Board({ rep, cells, perspective, visible, selected, heightMode, 
       ctx.beginPath()
       for (const idx of all) if (rep.terrain[idx]!.kind === 'open' && !visible.has(idx)) hexPoly(ctx, geo.x[idx], geo.y[idx], s)
       ctx.fillStyle = 'rgba(6,7,10,0.62)'; ctx.fill()
+    }
+
+    if (storm !== null) {
+      ctx.beginPath()
+      for (const idx of all) if (hexDist(hexAt(rep.radius, idx), { q: 0, r: 0 }) > storm) hexPoly(ctx, geo.x[idx], geo.y[idx], s)
+      ctx.fillStyle = 'rgba(168,85,247,0.28)'; ctx.fill()
     }
 
     // Territory: one tinted fill, one border path and one front path per player.
@@ -380,7 +388,7 @@ export function Board({ rep, cells, perspective, visible, selected, heightMode, 
     if (selected !== null && !rel.hexes.has(selected)) {
       hexPath(ctx, geo.x[selected], geo.y[selected], s + 1); ctx.strokeStyle = '#fff'; ctx.lineWidth = 3; ctx.stroke()
     }
-  }, [rep, cells, visible, cam, dims, selected, all, perspective, heightMode, rel, recentBuilds, geo])
+  }, [rep, cells, visible, cam, dims, selected, all, perspective, heightMode, rel, recentBuilds, geo, storm])
 
   useEffect(() => {
     const c = mini.current!
@@ -439,6 +447,11 @@ export function Board({ rep, cells, perspective, visible, selected, heightMode, 
         {perspective < 0 ? <Eye className="size-3" /> : <EyeOff className="size-3" />}
         {perspective < 0 ? 'God view, no fog' : `${rep.names[perspective]} fog`}
       </Badge>
+      {storm !== null && (
+        <Badge variant="outline" className="absolute right-3 top-11 border-purple-400/50 bg-background/80 text-purple-200 backdrop-blur">
+          Storm: safe within {storm} of the centre
+        </Badge>
+      )}
       <canvas ref={mini} width={140} height={140} className="absolute bottom-3 right-3 rounded-lg border bg-background/80" style={{ width: 112, height: 112 }} />
       <div className="absolute bottom-3 left-3 flex gap-1">
         <Button variant="outline" size="icon-sm" onClick={() => setCam((c) => ({ ...c, k: Math.min(7, c.k * 1.25) }))}><ZoomIn /></Button>

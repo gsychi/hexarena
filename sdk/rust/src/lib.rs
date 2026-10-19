@@ -215,19 +215,19 @@ pub fn roster() -> Vec<Style> {
         ),
         Style::preset(
             "relay",
-            "Relay",
+            "Claude-Relay",
             "Tempo. Turns every tick into land that stays taken, relaying spare troops to the front.",
             BotParams { brain: "relay".into(), ..base.clone() },
         ),
         Style::preset(
             "predator",
-            "Predator",
+            "Claude-Predator",
             "Conqueror. Garrisons its captures, encloses pockets and finishes shrinking rivals.",
             BotParams { brain: "predator".into(), ..base.clone() },
         ),
         Style::preset(
             "ridgeline",
-            "Ridgeline",
+            "Claude-Ridgeline",
             "Border holder. Only sends sure captures and prefers short, shielded, high borders.",
             BotParams { brain: "ridgeline".into(), ..base },
         ),
@@ -243,6 +243,8 @@ pub struct Expander {
     name: String,
     p: BotParams,
     rules: RulesConfig,
+    /// Chance (milli) an attacker wins an exchange this tick; rises in overtime.
+    win: u32,
     seen: Memory,
     next_kind: usize,
     last_build: u32,
@@ -309,6 +311,7 @@ impl Expander {
             name: name.into(),
             p,
             rules: RulesConfig::default(),
+            win: RulesConfig::default().attacker_exchange_win_milli,
             seen: Memory::default(),
             next_kind: 0,
             last_build: 0,
@@ -434,7 +437,7 @@ impl Expander {
     fn fight_loss(&self, from_h: i8, to_h: i8, def: u32, wall: u32) -> u64 {
         let d = (self.rules.height_multiplier_milli(from_h, to_h) as u64 * wall as u64 / 1000)
             .min(self.rules.maximum_total_defense_milli as u64);
-        let p = self.rules.attacker_exchange_win_milli as u64;
+        let p = self.win as u64;
         def as u64 * d * (1000 - p) / p / 1000
     }
 
@@ -712,6 +715,7 @@ impl Bot for Expander {
     }
 
     fn act(&mut self, view: &View) -> PlayerCommand {
+        self.win = self.rules.attacker_win_milli(view.tick);
         for c in &view.visible_hexes {
             self.seen.insert(view.radius, c);
         }

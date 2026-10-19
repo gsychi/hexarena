@@ -111,6 +111,8 @@ pub struct State {
     /// Seeded permutation of seats used by rotating initiative.
     pub seat_order: Vec<PlayerId>,
     pub elim_place: Vec<Option<(u16, u16)>>,
+    /// Distance from the centre of the innermost passable hex: the storm stops here.
+    pub storm_floor: i32,
 }
 
 impl State {
@@ -138,6 +140,13 @@ impl State {
         let settings_match_seed = settings.match_seed;
         let mut seat_order: Vec<PlayerId> = (0..n as PlayerId).collect();
         rng::Rng::new(settings_match_seed ^ 0x5EA7).shuffle(&mut seat_order);
+        let storm_floor = board
+            .hexes()
+            .into_iter()
+            .filter(|&h| map.terrain[board.index(h).unwrap()].is_some_and(|t| t.passable()))
+            .map(|h| h.distance(Hex::new(0, 0)))
+            .min()
+            .unwrap_or(0);
         Ok(State {
             settings,
             board,
@@ -154,7 +163,19 @@ impl State {
             rng: rng::Rng::new(settings_match_seed),
             seat_order,
             elim_place: vec![None; n],
+            storm_floor,
         })
+    }
+
+    /// Safe distance from the centre this tick, or `None` while the storm is off.
+    pub fn storm_radius(&self) -> Option<i32> {
+        self.rules()
+            .storm_radius(self.tick, self.board.radius, self.storm_floor)
+    }
+
+    pub fn in_storm(&self, h: Hex) -> bool {
+        self.storm_radius()
+            .is_some_and(|r| h.distance(Hex::new(0, 0)) > r)
     }
 
     pub fn rules(&self) -> &RulesConfig {
@@ -536,7 +557,7 @@ impl State {
     /// Deterministic exchange loop from the rules reference, in fixed-point.
     /// Returns (surviving attackers, surviving defenders in milli-troops).
     fn fight(&mut self, attackers: u32, defenders: u32, defense_milli: u32) -> (u32, u64) {
-        let win = self.rules().attacker_exchange_win_milli as u64;
+        let win = self.rules().attacker_win_milli(self.tick) as u64;
         let d = defense_milli.max(1) as u64;
         let per_win = (1_000_000 + d / 2) / d;
         let (mut a, mut def) = (attackers as u64, defenders as u64 * 1000);
@@ -721,16 +742,27 @@ impl State {
         let tick = self.tick;
         let hexes = self.board.hexes();
         let (period, output) = (self.rules().extractor_period, self.rules().extractor_output);
+        let storm = self.storm_radius();
+        let decay_pct = self.rules().storm_decay_pct;
         for h in hexes {
             let c = *self.cell(h).unwrap();
             let Some(owner) = c.owner else { continue };
+            if storm.is_some_and(|r| h.distance(Hex::new(0, 0)) > r) {
+                let cm = self.cell_mut(h);
+                let lost = (cm.troops as u64 * decay_pct as u64).div_ceil(100).max(1);
+                cm.troops = cm.troops.saturating_sub(lost.min(u32::MAX as u64) as u32);
+                if cm.troops == 0 {
+                    cm.owner = None;
+                }
+                continue;
+            }
             let income = self.income(h);
             let active = c.built_tick < tick;
             let supported =
                 c.building == Some(Building::Village) && self.supporting_farm(h).is_some();
             let mut gained = 0;
             let mut progress = c.progress;
-            if matches!(c.building, Some(Building::Farm | Building::Quarry)) && active {
+            if output > 0 && matches!(c.building, Some(Building::Farm | Building::Quarry)) && active {
                 progress += 1;
                 if progress >= period {
                     progress = 0;
@@ -941,7 +973,9 @@ impl State {
                 _ => c.links.iter().flatten().copied().collect(),
             };
             let production_remaining = match kind {
-                Building::Farm | Building::Quarry => r.extractor_period.saturating_sub(c.progress),
+                Building::Farm | Building::Quarry if r.extractor_output > 0 => {
+                    r.extractor_period.saturating_sub(c.progress)
+                }
                 _ => 0,
             };
             VisibleBuilding {
@@ -1023,6 +1057,7 @@ impl State {
             },
             own_queue: vec![],
             visible_events,
+            storm_radius: self.storm_radius(),
         }
     }
 

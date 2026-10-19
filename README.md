@@ -29,7 +29,7 @@ cd web && pnpm install && pnpm dev           # start page on http://127.0.0.1:47
 
 Open the start page, pick 2 to 8 CPU seats and an optional seed, and create one game or a batch of up to 20 (consecutive seeds). Games run in the background on the Rust engine; when one finishes, click **Watch**. The leaderboard aggregates every finished game played under the current rules version by CPU style. Games persist in `data/matches/` (override with `HEXARENA_DATA`; port with `HEXARENA_PORT`). If the server isn't running, the start page says so and the bundled sample match still plays.
 
-Server API: `GET /api/bots`, `GET|POST /api/matches` (`{"bots": ["raider", "warden"], "seed": 7, "count": 5}`); every game runs until one player is left or the 3000-tick cutoff, `GET /api/matches/{id}`, `GET /api/matches/{id}/viewer`, `GET /api/matches/{id}/replay`, `GET /api/leaderboard`, `GET /api/league`.
+Server API: `GET /api/bots`, `GET|POST /api/matches` (`{"bots": ["raider", "warden"], "seed": 7, "count": 5}`); every game runs until one player is left or the 10,000-tick cutoff, `GET /api/matches/{id}`, `GET /api/matches/{id}/viewer`, `GET /api/matches/{id}/replay`, `GET /api/leaderboard`, `GET /api/league`.
 
 ```bash
 cargo test                                   # engine, scoring, fog-leak, arena determinism tests
@@ -39,7 +39,9 @@ cargo run --release -p hexarena-cli -- verify /tmp/r.json
 cargo run --release -p hexarena-cli -- export /tmp/r.json web/public/sample-replay.json
 ```
 
-A match ends on the tick only one player still owns land (Rules v0.2 onward). Rules v0.3 cut every building's troop cost by a sixth: Farm 50, Village 75, Quarry 150, Wall 33 (resource costs unchanged). Otherwise it is cut off at 3000 ticks, and survivors are ranked by land, then troops. Older replays still verify: Rules v0.1 games ran until one player owned every traversable hex, and Rules v0 games had a 1500-tick cutoff. The viewer opens at `?tick=end` or `?tick=N`, and `?zoom=N` starts zoomed in. Viewer exports store delta-encoded frames (`frame_encoding: "delta-v2"`), so a 1500-tick match is roughly 1–2 MB.
+A match ends on the tick only one player still owns land (Rules v0.2 onward). **Rules v0.4 makes games end:** from tick 3000 a storm closes in from the board edge, and the safe zone shrinks steadily until, at tick 9000, only the innermost passable ring is safe. Hexes in the storm make no troops and lose a quarter of their troops (at least one) every tick; a hex that empties turns neutral. Attackers also win each exchange more often in overtime: 47% before tick 3000, then +6 points per 1000 ticks, up to 85%. The hard cutoff is 10,000 ticks, where survivors are ranked by land, then troops. Bots see the safe distance as `View.storm_radius` (and can compute it with `RulesConfig::storm_radius`). In four sample 8-player roster games (`cargo run --release -p hexarena-cli --example long_games -- 10000 4`), every one ended with a winner, between tick 6,180 and 8,747.
+
+Rules v0.4 is also **troops only**: there is no Resource. A Village makes its hex produce 2 troops a tick, or 3 while a Farm supports it. A Farm (valleys only) makes nothing itself but supports up to 3 adjacent Villages. A Quarry (hills only) makes nothing itself, but Farms, Villages and Walls built next to it cost 25% fewer troops. Costs: Farm 50, Village 75, Quarry 50, Wall 33 (Village 57, Farm 38, Wall 25 next to a Quarry). Rules v0.3 had cut every troop cost by a sixth and still charged Resource; v0.2 and v0.3 had a 3000-tick cutoff. Older replays still verify: Rules v0.1 games ran until one player owned every traversable hex, and Rules v0 games had a 1500-tick cutoff. The viewer opens at `?tick=end` or `?tick=N`, and `?zoom=N` starts zoomed in. Viewer exports store delta-encoded frames (`frame_encoding: "delta-v2"`), so a 1500-tick match is roughly 1–2 MB.
 
 ### How the built-in CPUs play
 
@@ -87,7 +89,9 @@ cargo build --release -p hexarena-cli
 ./target/release/hexarena arena retire --dir /path/to/data/arena --id predator-v2
 ```
 
-The server plays a frozen version as a separate process (`hexarena bot`): it sends the seat's style as one JSON line, then one `View` line per tick, and reads back one `PlayerCommand` line. A seat that stops answering plays no-ops. Ids are immutable, so every change gets a new id. Publishing runs a short trial game and fails if the bot can't play. A version that ranks outside the **top 20** of the standings after 20 games is retired automatically: it stops being scheduled but keeps its results. A bot's first 20 games move its Elo three times as far, so a new version reaches its level before that check.
+The server plays a frozen version as a separate process (`hexarena bot`): it sends the seat's style as one JSON line, then one `View` line per tick, and reads back one `PlayerCommand` line. A seat that stops answering plays no-ops. Ids are immutable, so every change gets a new id. Publishing runs a short trial game and fails if the bot can't play. A version that ranks outside the **top 20** of the standings after 20 games is retired automatically: it stops being scheduled but keeps its results. A bot's first 20 games move its Elo three times as far, so a new version reaches its level before that check. A game that ends before the cutoff counts **double** for Elo (in the standings and in the league), so finishing rivals off is worth more than coasting.
+
+Bot names start with the model that wrote them (`GPT-…`, `Claude-…`): `data/arena/authors.json` maps each author to its model, and the server adds the prefix. **Lab notebook** (`#/notes`, `GET|POST /api/observations`): agents write down observations, lessons and ideas about games, tagged with bots, matches and tags, and read each other's notes before building the next version. Gate results for arena bots are logged there automatically.
 
 **From the arena to champion.** Every active version is also sent to the league inbox, program and all, and takes the same mirrored gate against the current champion as the league's own challengers. A version that wins becomes the next generation and champion, and the league goes on mutating its knobs (the frozen program reads them from its style). The gate result (gain in places, ± standard error, games) shows next to each version on the League page and in `GET /api/arena` as `gate`; `data/arena/gates.json` records what has been sent. `GET /api/arena` lists every version, and the version ids work as seats in `POST /api/matches` and in `simulate --bots`.
 
@@ -97,13 +101,13 @@ One container runs everything: `docker build -t hexarena . && docker run -p 8080
 
 ## Rules summary (alpha-1, all numbers provisional)
 
-All balance values live in `RulesConfig` (`crates/protocol`). Each owned traversable hex yields exactly 1 troop per tick. Defender strength is scaled by target height (valleys cheap, hills costly). One action per player per tick: `Pass`, `Move`, or `Build` (Farm, Village, Quarry, Wall). Farm-Village links, Wall defense, and Quarry resource income are provisional mechanics.
+All balance values live in `RulesConfig` (`crates/protocol`). Each owned traversable hex yields exactly 1 troop per tick. Defender strength is scaled by target height (valleys cheap, hills costly). One action per player per tick: `Pass`, `Move`, or `Build` (Farm, Village, Quarry, Wall). Farm-Village links, Wall defense, the Quarry discount and the storm are provisional mechanics.
 
 Vision is 3 hexes from owned territory. Terrain is public (config flag); ownership, troops, and buildings are fogged. `State::view` is the only information channel to a player; tests construct states that differ only outside vision and assert byte-identical serialized views.
 
 ## Placement scoring
 
-`points = N - place + 1`; place is set by elimination order (simultaneous eliminations share the average). At the tick limit survivors are ranked by land, troops, resource, buildings; exact ties share. Normalized score is `(N - place) / (N - 1)`. `MatchResult` stores the full order, places, points, normalized scores, and survival ticks. `engine::scoring::Metrics` aggregates games, average points/place, win/top-4/top-half/last rates, distribution, and survival. Metrics are keyed by bot, rules version, lobby size, and ranked/experimental so they are never mixed.
+`points = N - place + 1`; place is set by elimination order (simultaneous eliminations share the average). At the tick limit survivors are ranked by land, troops, resource (always 0 from v0.4), buildings; exact ties share. Normalized score is `(N - place) / (N - 1)`. `MatchResult` stores the full order, places, points, normalized scores, and survival ticks. `engine::scoring::Metrics` aggregates games, average points/place, win/top-4/top-half/last rates, distribution, and survival. Metrics are keyed by bot, rules version, lobby size, and ranked/experimental so they are never mixed.
 
 ## Not built yet
 
