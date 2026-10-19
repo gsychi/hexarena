@@ -516,10 +516,12 @@ async fn agents(State(app): State<Shared>) -> Json<Vec<serde_json::Value>> {
     let notes = app.notes.all(&app.arena_dir);
     let messages = app.chat.all(&app.arena_dir);
     let statuses = app.chat.statuses(&app.arena_dir);
+    let work = app.chat.work(&app.arena_dir);
     let mut ids: std::collections::BTreeSet<&str> = catalog.entrants.iter().map(|e| e.author.as_str()).collect();
     ids.extend(notes.iter().map(|n| n.author.as_str()));
     ids.extend(messages.iter().map(|m| m.agent.as_str()));
     ids.extend(statuses.keys().map(String::as_str));
+    ids.extend(work.iter().map(|w| w.agent.as_str()));
     let mut out: Vec<(u64, serde_json::Value)> = ids
         .into_iter()
         .filter(|a| is_designer(a))
@@ -530,11 +532,13 @@ async fn agents(State(app): State<Shared>) -> Json<Vec<serde_json::Value>> {
             let mine: Vec<&notes::Note> = notes.iter().filter(|n| n.author == a).collect();
             let thread: Vec<&chat::Message> = messages.iter().filter(|m| m.agent == a).collect();
             let replied = thread.iter().rev().find(|m| m.from == a);
+            let doing = work.iter().rev().find(|w| w.agent == a);
             let last_seen = [
                 latest.map(|e| e.created_at),
                 mine.last().map(|n| n.at),
                 replied.map(|m| m.at),
                 statuses.get(a).map(|s| s.at),
+                doing.map(|w| w.at),
             ]
             .into_iter()
             .flatten()
@@ -555,6 +559,7 @@ async fn agents(State(app): State<Shared>) -> Json<Vec<serde_json::Value>> {
                 "last_message": thread.last(),
                 "unanswered": unanswered,
                 "status": statuses.get(a),
+                "doing": doing.map(|w| serde_json::json!({"at": w.at, "text": w.text})),
             });
             (last_seen, v)
         })
@@ -597,6 +602,9 @@ async fn activity(State(app): State<Shared>, Path(agent): Path<String>) -> Json<
             "type": "note", "at": n.at, "n": n.n, "kind": n.kind, "text": n.text, "matches": n.matches, "bots": n.bots,
         })));
     }
+    for w in app.chat.work(&app.arena_dir).into_iter().filter(|w| w.agent == agent) {
+        items.push((w.at, serde_json::json!({ "type": "work", "at": w.at, "text": w.text })));
+    }
     for m in app.chat.thread(&app.arena_dir, &agent) {
         items.push((m.at, serde_json::json!({ "type": "message", "at": m.at, "n": m.n, "from": m.from, "text": m.text })));
     }
@@ -607,6 +615,16 @@ async fn activity(State(app): State<Shared>, Path(agent): Path<String>) -> Json<
         "status": app.chat.statuses(&app.arena_dir).get(&agent),
         "items": items.into_iter().skip(skip).map(|(_, v)| v).collect::<Vec<_>>(),
     }))
+}
+
+async fn log_work(State(app): State<Shared>, Path(agent): Path<String>, Json(new): Json<chat::NewStatus>) -> Response {
+    if !is_designer(&agent) {
+        return err(StatusCode::BAD_REQUEST, "work belongs to an agent, e.g. agent:sol");
+    }
+    match app.chat.log_work(&app.arena_dir, &agent, new, now_ms()) {
+        Ok(w) => (StatusCode::CREATED, Json(w)).into_response(),
+        Err(e) => err(StatusCode::BAD_REQUEST, e),
+    }
 }
 
 async fn thread(State(app): State<Shared>, Path(agent): Path<String>) -> Json<Vec<chat::Message>> {
@@ -897,6 +915,7 @@ async fn main() {
         .route("/api/agents", get(agents))
         .route("/api/agents/{agent}/messages", get(thread).post(say))
         .route("/api/agents/{agent}/status", axum::routing::post(set_status))
+        .route("/api/agents/{agent}/work", axum::routing::post(log_work))
         .route("/api/agents/{agent}/activity", get(activity))
         .route("/api/health", get(|| async { "ok" }))
         .with_state(app);

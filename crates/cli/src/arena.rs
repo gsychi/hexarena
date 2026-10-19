@@ -24,11 +24,12 @@ const USAGE: &str = "usage: hexarena arena <publish|parents|retire|list> [--dir 
   list                          every published version
 --dir defaults to $HEXARENA_ARENA or data/arena; the server reads the same directory.";
 
-const EVAL_USAGE: &str = "usage: hexarena eval --params cand.json [--against ID|base.json] [--pairs N] [--seed S]
+const EVAL_USAGE: &str = "usage: hexarena eval --params cand.json [--against ID|base.json] [--pairs N] [--seed S] [--author agent:NAME]
   plays the candidate against a base (an arena version, roster CPU or genome file; the
   roster's first CPU by default) in mirrored pairs of 8-player lobbies: 3 seats each plus
   2 roster CPUs, then the same map with the two swapped. Reports the gain in 8-player
-  places (positive is better; ending the game early earns up to 1.5 places).";
+  places (positive is better; ending the game early earns up to 1.5 places). With an
+  author (--author or HEXARENA_AUTHOR) the home page shows the test and its result.";
 
 fn dir(f: &HashMap<String, String>) -> PathBuf {
     f.get("dir")
@@ -155,6 +156,23 @@ fn print_briefing(dir: &std::path::Path, author: &str) {
     }
 }
 
+/// Tells the arena server what an agent's tools are doing, so the home page shows it live.
+/// Best effort: a server that is down or slow never holds up the eval.
+fn report_work(author: &str, text: &str) {
+    use std::io::Write;
+    let addr = std::env::var("HEXARENA_SERVER_ADDR").unwrap_or_else(|_| "127.0.0.1:47240".into());
+    let Ok(sock) = addr.parse::<std::net::SocketAddr>() else { return };
+    let Ok(mut s) = std::net::TcpStream::connect_timeout(&sock, std::time::Duration::from_secs(2)) else { return };
+    let _ = s.set_write_timeout(Some(std::time::Duration::from_secs(2)));
+    let body = serde_json::json!({ "text": text }).to_string();
+    let path = format!("/api/agents/{author}/work");
+    let _ = write!(
+        s,
+        "POST {path} HTTP/1.1\r\nHost: {addr}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+        body.len()
+    );
+}
+
 pub fn eval(f: &HashMap<String, String>) -> Result<(), String> {
     let candidate = seat_style(f.get("params").ok_or(EVAL_USAGE)?, f)?;
     let base = match f.get("against") {
@@ -162,7 +180,25 @@ pub fn eval(f: &HashMap<String, String>) -> Result<(), String> {
         None => roster().remove(0),
     };
     let pairs: usize = get(f, "pairs", 24);
+    let author = f.get("author").cloned().or_else(|| std::env::var("HEXARENA_AUTHOR").ok());
+    let label = |s: &hexarena_sdk::Style| {
+        let p = std::path::Path::new(&s.id);
+        if p.extension().is_some() { p.file_stem().map_or(s.id.clone(), |x| x.to_string_lossy().into_owned()) } else { s.id.clone() }
+    };
+    let what = format!("{} against {}", label(&candidate), label(&base));
+    if let Some(a) = &author {
+        report_work(a, &format!("Testing {what} locally ({pairs} mirrored pairs of 8-player games)"));
+    }
     let (r, _) = compare(&candidate, &base, &roster(), get(f, "seed", 500_000), pairs)?;
+    if let Some(a) = &author {
+        report_work(
+            a,
+            &format!(
+                "Tested {what}: {:+.2} ± {:.2} places over {} games (closes {} vs {})",
+                r.gain, r.gain_se, r.games, r.candidate_closes, r.base_closes
+            ),
+        );
+    }
     println!(
         "{}",
         serde_json::to_string_pretty(&serde_json::json!({

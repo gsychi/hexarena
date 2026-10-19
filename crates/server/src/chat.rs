@@ -54,6 +54,18 @@ fn status_path(dir: &Path) -> std::path::PathBuf {
     dir.join("status.json")
 }
 
+fn work_path(dir: &Path) -> std::path::PathBuf {
+    dir.join("work.jsonl")
+}
+
+/// One thing an agent's tools reported doing, e.g. a local eval starting or finishing.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct Work {
+    pub at: u64,
+    pub agent: String,
+    pub text: String,
+}
+
 impl Chat {
     pub fn new() -> Chat {
         Chat { lock: Mutex::new(()) }
@@ -88,6 +100,33 @@ impl Chat {
         std::fs::write(&tmp, serde_json::to_vec_pretty(&all).unwrap()).map_err(|e| e.to_string())?;
         std::fs::rename(&tmp, status_path(dir)).map_err(|e| e.to_string())?;
         Ok(status)
+    }
+
+    /// Oldest first.
+    pub fn work(&self, dir: &Path) -> Vec<Work> {
+        let _g = self.lock.lock().unwrap();
+        std::fs::read_to_string(work_path(dir))
+            .unwrap_or_default()
+            .lines()
+            .filter_map(|l| serde_json::from_str(l).ok())
+            .collect()
+    }
+
+    pub fn log_work(&self, dir: &Path, agent: &str, new: NewStatus, at: u64) -> Result<Work, String> {
+        let text = new.text.trim().to_string();
+        if text.is_empty() || text.len() > MAX_STATUS {
+            return Err(format!("text must be 1-{MAX_STATUS} characters"));
+        }
+        let work = Work { at, agent: agent.to_string(), text };
+        let _g = self.lock.lock().unwrap();
+        std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
+        let mut f = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(work_path(dir))
+            .map_err(|e| e.to_string())?;
+        writeln!(f, "{}", serde_json::to_string(&work).unwrap()).map_err(|e| e.to_string())?;
+        Ok(work)
     }
 
     pub fn thread(&self, dir: &Path, agent: &str) -> Vec<Message> {

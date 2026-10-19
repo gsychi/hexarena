@@ -1,4 +1,4 @@
-import { Bot, GraduationCap, Hammer, Lightbulb, Loader2, MessageCircle, Microscope, Send, Sparkles } from 'lucide-react'
+import { Bot, FlaskConical, GraduationCap, Hammer, Lightbulb, Loader2, MessageCircle, Microscope, Send, Sparkles } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Badge } from '@/components/ui/badge'
@@ -17,13 +17,16 @@ const AGENTS_MS = 10_000
 const ACTIVITY_MS = 5000
 /** Seen within this long counts as active now. */
 const ACTIVE_MS = 20 * 60_000
+/** A test that started this recently and hasn't reported a result is shown as running. */
+const RUNNING_MS = 45 * 60_000
 const ARRIVALS = 8
 const QUICK = ['Hi!', 'What are you working on?', 'What did you learn from the last replays?']
 
-type Filter = 'all' | 'bot' | 'note' | 'message'
+type Filter = 'all' | 'bot' | 'work' | 'note' | 'message'
 const FILTERS: { value: Filter; label: string }[] = [
   { value: 'all', label: 'All' },
   { value: 'bot', label: 'Bots' },
+  { value: 'work', label: 'Tests' },
   { value: 'note', label: 'Notes' },
   { value: 'message', label: 'Chat' },
 ]
@@ -80,6 +83,17 @@ function WorkingOn({ a }: { a: Agent }) {
   )
 }
 
+/** What the agent's tools are doing right now, from the latest eval report. */
+function Doing({ d }: { d: AgentStatus }) {
+  const running = d.text.startsWith('Testing ') && Date.now() - d.at < RUNNING_MS
+  return (
+    <div className="flex items-start gap-2 text-xs">
+      {running ? <Loader2 className="mt-0.5 size-3.5 shrink-0 animate-spin text-sky-300" /> : <FlaskConical className="mt-0.5 size-3.5 shrink-0 text-muted-foreground" />}
+      <span className={running ? 'text-sky-200' : 'text-muted-foreground'}>{d.text} <span className="text-muted-foreground">({ago(d.at)})</span></span>
+    </div>
+  )
+}
+
 function AgentCard({ a, onBot, onOpen }: { a: Agent; onBot: (id: string) => void; onOpen: () => void }) {
   const replied = a.last_message?.from === a.id
   return (
@@ -95,6 +109,7 @@ function AgentCard({ a, onBot, onOpen }: { a: Agent; onBot: (id: string) => void
         </div>
       </div>
       <WorkingOn a={a} />
+      {a.doing && <Doing d={a.doing} />}
       <div className="space-y-1 text-xs text-muted-foreground">
         <div><span className="tabular-nums text-foreground">{a.bots}</span> bot{a.bots === 1 ? '' : 's'} sent in, <span className="tabular-nums text-foreground">{a.active_bots}</span> in the arena now, <span className="tabular-nums text-foreground">{a.notes}</span> note{a.notes === 1 ? '' : 's'}</div>
         {a.best_bot && (
@@ -171,6 +186,14 @@ function Item({ item, agent }: { item: ActivityItem; agent: Agent }) {
         </div>
       )
     }
+    case 'work':
+      return (
+        <div className="flex items-start gap-2 rounded-lg bg-muted/20 px-3 py-2 text-xs">
+          <FlaskConical className="mt-0.5 size-3.5 shrink-0 text-sky-300" />
+          <span className="flex-1 text-foreground/90">{item.text}</span>
+          <span className="shrink-0 text-[11px] text-muted-foreground">{ago(item.at)}</span>
+        </div>
+      )
     case 'message': {
       const mine = item.from === 'you'
       return (
@@ -265,7 +288,7 @@ function AgentSheet({ agent, onClose }: { agent: Agent | null; onClose: () => vo
               {filter === 'message' ? `No messages yet. Say hi to ${name}!` : 'Nothing here yet.'}
             </div>
           )}
-          {agent && items?.map((i) => <Item key={`${i.type}-${'n' in i ? i.n : i.id}`} item={i} agent={agent} />)}
+          {agent && items?.map((i) => <Item key={`${i.type}-${'n' in i ? i.n : 'id' in i ? i.id : i.at}`} item={i} agent={agent} />)}
           {last?.type === 'message' && last.from === 'you' && (filter === 'all' || filter === 'message') && (
             <p className="text-center text-[11px] text-muted-foreground">Delivered. {name} will see it at the start of its next round.</p>
           )}

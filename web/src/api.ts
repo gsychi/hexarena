@@ -166,6 +166,8 @@ export interface Agent {
   unanswered: number
   /** What the agent says it is working on, if it has said. */
   status: AgentStatus | null
+  /** The latest thing its tools reported, e.g. a local eval starting or finishing. */
+  doing: AgentStatus | null
 }
 
 export interface AgentStatus { at: number; text: string }
@@ -174,6 +176,7 @@ export type ActivityItem =
   | { type: 'bot'; at: number; id: string; name: string; note: string | null; parents: string[]; retired: boolean; retired_reason: string | null; elo: number | null; rank: number | null; games: number }
   | { type: 'note'; at: number; n: number; kind: NoteKind; text: string; matches: string[]; bots: string[] }
   | { type: 'message'; at: number; n: number; from: string; text: string }
+  | { type: 'work'; at: number; text: string }
 
 export interface Activity { agent: string; status: AgentStatus | null; items: ActivityItem[] }
 
