@@ -277,7 +277,8 @@ impl Ridgeline {
                 continue;
             }
             let stack = self.seen[n].unwrap().troops.saturating_sub(1) as u64;
-            let k = self.kills(stack, self.defense(geo, n, h, MILLI));
+            let wall = self.seen[h].map_or(MILLI, |c| c.wall_milli.max(MILLI));
+            let k = self.kills(stack, self.defense(geo, n, h, wall));
             worst = Some(worst.map_or(k, |w| w.max(k)));
         }
         worst.map(|k| self.k.guard + k * self.k.margin_pct / 100)

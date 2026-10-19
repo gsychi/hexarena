@@ -14,7 +14,7 @@
 //! or when the build pays back faster than `rush_roi`.
 
 use super::ridgeline::Ridgeline;
-use crate::{Action, Bot, Building, Hex, PlayerCommand, PlayerId, RulesConfig, Style, View};
+use crate::{Action, Bot, Building, Hex, ManagementCommand, PlayerCommand, PlayerId, RulesConfig, Style, View};
 use std::collections::VecDeque;
 
 struct Map {
@@ -84,6 +84,14 @@ struct Knobs {
     /// Troops a tick a Quarry adds to each adjacent Village (the frozen binary can't read
     /// it from newer live rules, so it is a knob).
     quarry_village: u64,
+    /// Walls on enemy-facing border hexes from this tick (0 = never).
+    wall_from: u32,
+    /// Fewest ticks between two Walls.
+    wall_gap: u32,
+    /// Most Walls to own.
+    wall_cap: usize,
+    /// Troops a border hex keeps on top of a Wall's cost before it may build one.
+    wall_keep: u32,
 }
 
 impl Knobs {
@@ -100,6 +108,10 @@ impl Knobs {
             quarry: k("quarry", 0) > 0,
             quarry_min_x10: k("quarry_min_x10", 20) as u64,
             quarry_village: k("quarry_village", 0) as u64,
+            wall_from: k("wall_from", 0) as u32,
+            wall_gap: k("wall_gap", 4) as u32,
+            wall_cap: k("wall_cap", 60) as usize,
+            wall_keep: k("wall_keep", 10) as u32,
         }
     }
 }
@@ -112,6 +124,7 @@ pub struct Pangolin {
     /// Lattice colour that holds Villages.
     vclass: Option<i32>,
     last_build: Option<u32>,
+    last_wall: Option<u32>,
 }
 
 #[derive(Clone, Copy, PartialEq)]
@@ -130,6 +143,7 @@ impl Pangolin {
             map: None,
             vclass: None,
             last_build: None,
+            last_wall: None,
         }
     }
 
@@ -262,6 +276,87 @@ impl Pangolin {
         }
         best.map(|(roi, i, b)| (roi, Action::Build { at: m.hexes[i], building: b }))
     }
+
+    /// A Wall on the enemy-facing border hex under the biggest adjacent enemy stack,
+    /// preferring hexes next to our Walls that still have a free link.
+    fn wall(&self, view: &View, m: &Map) -> Option<Action> {
+        let me = view.you;
+        let slots = m.passable.len();
+        let mut cell = vec![None; slots];
+        for c in &view.visible_hexes {
+            if let Some(i) = m.slot(c.hex) {
+                cell[i] = Some(c);
+            }
+        }
+        let is_wall = |c: &crate::VisibleHex| c.building.as_ref().is_some_and(|b| b.kind == Building::Wall);
+        let walls = cell.iter().flatten().filter(|c| c.owner == Some(me) && is_wall(c)).count();
+        if walls >= self.k.wall_cap {
+            return None;
+        }
+        let max_links = self.rules.wall.max_links as usize;
+        let mut best: Option<(u64, usize)> = None;
+        for i in 0..slots {
+            let Some(c) = cell[i] else { continue };
+            if c.owner != Some(me) || c.building.is_some() {
+                continue;
+            }
+            let near_quarry = m.nbrs[i].iter().any(|&n| {
+                cell[n].is_some_and(|x| x.owner == Some(me) && x.building.as_ref().is_some_and(|b| b.kind == Building::Quarry))
+            });
+            let cost = self.rules.build_cost(Building::Wall, near_quarry).troops;
+            if c.troops < cost + 1 + self.k.wall_keep {
+                continue;
+            }
+            let mut threat = 0u64;
+            let mut linkable = 0u64;
+            for &n in &m.nbrs[i] {
+                let Some(x) = cell[n] else { continue };
+                match x.owner {
+                    Some(o) if o != me => threat = threat.max(x.troops as u64),
+                    Some(_) if is_wall(x) && x.building.as_ref().unwrap().links.len() < max_links => linkable += 1,
+                    _ => {}
+                }
+            }
+            if threat == 0 {
+                continue;
+            }
+            let score = linkable * 1_000_000 + threat;
+            if best.is_none_or(|b| (score, std::cmp::Reverse(i)) > (b.0, std::cmp::Reverse(b.1))) {
+                best = Some((score, i));
+            }
+        }
+        best.map(|(_, i)| Action::Build { at: m.hexes[i], building: Building::Wall })
+    }
+
+    /// Links between adjacent Walls of ours that both have a free link and no cooldown.
+    fn links(&self, view: &View, m: &Map) -> Vec<ManagementCommand> {
+        let me = view.you;
+        let max_links = self.rules.wall.max_links as usize;
+        let mut walls: Vec<(usize, Hex, usize, Vec<Hex>)> = vec![];
+        for c in &view.visible_hexes {
+            let Some(b) = c.building.as_ref().filter(|b| b.kind == Building::Wall && c.owner == Some(me)) else { continue };
+            if b.link_cooldown == 0 {
+                walls.push((m.slot(c.hex).unwrap_or(0), c.hex, b.links.len(), b.links.clone()));
+            }
+        }
+        walls.sort_by_key(|w| w.0);
+        let mut out = vec![];
+        for a in 0..walls.len() {
+            for b in a + 1..walls.len() {
+                if walls[a].2 >= max_links {
+                    break;
+                }
+                if walls[b].2 >= max_links || walls[a].1.distance(walls[b].1) != 1 || walls[a].3.contains(&walls[b].1) {
+                    continue;
+                }
+                out.push(ManagementCommand::SetWallLink { wall_a: walls[a].1, wall_b: walls[b].1, enabled: true });
+                // A link puts both Walls on cooldown, so each takes part in one link a tick.
+                walls[a].2 = max_links;
+                walls[b].2 = max_links;
+            }
+        }
+        out
+    }
 }
 
 impl Bot for Pangolin {
@@ -282,19 +377,31 @@ impl Bot for Pangolin {
         let open = view.tick >= self.k.build_from
             && (self.k.build_until == 0 || view.tick < self.k.build_until)
             && self.last_build.is_none_or(|t| view.tick >= t + self.k.build_gap);
+        let capture = match &cmd.action {
+            Action::Move { to, .. } => {
+                view.visible_hexes.iter().find(|c| c.hex == *to).is_some_and(|c| c.owner != Some(view.you))
+            }
+            Action::Gather { .. } | Action::Build { .. } | Action::NoOp => false,
+        };
+        let mut built = false;
         if let (true, Some(vclass)) = (open, self.vclass) {
-            let capture = match &cmd.action {
-                Action::Move { to, .. } => {
-                    view.visible_hexes.iter().find(|c| c.hex == *to).is_some_and(|c| c.owner != Some(view.you))
-                }
-                Action::Gather { .. } | Action::Build { .. } | Action::NoOp => false,
-            };
             if let Some((roi, a)) = self.build(view, &m, vclass) {
                 if !capture || roi >= self.k.rush_roi {
                     cmd.action = a;
                     self.last_build = Some(view.tick);
+                    built = true;
                 }
             }
+        }
+        let walls = self.k.wall_from > 0 && view.tick >= self.k.wall_from;
+        if walls && !built && !capture && self.last_wall.is_none_or(|t| view.tick >= t + self.k.wall_gap) {
+            if let Some(a) = self.wall(view, &m) {
+                cmd.action = a;
+                self.last_wall = Some(view.tick);
+            }
+        }
+        if walls {
+            cmd.management.extend(self.links(view, &m));
         }
         self.map = Some(m);
         cmd
