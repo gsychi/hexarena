@@ -200,6 +200,11 @@ struct BuildKnobs {
     carpet_border: bool,
     /// Capture score per 1000 safe ticks a target has left (0 = off).
     centre: i64,
+    /// Lattice economy for adjacent-boost Farms (0 = off): Villages on one colour of the
+    /// hex 3-colouring, Farms on the other two, built by income per troop.
+    econ: bool,
+    /// Value (tenths of a troop/tick) of each empty partner site next to a candidate.
+    econ_pot: i64,
 }
 
 impl BuildKnobs {
@@ -228,6 +233,8 @@ impl BuildKnobs {
             village_life: k("village_life", 0) as u32,
             carpet_border: k("carpet_border", 0) > 0,
             centre: k("centre", 0),
+            econ: k("econ", 0) > 0,
+            econ_pot: k("econ_pot", 5),
         }
     }
 }
@@ -633,7 +640,8 @@ impl Warren {
         let at = |h: Hex| mine.iter().find(|c| c.hex == h).copied();
         let mut out = vec![];
         let mut adopted: Vec<Hex> = vec![];
-        for farm in mine.iter().filter(|c| kind_of(c) == Some(Building::Farm)) {
+        let linked = !self.rules.farm.adjacent_boost;
+        for farm in mine.iter().filter(|c| linked && kind_of(c) == Some(Building::Farm)) {
             let b = farm.building.as_ref().unwrap();
             if b.link_cooldown > 0 || b.links.len() >= self.rules.farm.sockets as usize {
                 continue;
@@ -720,8 +728,38 @@ impl Warren {
         let vl = self.b.village_life;
         let empty = || mine.iter().copied().filter(|c| c.building.is_none());
 
+        if self.b.econ && tick >= self.b.farm_tick {
+            let own_kind = |h: Hex| mine.iter().find(|m| m.hex == h).map(|m| kind_of(m));
+            let farm_ok = |h: Hex| self.rules.terrain_allowed(Building::Farm, height(h));
+            let village_site = |h: Hex| (h.q - h.r).rem_euclid(3) == 0 || !farm_ok(h);
+            let site = empty()
+                .filter(|c| interior(c.hex))
+                .filter_map(|c| {
+                    let nb = c.hex.neighbors();
+                    let (kind, value) = if village_site(c.hex) {
+                        let farms = nb.iter().filter(|&&n| own_kind(n) == Some(Some(Building::Farm))).count();
+                        let open = nb
+                            .iter()
+                            .filter(|&&n| own_kind(n) == Some(None) && !village_site(n))
+                            .count();
+                        (Building::Village, 10 * (1 + farms as i64) + self.b.econ_pot * open as i64)
+                    } else {
+                        let villages =
+                            nb.iter().filter(|&&n| own_kind(n) == Some(Some(Building::Village))).count();
+                        let open =
+                            nb.iter().filter(|&&n| own_kind(n) == Some(None) && village_site(n)).count();
+                        (Building::Farm, 10 * villages as i64 + self.b.econ_pot * open as i64)
+                    };
+                    let cost = self.rules.build_cost(kind, near_quarry(c.hex)).troops.max(1) as i64;
+                    (value > 0 && affordable(c, kind, 0)).then(|| (value * 1000 / cost, kind, c))
+                })
+                .max_by_key(|(ratio, _, c)| (*ratio, c.troops, std::cmp::Reverse(c.hex)));
+            if let Some((_, kind, c)) = site {
+                return Some(Action::Build { at: c.hex, building: kind });
+            }
+        }
         let farms = count(Building::Farm);
-        if farms < self.b.farms && tick >= self.b.farm_tick {
+        if !self.b.econ && farms < self.b.farms && tick >= self.b.farm_tick {
             let site = empty()
                 .filter(|c| self.rules.terrain_allowed(Building::Farm, height(c.hex)))
                 .filter(|c| interior(c.hex) && affordable(c, Building::Farm, 0) && life(c.hex) >= 2 * vl)
@@ -759,7 +797,7 @@ impl Warren {
                 return Some(Action::Build { at: c.hex, building: Building::Wall });
             }
         }
-        if count(Building::Village) < self.b.villages {
+        if !self.b.econ && count(Building::Village) < self.b.villages {
             let site = empty()
                 .filter(|c| interior(c.hex) && affordable(c, Building::Village, 0) && life(c.hex) >= vl)
                 .find(|c| {
@@ -790,7 +828,7 @@ impl Warren {
             }
         }
         let village_cost = self.rules.build_cost(Building::Village, false).resource;
-        if tick >= self.b.carpet_tick && self.b.carpet_tick > 0 && resource >= village_cost + self.b.carpet_reserve.min(village_cost * 5) {
+        if !self.b.econ && tick >= self.b.carpet_tick && self.b.carpet_tick > 0 && resource >= village_cost + self.b.carpet_reserve.min(village_cost * 5) {
             let site = empty()
                 .filter(|c| (self.b.carpet_border || interior(c.hex)) && affordable(c, Building::Village, 0))
                 .filter(|c| life(c.hex) >= vl)
@@ -1239,6 +1277,10 @@ impl Bot for Warren {
     }
 
     fn act(&mut self, view: &View) -> PlayerCommand {
+        if let Some(r) = &view.rules {
+            self.rules = r.clone();
+            self.doom.clear();
+        }
         self.tick = view.tick;
         self.win = self.rules.attacker_win_milli(view.tick);
         let geo = self.geo.take().unwrap_or_else(|| Geometry::new(view));

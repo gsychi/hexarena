@@ -33,6 +33,7 @@ fn main() {
     let mut lost = vec![0u32; n];
     let mut builds = vec![0u32; n];
     let mut moves_own = vec![0u32; n];
+    let mut stormed = vec![0u64; n];
     let snaps = [500u32, 1000, 2000, 3000, 4000, 5000, 6000, 7000, 8000, 9000];
     while !st.is_over() {
         let cmds: TickCommands = (0..n as PlayerId)
@@ -43,6 +44,14 @@ fn main() {
             if let Action::Move { to, .. } = c.action {
                 if st.cell(to).unwrap().owner == Some(*p) {
                     moves_own[*p as usize] += 1;
+                }
+            }
+        }
+        if let Some(r) = st.storm_radius() {
+            for h in st.board.hexes() {
+                let c = st.cell(h).unwrap();
+                if let Some(o) = c.owner.filter(|_| h.distance(Hex::new(0, 0)) > r) {
+                    stormed[o as usize] += (c.troops as u64 * 25).div_ceil(100).max(1).min(c.troops as u64);
                 }
             }
         }
@@ -80,7 +89,7 @@ fn main() {
                     }
                 }
                 println!(
-                    "{:>14} land {:4} border {:3} ({:7}/hex) inner {:3} ({:6}/hex) max {:7} caps {:4} lost {:4} own-moves {:4} builds {:3} res {}",
+                    "{:>14} land {:4} border {:3} ({:7}/hex) inner {:3} ({:6}/hex) max {:7} caps {:4} lost {:4} own-moves {:4} builds {:3} stormed {}",
                     styles[p as usize].id,
                     land,
                     border,
@@ -92,7 +101,7 @@ fn main() {
                     lost[p as usize],
                     moves_own[p as usize],
                     builds[p as usize],
-                    st.resources[p as usize]
+                    stormed[p as usize]
                 );
             }
         }
