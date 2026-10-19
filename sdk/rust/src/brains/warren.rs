@@ -180,6 +180,10 @@ struct BuildKnobs {
     preempt_below: i64,
     /// No Walls before this tick: early on troops and actions go to land.
     wall_tick: u32,
+    /// From this tick plain Villages go on any interior hex (0 = never).
+    carpet_tick: u32,
+    /// Resource the carpet leaves for Walls.
+    carpet_reserve: u32,
 }
 
 impl BuildKnobs {
@@ -197,6 +201,8 @@ impl BuildKnobs {
             quarry_tick: k("quarry_tick", 400) as u32,
             preempt_below: k("preempt_below", 0),
             wall_tick: k("wall_tick", 0) as u32,
+            carpet_tick: k("carpet_tick", 0) as u32,
+            carpet_reserve: k("carpet_reserve", 10) as u32,
         }
     }
 }
@@ -638,6 +644,14 @@ impl Warren {
                 .max_by_key(|c| (c.troops, std::cmp::Reverse(c.hex)));
             if let Some(c) = site {
                 return Some(Action::Build { at: c.hex, building: Building::Quarry });
+            }
+        }
+        if tick >= self.b.carpet_tick && self.b.carpet_tick > 0 && resource >= 2 + self.b.carpet_reserve {
+            let site = empty()
+                .filter(|c| interior(c.hex) && affordable(c, Building::Village, 0))
+                .max_by_key(|c| (c.troops, std::cmp::Reverse(c.hex)));
+            if let Some(c) = site {
+                return Some(Action::Build { at: c.hex, building: Building::Village });
             }
         }
         None
