@@ -31,10 +31,12 @@ const MAX_BATCH: u32 = 20;
 const MAX_RUNNING: usize = 100;
 /// Entrant seats in each self-play game; the rest are the champion and roster CPUs.
 const AUTOPLAY_ENTRANTS: usize = 6;
+/// Most entrant seats one author gets in a self-play game.
+const AUTOPLAY_PER_AUTHOR: usize = 2;
 /// Arena entrants stay scheduled while they rank in this many places of the standings.
 const ACTIVE_TOP: usize = 20;
-/// Self-play games kept running at once.
-const AUTOPLAY_PARALLEL: usize = 2;
+/// Self-play games kept running at once, unless `HEXARENA_AUTOPLAY_PARALLEL` says otherwise.
+const AUTOPLAY_PARALLEL: usize = 4;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -72,6 +74,12 @@ struct Standing {
     points: u32,
     normalized: f64,
     land: u32,
+    /// Average time the bot took per move in this game (absent before timing existed).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    ms_per_move: Option<f64>,
+    /// Its slowest single move in this game.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    slowest_ms: Option<f64>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -111,6 +119,7 @@ struct AppState {
     league_games: Mutex<league::LeagueGames>,
     next_id: Mutex<u64>,
     workers: Semaphore,
+    autoplay_parallel: usize,
     autoplay: bool,
     notes: notes::Notebook,
 }
@@ -188,6 +197,7 @@ impl AppState {
             league_games: Mutex::new(league::LeagueGames::default()),
             next_id: Mutex::new(next),
             workers: Semaphore::new(workers),
+            autoplay_parallel: AUTOPLAY_PARALLEL,
             autoplay: false,
             notes: notes::Notebook::new(),
         }
@@ -220,10 +230,10 @@ fn run_match(app: &AppState, mut summary: Summary, styles: Vec<Style>) -> Summar
             }
             None => Ending::Cutoff,
         };
-        Ok((played.result(), ending))
+        Ok((played.result(), ending, played.move_time))
     });
     match outcome {
-        Ok((result, ending)) => {
+        Ok((result, ending, move_time)) => {
             summary.status = Status::Done;
             summary.ending = Some(ending);
             summary.final_tick = Some(result.final_tick);
@@ -242,6 +252,9 @@ fn run_match(app: &AppState, mut summary: Summary, styles: Vec<Style>) -> Summar
                     points: p.points,
                     normalized: result.normalized(p.player),
                     land: p.land,
+                    ms_per_move: move_time[p.player as usize].ms_per_move(),
+                    slowest_ms: Some(move_time[p.player as usize].slowest.as_secs_f64() * 1000.0)
+                        .filter(|_| move_time[p.player as usize].moves > 0),
                 })
                 .collect();
         }
@@ -360,8 +373,10 @@ fn launch(app: &Shared, styles: &[Style], seed: u64, auto: bool) -> Summary {
 }
 
 /// Seats for the next self-play game: the active entrants with the fewest arena games
-/// (up to [`AUTOPLAY_ENTRANTS`]), the league champion, then bots drawn from the rest of
-/// the active field (roster CPUs and league generations that aren't retired), in seed order.
+/// (up to [`AUTOPLAY_ENTRANTS`], at most [`AUTOPLAY_PER_AUTHOR`] from one author so a
+/// prolific author's versions don't mostly play each other), the league champion, then
+/// the least-played bots of the rest of the active field (roster CPUs and league
+/// generations that aren't retired). Ties break at random; seat order is shuffled.
 fn autoplay_lineup(app: &AppState, catalog: &Catalog, seed: u64) -> Vec<Style> {
     let rules = RulesConfig::default().version;
     let mut played: BTreeMap<String, usize> = BTreeMap::new();
@@ -372,12 +387,6 @@ fn autoplay_lineup(app: &AppState, catalog: &Catalog, seed: u64) -> Vec<Style> {
             }
         }
     }
-    let mut entrants: Vec<&hexarena_arena::entrants::Entrant> = catalog.active_entrants().collect();
-    entrants.sort_by_key(|e| (played.get(&e.id).copied().unwrap_or(0), e.created_at));
-    let mut seats: Vec<Style> = entrants.iter().take(AUTOPLAY_ENTRANTS).map(|e| e.style()).collect();
-    if let Some(champion) = catalog.resolve("champion") {
-        seats.push(champion);
-    }
     let mut rng = seed | 1;
     let mut next = move || {
         rng ^= rng << 13;
@@ -385,25 +394,47 @@ fn autoplay_lineup(app: &AppState, catalog: &Catalog, seed: u64) -> Vec<Style> {
         rng ^= rng << 17;
         rng
     };
-    let field = catalog.active_field();
-    let mut pool: Vec<Style> = vec![];
-    while seats.len() < MAX_PLAYERS && !field.is_empty() {
-        if pool.is_empty() {
-            pool = field.iter().filter(|s| seats.iter().all(|t| t.id != s.id)).cloned().collect();
-            if pool.is_empty() {
-                pool = field.clone();
-            }
+    let games = |id: &str| played.get(id).copied().unwrap_or(0);
+    let mut entrants: Vec<(usize, u64, &hexarena_arena::entrants::Entrant)> =
+        catalog.active_entrants().map(|e| (games(&e.id), next(), e)).collect();
+    entrants.sort_by_key(|&(n, tie, _)| (n, tie));
+    let mut per_author: BTreeMap<&str, usize> = BTreeMap::new();
+    let mut picked: Vec<&hexarena_arena::entrants::Entrant> = vec![];
+    for &(_, _, e) in &entrants {
+        let n = per_author.entry(e.author.as_str()).or_default();
+        if picked.len() < AUTOPLAY_ENTRANTS && *n < AUTOPLAY_PER_AUTHOR {
+            *n += 1;
+            picked.push(e);
         }
-        let pick = (next() % pool.len() as u64) as usize;
-        seats.push(pool.swap_remove(pick));
     }
+    // Too few authors to fill the entrant seats under the cap: top up regardless.
+    for &(_, _, e) in &entrants {
+        if picked.len() >= AUTOPLAY_ENTRANTS {
+            break;
+        }
+        if picked.iter().all(|p| p.id != e.id) {
+            picked.push(e);
+        }
+    }
+    let mut seats: Vec<Style> = picked.iter().map(|e| e.style()).collect();
+    if let Some(champion) = catalog.resolve("champion") {
+        seats.push(champion);
+    }
+    let mut field: Vec<(usize, u64, Style)> = catalog
+        .active_field()
+        .into_iter()
+        .filter(|s| seats.iter().all(|t| t.id != s.id))
+        .map(|s| (games(&s.id), next(), s))
+        .collect();
+    field.sort_by_key(|(n, tie, _)| (*n, *tie));
+    seats.extend(field.into_iter().map(|(_, _, s)| s).take(MAX_PLAYERS.saturating_sub(seats.len())));
     for i in (1..seats.len()).rev() {
         seats.swap(i, (next() % (i as u64 + 1)) as usize);
     }
     seats
 }
 
-/// The self-playing arena: keeps [`AUTOPLAY_PARALLEL`] 8-player games going, and sends
+/// The self-playing arena: keeps `autoplay_parallel` 8-player games going, and sends
 /// every new active entrant to the league for a gate against the champion.
 async fn autoplay(app: Shared) {
     loop {
@@ -411,7 +442,7 @@ async fn autoplay(app: Shared) {
         let catalog = app.catalog();
         queue_gates(&app, &catalog);
         note_gate_results(&app, &catalog);
-        if app.running() >= AUTOPLAY_PARALLEL {
+        if app.running() >= app.autoplay_parallel {
             continue;
         }
         retire_outside_top(&app, &app.catalog());
@@ -633,6 +664,74 @@ async fn leaderboard(State(app): State<Shared>, Query(q): Query<BoardQuery>) -> 
     }))
 }
 
+/// Points kept per rating curve on a profile; longer curves are thinned evenly.
+const PROFILE_POINTS: usize = 400;
+/// Newest games listed on a profile.
+const PROFILE_GAMES: usize = 300;
+
+/// One bot's page under the current rules: who it is, its rating curve and its arena
+/// games, newest first. Earlier rules versions are left out, since ratings restart with
+/// every version and old results describe a different game.
+async fn profile(State(app): State<Shared>, Path(id): Path<String>) -> Response {
+    let catalog = app.catalog();
+    let Some(info) = catalog.bots().into_iter().find(|b| b["id"] == id.as_str()) else {
+        return err(StatusCode::NOT_FOUND, format!("unknown bot '{id}'"));
+    };
+    let current = RulesConfig::default().version;
+    let games: Vec<serde_json::Value> = {
+        let matches = app.matches.lock().unwrap();
+        let mut mine: Vec<&Summary> = matches
+            .values()
+            .filter(|m| m.rules_version == current && m.seats.iter().any(|s| s.bot == id))
+            .collect();
+        mine.sort_by(|a, b| b.created_at.cmp(&a.created_at).then(b.id.cmp(&a.id)));
+        mine.iter()
+            .take(PROFILE_GAMES)
+            .map(|m| {
+                let seat = m.standings.iter().filter(|s| s.bot == id).min_by_key(|s| s.place_start);
+                serde_json::json!({
+                    "id": m.id, "created_at": m.created_at, "rules_version": m.rules_version,
+                    "status": m.status, "ending": m.ending, "final_tick": m.final_tick,
+                    "players": m.seats.len(), "winner": m.winner, "auto": m.auto,
+                    "place_start": seat.map(|s| s.place_start), "place_end": seat.map(|s| s.place_end),
+                    "ms_per_move": seat.and_then(|s| s.ms_per_move),
+                    "opponents": m.seats.iter().filter(|s| s.bot != id).map(|s| &s.name).collect::<Vec<_>>(),
+                })
+            })
+            .collect()
+    };
+    let b = board(&app, &catalog, Source::All);
+    let rank = b.rows.iter().find(|r| r.bot == id).map(|r| r.rank);
+    let row = b.rows.into_iter().chain(b.retired_rows).find(|r| r.bot == id);
+    let curves: Vec<serde_json::Value> = row
+        .iter()
+        .map(|row| {
+            let step = row.timeline.len().div_ceil(PROFILE_POINTS).max(1);
+            let last = row.timeline.len().saturating_sub(1);
+            let points: Vec<(u64, f64)> = row
+                .timeline
+                .iter()
+                .enumerate()
+                .filter(|(i, _)| i % step == 0 || *i == last)
+                .map(|(_, &(g, elo))| (b.times[g], elo))
+                .collect();
+            serde_json::json!({
+                "rules_version": current, "games": row.games, "elo": row.elo, "peak_elo": row.peak_elo, "points": points,
+            })
+        })
+        .collect();
+    Json(serde_json::json!({
+        "bot": info,
+        "rules_version": current,
+        "start_elo": START_ELO,
+        "rated_games": RATED_GAMES,
+        "standing": row.map(|row| serde_json::json!({ "rank": rank, "row": row })),
+        "curves": curves,
+        "games": games,
+    }))
+    .into_response()
+}
+
 struct Board {
     games: usize,
     arena_games: usize,
@@ -641,6 +740,8 @@ struct Board {
     rows: Vec<standings::BotStanding>,
     /// Retired bots, kept out of the standings. Ratings still count every game.
     retired_rows: Vec<standings::BotStanding>,
+    /// When each rated game finished, indexed like `BotStanding::timeline`.
+    times: Vec<u64>,
 }
 
 fn board(app: &AppState, catalog: &Catalog, source: Source) -> Board {
@@ -669,6 +770,8 @@ fn board(app: &AppState, catalog: &Catalog, source: Source) -> Board {
                     won: s.place_start == 1 && s.place_end == 1,
                     players: m.standings.len(),
                     ended: matches!(m.ending, Some(Ending::Conquest | Ending::LastStanding)),
+                    ms_per_move: s.ms_per_move,
+                    slowest_ms: s.slowest_ms,
                 })
                 .collect();
             (m.created_at, seats)
@@ -693,6 +796,8 @@ fn board(app: &AppState, catalog: &Catalog, source: Source) -> Board {
                         won: place == 1.0,
                         players: g.players,
                         ended: g.ended,
+                        ms_per_move: None,
+                        slowest_ms: None,
                     }
                 })
                 .collect();
@@ -700,6 +805,7 @@ fn board(app: &AppState, catalog: &Catalog, source: Source) -> Board {
         }));
     }
     games.sort_by_key(|(at, _)| *at);
+    let times: Vec<u64> = games.iter().map(|(at, _)| *at).collect();
     let games: Vec<Vec<SeatResult>> = games.into_iter().map(|(_, g)| g).collect();
     let (mut rows, retired_rows): (Vec<_>, Vec<_>) = standings(&games, |id| catalog.display_name(id))
         .into_iter()
@@ -707,7 +813,7 @@ fn board(app: &AppState, catalog: &Catalog, source: Source) -> Board {
     for (i, r) in rows.iter_mut().enumerate() {
         r.rank = i as u32 + 1;
     }
-    Board { games: games.len(), arena_games, league_games, rows, retired_rows }
+    Board { games: games.len(), arena_games, league_games, rows, retired_rows, times }
 }
 
 /// Retires every bot that has had a fair trial and sits outside the top [`ACTIVE_TOP`]
@@ -758,13 +864,18 @@ async fn main() {
     let arena_dir = std::env::var("HEXARENA_ARENA").unwrap_or_else(|_| "data/arena".into());
     let mut state = AppState::load(PathBuf::from(&dir), PathBuf::from(league_dir), PathBuf::from(&arena_dir));
     state.autoplay = std::env::var("HEXARENA_AUTOPLAY").map_or(true, |v| v != "0");
+    state.autoplay_parallel = env("HEXARENA_AUTOPLAY_PARALLEL").unwrap_or(AUTOPLAY_PARALLEL).max(1);
     let app: Shared = Arc::new(state);
     if app.autoplay {
         tokio::spawn(autoplay(app.clone()));
-        println!("self-playing arena on: 8-player games with entrants from {arena_dir} (HEXARENA_AUTOPLAY=0 turns it off)");
+        println!(
+            "self-playing arena on: {} 8-player games at a time with entrants from {arena_dir} (HEXARENA_AUTOPLAY=0 turns it off)",
+            app.autoplay_parallel
+        );
     }
     let mut router = Router::new()
         .route("/api/bots", get(bots))
+        .route("/api/bots/{id}/profile", get(profile))
         .route("/api/matches", get(list).post(create))
         .route("/api/matches/{id}", get(one))
         .route("/api/matches/{id}/viewer", get(viewer))

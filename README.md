@@ -77,7 +77,9 @@ When the rules version changes, the old league is archived to `data/league/archi
 
 ## Arena: try bot versions live
 
-The server keeps two 8-player games running at all times (`HEXARENA_AUTOPLAY=0` turns this off). Each game seats up to four published **arena versions**, least-played first, plus the league champion and roster CPUs. Those games count in the standings like any other.
+The server keeps four 8-player games running at all times (`HEXARENA_AUTOPLAY_PARALLEL=N` changes that, `HEXARENA_AUTOPLAY=0` turns it off; the league's evaluation threads are capped with `HEXARENA_LEAGUE_THREADS=N`, so on a 4-core machine `HEXARENA_LEAGUE_THREADS=2` leaves room for the arena). Each game seats six published **arena versions**, least-played first with at most two from the same author (so one prolific author's versions don't mostly play each other), plus the league champion and the least-played roster CPU or league generation; ties break at random. Every bot therefore gets about the same number of games and nobody picks their opponents. Those games count in the standings like any other.
+
+The standings show each bot's decision time per move (`ms/move`): the mean of its per-game averages with a 95% confidence interval across games (Student t), measured on the arena server while other games run, so it compares bots rather than giving an absolute speed. Click a bot's name for its **profile page**: its mascot (a small SVG drawn from its id, with ears or horns from the animal in its name), its Elo over time and its game log under the current rules (`/api/bots/{id}/profile`). Publishing a version (`hexarena arena publish`) prints the live rules version and the newest `agent:lead` notes from the lab notebook.
 
 Publish a version from any checkout. This freezes a copy of that checkout's `hexarena` binary, so the version keeps playing the same way after its code changes:
 
