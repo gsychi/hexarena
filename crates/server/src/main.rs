@@ -448,7 +448,45 @@ fn autoplay_lineup(app: &AppState, catalog: &Catalog, seed: u64) -> Vec<Style> {
     seats
 }
 
-/// The self-playing arena: keeps `autoplay_parallel` 8-player games going.
+/// One self-play game in this many is a 1v1, so every bot also earns a duel rating.
+const DUEL_EVERY: u64 = 2;
+
+/// A 1v1 for the active bot (roster CPU or entrant) with the fewest duels under the
+/// current rules, against another active bot picked at random.
+fn duel_lineup(app: &AppState, catalog: &Catalog, seed: u64) -> Vec<Style> {
+    let rules = RulesConfig::default().version;
+    let mut duels: BTreeMap<String, usize> = BTreeMap::new();
+    for m in app.matches.lock().unwrap().values() {
+        if m.status != Status::Failed && m.rules_version == rules && m.seats.len() == 2 {
+            for seat in &m.seats {
+                *duels.entry(seat.bot.clone()).or_default() += 1;
+            }
+        }
+    }
+    let mut rng = seed | 1;
+    let mut next = move || {
+        rng ^= rng << 13;
+        rng ^= rng >> 7;
+        rng ^= rng << 17;
+        rng
+    };
+    let mut pool: Vec<(usize, u64, Style)> = catalog
+        .active_field()
+        .into_iter()
+        .chain(catalog.active_entrants().map(|e| e.style()))
+        .map(|s| (duels.get(&s.id).copied().unwrap_or(0), next(), s))
+        .collect();
+    if pool.len() < 2 {
+        return autoplay_lineup(app, catalog, seed);
+    }
+    pool.sort_by_key(|&(n, tie, _)| (n, tie));
+    let first = pool.remove(0).2;
+    let second = pool.remove((next() % pool.len() as u64) as usize).2;
+    if next() % 2 == 0 { vec![first, second] } else { vec![second, first] }
+}
+
+/// The self-playing arena: keeps `autoplay_parallel` games going, 8-player free-for-alls
+/// and every [`DUEL_EVERY`]th one a 1v1.
 async fn autoplay(app: Shared) {
     loop {
         tokio::time::sleep(std::time::Duration::from_secs(2)).await;
@@ -458,7 +496,11 @@ async fn autoplay(app: Shared) {
         retire_outside_top(&app, &app.catalog());
         let catalog = app.catalog();
         let seed = random_seed();
-        let lineup = autoplay_lineup(&app, &catalog, seed);
+        let lineup = if seed % DUEL_EVERY == 0 {
+            duel_lineup(&app, &catalog, seed)
+        } else {
+            autoplay_lineup(&app, &catalog, seed)
+        };
         launch(&app, &lineup, seed, true);
     }
 }
@@ -668,12 +710,39 @@ async fn replay(State(app): State<Shared>, Path(id): Path<String>) -> Response {
     artifact(app, id, "replay").await
 }
 
+#[derive(Deserialize)]
+struct LeaderboardQuery {
+    format: Option<Format>,
+}
+
 /// Standings only count arena games played under the current rules, since the rules
-/// and the CPUs change together.
-async fn leaderboard(State(app): State<Shared>) -> Json<serde_json::Value> {
+/// and the CPUs change together. `?format=duel|ffa` rates on just those games; the
+/// default rates on every game and adds each bot's 1v1 and free-for-all ratings.
+async fn leaderboard(State(app): State<Shared>, Query(q): Query<LeaderboardQuery>) -> Json<serde_json::Value> {
     let catalog = app.catalog();
-    let board = board(&app, &catalog);
+    let format = q.format.unwrap_or(Format::All);
+    let board = board_for(&app, &catalog, format);
+    let mut rows = serde_json::to_value(&board.rows).unwrap();
+    if format == Format::All {
+        let by_format = |f| -> BTreeMap<String, (f64, u32, u32)> {
+            let b = board_for(&app, &catalog, f);
+            b.rows.iter().map(|r| (r.bot.clone(), (r.elo, r.games, r.rank))).collect()
+        };
+        let (duel, ffa) = (by_format(Format::Duel), by_format(Format::Ffa));
+        for row in rows.as_array_mut().unwrap() {
+            let bot = row["bot"].as_str().unwrap_or_default().to_string();
+            for (key, table) in [("duel", &duel), ("ffa", &ffa)] {
+                row[key] = match table.get(&bot) {
+                    Some(&(elo, games, rank)) => serde_json::json!({ "elo": elo, "games": games, "rank": rank }),
+                    None => serde_json::Value::Null,
+                };
+            }
+        }
+    }
     Json(serde_json::json!({
+        "format": format,
+        "duel_games": board.duel_games,
+        "ffa_games": board.ffa_games,
         "games": board.games,
         "rules_version": RulesConfig::default().version,
         "start_elo": START_ELO,
@@ -682,7 +751,7 @@ async fn leaderboard(State(app): State<Shared>) -> Json<serde_json::Value> {
         "anchors": ANCHORS,
         "anchor_elo": START_ELO,
         "retired": catalog.retired_reasons(),
-        "bots": board.rows,
+        "bots": rows,
         "retired_bots": board.retired_rows,
     }))
 }
@@ -797,8 +866,30 @@ async fn match_elo(State(app): State<Shared>, Path(id): Path<String>) -> Respons
     Json(serde_json::json!({ "rules_version": m.rules_version, "rated": game.is_some(), "bots": bots })).into_response()
 }
 
+/// Which games a rating counts: lobbies of two, of three or more, or every game.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+enum Format {
+    All,
+    Duel,
+    Ffa,
+}
+
+impl Format {
+    fn counts(self, players: usize) -> bool {
+        match self {
+            Format::All => true,
+            Format::Duel => players == 2,
+            Format::Ffa => players > 2,
+        }
+    }
+}
+
 struct Board {
     games: usize,
+    /// Rated games with two players and with more, whichever format the board counts.
+    duel_games: usize,
+    ffa_games: usize,
     /// Active bots, ranked among themselves.
     rows: Vec<standings::BotStanding>,
     /// Retired bots, kept out of the standings. Ratings still count every game.
@@ -812,12 +903,18 @@ struct Board {
 /// Every game counts toward its seats' ratings, but only bots that still exist get a
 /// row: old league generations (`g19`, `champion`) still played in early v0.6 games.
 fn board(app: &AppState, catalog: &Catalog) -> Board {
+    board_for(app, catalog, Format::All)
+}
+
+fn board_for(app: &AppState, catalog: &Catalog, format: Format) -> Board {
     let rules = RulesConfig::default().version;
     let matches = app.matches.lock().unwrap();
     let mut done: Vec<&Summary> = matches
         .values()
-        .filter(|m| m.status == Status::Done && m.rules_version == rules)
+        .filter(|m| m.status == Status::Done && m.rules_version == rules && format.counts(m.standings.len()))
         .collect();
+    let duel_games = done.iter().filter(|m| m.standings.len() == 2).count();
+    let ffa_games = done.len() - duel_games;
     done.sort_by(|a, b| a.created_at.cmp(&b.created_at).then(a.id.cmp(&b.id)));
     let games: Vec<Vec<SeatResult>> = done
         .iter()
@@ -846,7 +943,7 @@ fn board(app: &AppState, catalog: &Catalog) -> Board {
     for (i, r) in rows.iter_mut().enumerate() {
         r.rank = i as u32 + 1;
     }
-    Board { games: games.len(), rows, retired_rows, times, match_ids }
+    Board { games: games.len(), duel_games, ffa_games, rows, retired_rows, times, match_ids }
 }
 
 /// Retires every arena entrant that has had a fair trial and sits outside the top

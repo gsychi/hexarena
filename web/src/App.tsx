@@ -1,5 +1,5 @@
-import { ArrowLeft, ChevronFirst, ChevronLast, Link2, Loader2, Mountain, Pause, Play, RotateCcw, SkipBack, SkipForward, Swords, Trophy } from 'lucide-react'
-import { memo, useEffect, useMemo, useState } from 'react'
+import { ArrowLeft, ChevronFirst, ChevronLast, Clapperboard, Link2, Loader2, Mountain, Pause, Play, RotateCcw, SkipBack, SkipForward, Swords, Trophy } from 'lucide-react'
+import { Suspense, lazy, memo, useEffect, useMemo, useState } from 'react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -19,6 +19,9 @@ import {
 } from './model'
 
 const SPEEDS = [1, 2, 4, 8, 16]
+
+/** three.js is large, so the 3D board is its own chunk, fetched the first time it is shown. */
+const Board3D = lazy(() => import('./Board3D').then((m) => ({ default: m.Board3D })))
 
 interface FeedItem { color: string; text: string; tick: number; kind: number }
 
@@ -75,6 +78,7 @@ export function Viewer({ src, match, label, onBack }: { src: string; match?: str
   const [selected, setSelected] = useState<number | null>(null)
   const [drawer, setDrawer] = useState(false)
   const [heightMode, setHeightMode] = useState(false)
+  const [view3d, setView3d] = useState(() => new URLSearchParams(location.search).get('view') === '3d')
   const [tab, setTab] = useState('events')
   const [hideEnd, setHideEnd] = useState(false)
 
@@ -272,8 +276,14 @@ export function Viewer({ src, match, label, onBack }: { src: string; match?: str
     <div className="flex h-full flex-col gap-3 bg-background p-3 text-foreground lg:flex-row">
       <div className="flex min-h-0 flex-1 flex-col gap-3">
         <div className="relative min-h-0 flex-1">
-          <Board rep={rep} cells={cells} perspective={perspective} visible={visible} selected={selected} heightMode={heightMode} tick={tick} plan={plan}
-            onSelect={(i) => { setSelected(i); if (i !== null) setTab('hex') }} />
+          {view3d ? (
+            <Suspense fallback={<div className="flex h-full items-center justify-center gap-2 rounded-xl border text-muted-foreground"><Loader2 className="size-4 animate-spin" />Loading the 3D board…</div>}>
+              <Board3D rep={rep} cells={cells} tick={tick} visible={visible} />
+            </Suspense>
+          ) : (
+            <Board rep={rep} cells={cells} perspective={perspective} visible={visible} selected={selected} heightMode={heightMode} tick={tick} plan={plan}
+              onSelect={(i) => { setSelected(i); if (i !== null) setTab('hex') }} />
+          )}
           {tick === last && !hideEnd && <MatchOver rep={rep} elo={elo} onReplay={() => { setTick(0); setPlaying(true) }} onClose={() => setHideEnd(true)} />}
         </div>
         <Card size="sm" className="py-2">
@@ -288,7 +298,8 @@ export function Viewer({ src, match, label, onBack }: { src: string; match?: str
             <ToggleGroup variant="outline" size="sm" value={[String(speed)]} onValueChange={(v) => v.length && setSpeed(Number(v[v.length - 1]))}>
               {SPEEDS.map((s) => <ToggleGroupItem key={s} value={String(s)} className="px-2 text-xs data-pressed:bg-foreground data-pressed:text-background">{s}/s</ToggleGroupItem>)}
             </ToggleGroup>
-            <Button variant={heightMode ? 'default' : 'outline'} size="sm" onClick={() => setHeightMode((v) => !v)}><Mountain />Heights</Button>
+            {!view3d && <Button variant={heightMode ? 'default' : 'outline'} size="sm" onClick={() => setHeightMode((v) => !v)}><Mountain />Heights</Button>}
+            <Button variant={view3d ? 'default' : 'outline'} size="sm" onClick={() => setView3d((v) => !v)} title="Cinematic 3D replay"><Clapperboard />{view3d ? '2D board' : 'Cinematic 3D'}</Button>
             <Button variant="outline" size="sm" className="lg:hidden" onClick={() => setDrawer(true)}>Details</Button>
           </CardContent>
         </Card>
