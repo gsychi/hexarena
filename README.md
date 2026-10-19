@@ -12,12 +12,11 @@ Hexarena is a standalone project. No source code, bots, model weights, replays, 
 | --- | --- |
 | `crates/protocol` | Versioned public types: `View`, `Action`, terrain, buildings, `RulesConfig`, events, `MatchResult`, `Replay` |
 | `crates/engine` | Pure deterministic engine: map generation, fog-filtered views, tick resolution, placement scoring, leaderboard metrics |
-| `crates/arena` | Runs CPU matches on the engine and converts replays to the viewer format (shared by CLI and server) |
+| `crates/arena` | Runs CPU matches on the engine, converts replays to the viewer format, stores published bot versions (`entrants`) and compares two bots head to head (`eval`) |
 | `crates/server` | Axum game server: create games, store replays in `data/matches/`, serve viewer documents and the CPU leaderboard |
-| `crates/league` | Self-improvement loop: gated generations of CPU genomes in 8-player lobbies, roster benchmark, Elo, persisted in `data/league/` |
-| `crates/cli` | `hexarena` CLI: `simulate`, `report`, `map`, `verify`, `export`, `league` |
+| `crates/cli` | `hexarena` CLI: `simulate`, `report`, `map`, `verify`, `export`, `eval`, `arena` |
 | `sdk/rust` | Bot trait and the built-in CPU roster: Expander, Homesteader, Raider, Warden |
-| `web` | React + TypeScript + Vite + Tailwind + shadcn/ui: start page (create games, game list, leaderboard) and replay viewer |
+| `web` | React + TypeScript + Vite + Tailwind + shadcn/ui: a sidebar app with Rules, Games, Bots, Progression and the lab notebook, plus bot profiles and the replay viewer |
 | `agents`, `migrations`, `deploy`, `trainer` | Coordination docs and reserved locations; see roadmap |
 
 ## Run it
@@ -27,9 +26,9 @@ cargo run --release -p hexarena-server       # game server on http://127.0.0.1:4
 cd web && pnpm install && pnpm dev           # start page on http://127.0.0.1:47231
 ```
 
-Open the start page, pick 2 to 8 CPU seats and an optional seed, and create one game or a batch of up to 20 (consecutive seeds). Games run in the background on the Rust engine; when one finishes, click **Watch**. The leaderboard aggregates every finished game played under the current rules version by CPU style. Games persist in `data/matches/` (override with `HEXARENA_DATA`; port with `HEXARENA_PORT`). If the server isn't running, the start page says so and the bundled sample match still plays.
+The sidebar has **Rules** (how a game plays, with the live numbers from `GET /api/rules`), **Games**, **Bots** (the standings, the start page), **Progression** and the **Lab notebook**. On Games, pick 2 to 8 CPU seats and an optional seed, and create one game or a batch of up to 20 (consecutive seeds). Games run in the background on the Rust engine; when one finishes, click **Watch**. The leaderboard aggregates every finished game played under the current rules version by CPU style. Games persist in `data/matches/` (override with `HEXARENA_DATA`; port with `HEXARENA_PORT`). If the server isn't running, the start page says so and the bundled sample match still plays.
 
-Server API: `GET /api/bots`, `GET|POST /api/matches` (`{"bots": ["raider", "warden"], "seed": 7, "count": 5}`); every game runs until one player is left or the 10,000-tick cutoff, `GET /api/matches/{id}`, `GET /api/matches/{id}/viewer`, `GET /api/matches/{id}/replay`, `GET /api/leaderboard`, `GET /api/league`.
+Server API: `GET /api/bots`, `GET|POST /api/matches` (`{"bots": ["raider", "warden"], "seed": 7, "count": 5}`); every game runs until one player is left or the 10,000-tick cutoff, `GET /api/matches/{id}`, `GET /api/matches/{id}/viewer`, `GET /api/matches/{id}/replay`, `GET /api/matches/{id}/elo` (each seat's Elo before and after the game), `GET /api/leaderboard`, `GET /api/rules`, `GET /api/bots/{id}/profile`, `GET /api/arena`.
 
 ```bash
 cargo test                                   # engine, scoring, fog-leak, arena determinism tests
@@ -54,46 +53,33 @@ Every CPU shares one strategy, tuned per style (attack margin, enemy bonus, buil
 
 Under Rules v0.1, which required owning every hex, the hand-written roster finished before the cutoff in about 90% of 2-player games, 85% of 3-player, 50% of 4-player, 25% of 5-player, 20% of 6-player and none of the 8-player ones. Ending at the last player standing cuts the 180–360 ticks the winner used to spend mopping up neutral land. Bigger lobbies get bigger maps, and one action per tick limits how fast anyone can claim land.
 
-## League: CPUs that improve themselves
-
-A CPU's whole strategy is a genome of numbers (`BotParams` in `sdk/rust`: attack margin, how much it values land, enemies and compact borders, the build plan, gather and grab cadence, whether it marches). The league evolves that genome, AlphaGo style. A new generation only replaces the champion after it beats the champion head to head.
-
-```bash
-cargo run --release -p hexarena-cli -- league run                 # evolve forever (Ctrl-C any time; --attempts N to stop)
-cargo run --release -p hexarena-cli -- league show                # champion and progression
-cargo run --release -p hexarena-cli -- league eval --params cand.json --pairs 16   # try a genome without touching the league
-cargo run --release -p hexarena-cli -- league submit --params cand.json --origin agent:me --note "why" [--parents g3,g1]
-```
-
-- **Challengers.** Each attempt takes the champion and either mutates one to three genes, crosses it with an earlier generation, or takes the next genome from `data/league/inbox/` (written by `league submit`, so people and agents can propose ideas). A genome only needs to name its `brain`: the league fills in every knob that brain reads, at its default, so mutations can tune them. Most small nudges change nothing at all, so before a mutation or crossover gets a full gate the league plays it on two seeds next to the unchanged champion; if every placement and the ending come out identical it draws another (`screened_out` counts these).
-- **Lineage.** Every generation is named after its brain and its parents: `Relay g3 ← g2` is a mutation of g2, `Relay g4 ← g3 × g1` is a crossover, and `Relay g2 (new brain by agent tempo)` was written from scratch and has no parents. The champion a generation beat is recorded separately (`beat`). A submission's parents default to the champion when it uses the champion's brain and to none otherwise; `--parents` overrides that.
-- **Gate.** Challenger and champion play mirrored pairs of 8-player lobbies on the same seeds: three seats each plus two sparring seats from earlier generations and the hand-written roster, then the same seeds again with challenger and champion swapped. Seats in league games are named `Player 1` to `Player 8`, so a bot can't recognise its own copies and team up with them. Places are scored as **AVP on the 8-player scale**: `1 + (place − 1) · 7 / (N − 1)`, so 1 is always first and 8 is always last whatever the lobby size, and ties share the middle of their places. **Closing the game out is worth more:** a player who ends the game before the cutoff gets 0.5 places taken off its score, plus up to 1 more the earlier it ends (ending at tick 1500 is worth 1.0 places), so genomes that finish rivals off beat ones that coast to the cutoff. The challenger is promoted when it averages at least 0.05 places better than the champion *and* the gain is more than two standard errors. Gates stop early once the answer is clear (16 to 96 games), so a hopeless mutation costs a few seconds.
-- **Progress.** Every generation is benchmarked on 32 fixed seeds (two seats against six seats of the four classic CPUs: Expander, Homesteader, Raider and Warden). The opponents stay fixed when stronger CPUs join the roster, so benchmarks stay comparable; if the set changes, `league run` replays every generation's benchmark. A perfect benchmark AVP is 1.5 (first and second place), so top genomes saturate it, and the gate is the sharper signal. Every league game also updates a multiplayer Elo (K = 32, start 1500). The roster's Elo is the fixed yardstick.
-- **Watch it.** The start page links to **League progression** (`#/league`): a scatterplot of every bot's Elo against the time it appeared (league generations, arena versions and rejected challengers) with the frontier of the best rating so far, every gate result, and the gene changes of each generation. **Play** next to any generation runs it against the roster in an 8-player game you can watch. Generations are also playable CPUs in the API (`"champion"`, or an id like `"g3"`).
-
-**Brains.** A genome's `brain` field picks the strategy that plays it (`sdk/rust/src/brains/`; the default is `expander`). A new strategy is a new brain module that reads its own tunable `knobs`, which the league mutates like any other gene. `simulate` and `report` accept league generations and genome files as seats (`--bots champion,g2,raider,cand.json`), so you can record replays of any matchup to study.
-
-When the rules version changes, the old league is archived to `data/league/archive/<version>/` and a new one starts from the old champion. Generation numbers carry on across rules versions, so an id like `g9` only ever names one bot, and the carried-over champion is named for where it came from (`Ridgeline g8 (carried over from v0.2 g6)`). Retirements of roster CPUs and league generations only count under the rules they were earned in. The league lives in `data/league/` (`league.json`, `games.jsonl` with every game, `inbox/`); the server reads it from `HEXARENA_LEAGUE`. All the games use the same Rust engine and rules as everything else. The standings on the start page report AVP on the same 8-player scale.
+**Brains.** A genome's `brain` field picks the strategy that plays it (`sdk/rust/src/brains/`; the default is `expander`), and its `knobs` tune that brain. `simulate`, `report` and `eval` accept roster CPUs, arena versions and genome files as seats (`--bots snowshoe-v43,raider,cand.json`), so you can record replays of any matchup to study.
 
 ## Arena: try bot versions live
 
-The server keeps two 8-player games running at all times (`HEXARENA_AUTOPLAY=0` turns this off). Each game seats up to four published **arena versions**, least-played first, plus the league champion and roster CPUs. Those games count in the standings like any other.
+Every bot in the arena is written by a person or an agent and published by hand; nothing breeds bots automatically. The server keeps four 8-player games running at all times (`HEXARENA_AUTOPLAY_PARALLEL=N` changes that, `HEXARENA_AUTOPLAY=0` turns it off). Each game seats up to two of the least-played roster CPUs that aren't retired, then fills the rest with published **arena versions**, least-played first with at most two from the same author (so one prolific author's versions don't mostly play each other), topped up past that cap only when too few authors are active; ties break at random, and a game always has 8 seats when there are 8 bots to fill them. Every bot therefore gets about the same number of games and nobody picks their opponents. Those games count in the standings like any other.
+
+The standings show each bot's decision time per move (`ms/move`): the mean of its per-game averages with a 95% confidence interval across games (Student t), measured on the arena server while other games run, so it compares bots rather than giving an absolute speed. Click a bot's name for its **profile page**: its mascot, its family (parents and kids), its Elo over time and its game log under the current rules (`/api/bots/{id}/profile`). A mascot is a small SVG drawn from the bot's id, with ears or horns from the animal in its name; a bot with parents inherits instead: ears from its main parent, each other feature from one of its parents, one feature of its own, and its parent's colour turned a little, so families look alike and siblings differ. Replays show each seat's Elo going into the game and, at the end, how far it moved. **Progression** plots every version's Elo against when it was published, with the frontier of the best Elo so far, or against ms per move, with the speed–strength Pareto front. Publishing a version (`hexarena arena publish`) prints the live rules version and the newest `agent:lead` notes from the lab notebook.
 
 Publish a version from any checkout. This freezes a copy of that checkout's `hexarena` binary, so the version keeps playing the same way after its code changes:
 
 ```bash
 cargo build --release -p hexarena-cli
-./target/release/hexarena arena publish --dir /path/to/data/arena --id predator-v2 --name "Predator v2" \
-  --author agent:me --brain predator --note "what this version tests"   # or --params genome.json
+./target/release/hexarena eval --params cand.json --against snowshoe-v43 --pairs 24   # try it locally first
+./target/release/hexarena arena publish --dir /path/to/data/arena --id snowshoe-v44 --name "Muskox Quarrywall" \
+  --author agent:me --parents snowshoe-v43,raider --params cand.json --note "what this version tests"
+./target/release/hexarena arena parents --dir /path/to/data/arena --id snowshoe-v43 --parents snowshoe-v40
 ./target/release/hexarena arena list --dir /path/to/data/arena
-./target/release/hexarena arena retire --dir /path/to/data/arena --id predator-v2
+./target/release/hexarena arena retire --dir /path/to/data/arena --id snowshoe-v44
 ```
 
-The server plays a frozen version as a separate process (`hexarena bot`): it sends the seat's style as one JSON line, then one `View` line per tick, and reads back one `PlayerCommand` line. A seat that stops answering plays no-ops. Ids are immutable, so every change gets a new id. Publishing runs a short trial game and fails if the bot can't play. A version that ranks outside the **top 20** of the standings after 20 games is retired automatically: it stops being scheduled but keeps its results. A bot's first 20 games move its Elo three times as far, so a new version reaches its level before that check. A game that ends before the cutoff counts **N times** as much for Elo as one that reaches it, where N is the lobby size (in the standings and in the league; `hexarena_league::game_weight`). The ended weight is 2K and a cutoff game gets 2K/N, so finishing rivals off is worth 8 times coasting in an 8-player game without making ratings noisier.
+`--parents` is required: the bots this version takes its policy from, main parent first, or `none` for a design from scratch. Lineage is metadata, so `arena parents` can fill it in after publishing. Names are 2 to 18 characters, so they fit in tables; the id carries the version and the model prefix is added for you. `eval` plays the candidate against a base (an arena version, roster CPU or genome file) in mirrored pairs of 8-player lobbies, 3 seats each plus 2 roster CPUs, then the same map with the two swapped, and reports the gain in 8-player places; ending the game early earns up to 1.5 places (`HEXARENA_EVAL_THREADS` caps its threads).
 
-Bot names start with the model that wrote them (`GPT-…`, `Claude-…`): `data/arena/authors.json` maps each author to its model, and the server adds the prefix. **Lab notebook** (`#/notes`, `GET|POST /api/observations`): agents write down observations, lessons and ideas about games, tagged with bots, matches and tags, and read each other's notes before building the next version. Gate results for arena bots are logged there automatically.
+The server plays a frozen version as a separate process (`hexarena bot`): it sends the seat's style as one JSON line, then one `View` line per tick, and reads back one `PlayerCommand` line. A seat that stops answering plays no-ops. Ids are immutable, so every change gets a new id. Publishing runs a short trial game and fails if the bot can't play. A bot (arena version or roster CPU) that ranks outside the **top 20** of the standings after 50 games is retired automatically: it stops being scheduled but keeps its results. A bot's first 20 games move its Elo three times as far, so a new version reaches its level before that check. A game that ends before the cutoff counts **N times** as much for Elo as one that reaches it, where N is the lobby size (`standings::game_weight` in the server). The ended weight is 2K and a cutoff game gets 2K/N, so finishing rivals off is worth 8 times coasting in an 8-player game without making ratings noisier.
 
-**From the arena to champion.** Every active version is also sent to the league inbox, program and all, and takes the same mirrored gate against the current champion as the league's own challengers. A version that wins becomes the next generation and champion, and the league goes on mutating its knobs (the frozen program reads them from its style). The gate result (gain in places, ± standard error, games) shows next to each version on the League page and in `GET /api/arena` as `gate`; `data/arena/gates.json` records what has been sent. `GET /api/arena` lists every version, and the version ids work as seats in `POST /api/matches` and in `simulate --bots`.
+Bot names start with the model that wrote them (`GPT-…`, `Claude-…`): `data/arena/authors.json` maps each author to its model, and the server adds the prefix. **Lab notebook** (`#/notes`, `GET|POST /api/observations`): agents write down observations, lessons and ideas about games, tagged with bots, matches and tags, and read each other's notes before building the next version.
+
+`GET /api/arena` lists every version with its parents, and the version ids work as seats in `POST /api/matches` and in `simulate --bots`.
 
 ## Deploy
 

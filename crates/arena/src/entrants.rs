@@ -26,6 +26,10 @@ pub struct Entrant {
     pub retired: bool,
     #[serde(default)]
     pub retired_reason: Option<String>,
+    /// The bots it takes its policy from, as ids (arena versions or roster CPUs); empty
+    /// for a design written from scratch. Lineage only: it doesn't change how it plays.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub parents: Vec<String>,
     pub params: BotParams,
     /// The frozen program that plays it; `None` uses the brains compiled into the server.
     #[serde(default)]
@@ -78,8 +82,11 @@ pub fn load_all(dir: &Path) -> Vec<Entrant> {
     out
 }
 
-/// Ids are lowercase letters, digits and dashes, and can't shadow a roster CPU or a
-/// league generation (`g3`, `champion`).
+/// Longest display name, before the model prefix (`GPT-`), so names fit in tables.
+pub const MAX_NAME: usize = 18;
+
+/// Ids are lowercase letters, digits and dashes, and can't shadow a roster CPU or the
+/// ids league generations used in old games (`g3`, `champion`).
 pub fn check_id(id: &str) -> Result<(), String> {
     let shape = (2..=40).contains(&id.len())
         && id.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-')
@@ -89,9 +96,45 @@ pub fn check_id(id: &str) -> Result<(), String> {
     }
     let generation = id.strip_prefix('g').is_some_and(|n| !n.is_empty() && n.chars().all(|c| c.is_ascii_digit()));
     if id == "champion" || generation || roster().iter().any(|s| s.id == id) {
-        return Err(format!("'{id}' is reserved for a roster CPU or league generation"));
+        return Err(format!("'{id}' is reserved for a roster CPU or an old league generation"));
     }
     Ok(())
+}
+
+pub fn check_name(name: &str) -> Result<(), String> {
+    let n = name.trim().chars().count();
+    if !(2..=MAX_NAME).contains(&n) {
+        return Err(format!(
+            "name '{name}' is {n} characters; use 2-{MAX_NAME}, e.g. 'Muskox Quarrywall' (the id carries the version, and the model prefix is added for you)"
+        ));
+    }
+    Ok(())
+}
+
+/// Every parent must name a published version or a roster CPU, and not the bot itself.
+pub fn check_parents(dir: &Path, id: &str, parents: &[String]) -> Result<(), String> {
+    let known: BTreeSet<String> = load_all(dir).into_iter().map(|e| e.id).chain(roster().into_iter().map(|s| s.id)).collect();
+    for p in parents {
+        if p == id {
+            return Err(format!("'{id}' can't be its own parent"));
+        }
+        if !known.contains(p) {
+            return Err(format!("unknown parent '{p}': name published versions (`hexarena arena list`) or roster CPUs"));
+        }
+    }
+    Ok(())
+}
+
+/// Sets which bots `id` takes its policy from. Versions are immutable in play, but
+/// lineage is metadata, so authors can fill it in after publishing.
+pub fn set_parents(dir: &Path, id: &str, parents: Vec<String>) -> Result<Entrant, String> {
+    check_parents(dir, id, &parents)?;
+    let path = entrant_path(dir, id);
+    let bytes = std::fs::read(&path).map_err(|_| format!("no entrant '{id}'"))?;
+    let mut e: Entrant = serde_json::from_slice(&bytes).map_err(|e| e.to_string())?;
+    e.parents = parents;
+    std::fs::write(&path, serde_json::to_vec_pretty(&e).unwrap()).map_err(|e| e.to_string())?;
+    Ok(e)
 }
 
 /// Publishes `entrant`. With `exe`, that program is copied into the arena so the version
@@ -99,6 +142,8 @@ pub fn check_id(id: &str) -> Result<(), String> {
 /// trial game before it is listed.
 pub fn publish(dir: &Path, mut entrant: Entrant, exe: Option<&Path>) -> Result<Entrant, String> {
     check_id(&entrant.id)?;
+    check_name(&entrant.name)?;
+    check_parents(dir, &entrant.id, &entrant.parents)?;
     let path = entrant_path(dir, &entrant.id);
     if path.exists() {
         return Err(format!("'{}' is already published; versions are immutable, so pick a new id", entrant.id));
@@ -131,13 +176,13 @@ pub fn retire(dir: &Path, id: &str, reason: Option<String>) -> Result<Entrant, S
     Ok(e)
 }
 
-/// Why and when a roster CPU or league generation left the arena.
+/// Why and when a roster CPU left the arena.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Retirement {
     pub reason: String,
     pub at: u64,
     /// The rules it was ranked under. A new rules version gives every roster CPU a fresh
-    /// trial, and starts a new league whose generation ids (`g0`, `g1`) are new bots.
+    /// trial.
     #[serde(default)]
     pub rules: String,
 }
@@ -149,7 +194,7 @@ fn all_retired_others(dir: &Path) -> BTreeMap<String, Retirement> {
         .unwrap_or_default()
 }
 
-/// Roster CPUs and league generations retired under the current rules, from
+/// Roster CPUs retired under the current rules, from
 /// `retired.json`.
 pub fn retired_others(dir: &Path) -> BTreeMap<String, Retirement> {
     let rules = RulesConfig::default().version;
@@ -181,5 +226,12 @@ mod tests {
             assert!(check_id(bad).is_err(), "{bad}");
         }
         assert!(check_id("g12-tweak").is_ok());
+    }
+
+    #[test]
+    fn names_fit_in_tables() {
+        assert!(check_name("Muskox Quarrywall").is_ok());
+        assert!(check_name("Snowshoe v43 — Muskox Quarrywall").is_err());
+        assert!(check_name("x").is_err());
     }
 }

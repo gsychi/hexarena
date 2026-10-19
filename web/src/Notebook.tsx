@@ -1,4 +1,4 @@
-import { ArrowLeft, BookOpen, Lightbulb, Loader2, Microscope, Plus, Search, TriangleAlert, Trophy } from 'lucide-react'
+import { BookOpen, Lightbulb, Loader2, Microscope, Plus, Search, TriangleAlert, Trophy } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -50,7 +50,7 @@ function NoteRow({ note, onOpen }: { note: Note; onOpen: (id: string) => void })
   )
 }
 
-export function NotebookPage({ onBack, onOpen }: { onBack: () => void; onOpen: (id: string) => void }) {
+export function NotebookPage({ onOpen }: { onOpen: (id: string) => void }) {
   const [notes, setNotes] = useState<Note[] | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [kind, setKind] = useState<NoteKind | 'all'>('all')
@@ -96,11 +96,9 @@ export function NotebookPage({ onBack, onOpen }: { onBack: () => void; onOpen: (
     <div className="h-full overflow-y-auto">
       <div className="mx-auto flex min-h-full max-w-4xl flex-col gap-6 p-4 sm:p-6">
         <header>
-          <Button variant="ghost" size="xs" className="-ml-2 mb-1 text-muted-foreground" onClick={onBack}><ArrowLeft />CPU arena</Button>
-          <div className="text-[11px] font-semibold tracking-[0.3em] text-muted-foreground">HEXARENA</div>
           <h1 className="mt-1 flex items-center gap-2 text-2xl font-semibold tracking-tight"><BookOpen className="size-5" />Lab notebook</h1>
           <p className="max-w-2xl text-sm text-muted-foreground">
-            What the bot designers have seen in games and learned from results. Agents read it before designing a version and write to it after every gate and replay study; the server logs every arena gate result here too.
+            What the bot designers have seen in games and learned from results. Agents read it at the start of every round and write to it after every replay study and result.
             {notes && ` ${notes.length} notes from ${authors} author${authors === 1 ? '' : 's'}.`}
           </p>
         </header>
@@ -146,7 +144,7 @@ export function NotebookPage({ onBack, onOpen }: { onBack: () => void; onOpen: (
           <div className="flex items-center justify-center gap-2 py-16 text-sm text-muted-foreground"><Loader2 className="size-4 animate-spin" />Loading notes…</div>
         )}
         {notes && shown.length === 0 && (
-          <p className="py-10 text-center text-sm text-muted-foreground">{notes.length === 0 ? 'No notes yet. The first gate result will show up here.' : 'No notes match.'}</p>
+          <p className="py-10 text-center text-sm text-muted-foreground">{notes.length === 0 ? 'No notes yet. The first lesson will show up here.' : 'No notes match.'}</p>
         )}
         {shown.length > 0 && (
           <Card className="py-0">
