@@ -9,6 +9,7 @@ import { Textarea } from '@/components/ui/textarea'
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
 import { api } from './api'
 import type { Activity, ActivityItem, Agent, AgentStatus, ArenaEntrant, NoteKind } from './api'
+import { AgentAvatar } from './AgentAvatar'
 import { BotAvatar } from './BotAvatar'
 import { usePoll } from './poll'
 
@@ -80,12 +81,11 @@ function WorkingOn({ a }: { a: Agent }) {
 }
 
 function AgentCard({ a, onBot, onOpen }: { a: Agent; onBot: (id: string) => void; onOpen: () => void }) {
-  const face = a.best_bot ?? a.latest_bot
   const replied = a.last_message?.from === a.id
   return (
     <div className="flex flex-col gap-3 rounded-xl border bg-muted/15 p-4">
       <div className="flex items-start gap-3">
-        {face ? <BotAvatar id={face.id} name={face.name} size={44} className="shrink-0" /> : <div className="size-11 shrink-0 rounded-full bg-muted" />}
+        <AgentAvatar id={a.id} model={a.model} size={52} className="shrink-0" />
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2">
             <span className="font-semibold">{agentName(a.id)}</span>
@@ -131,7 +131,8 @@ function Arrival({ e, onBot }: { e: ArenaEntrant; onBot: (id: string) => void })
   )
 }
 
-function Item({ item, name }: { item: ActivityItem; name: string }) {
+function Item({ item, agent }: { item: ActivityItem; agent: Agent }) {
+  const name = agentName(agent.id)
   switch (item.type) {
     case 'bot':
       return (
@@ -173,9 +174,12 @@ function Item({ item, name }: { item: ActivityItem; name: string }) {
     case 'message': {
       const mine = item.from === 'you'
       return (
-        <div className={`flex flex-col ${mine ? 'items-end' : 'items-start'}`}>
-          <div className={`max-w-[85%] whitespace-pre-wrap rounded-2xl px-3.5 py-2 text-sm ${mine ? 'rounded-br-sm bg-foreground text-background' : 'rounded-bl-sm bg-muted'}`}>{item.text}</div>
-          <span className="mt-1 px-1 text-[10px] text-muted-foreground">{mine ? 'You' : name}, {ago(item.at)}</span>
+        <div className={`flex items-end gap-2 ${mine ? 'justify-end' : ''}`}>
+          {!mine && <AgentAvatar id={agent.id} model={agent.model} size={26} className="mb-4 shrink-0" />}
+          <div className={`flex max-w-[85%] flex-col ${mine ? 'items-end' : 'items-start'}`}>
+            <div className={`whitespace-pre-wrap rounded-2xl px-3.5 py-2 text-sm ${mine ? 'rounded-br-sm bg-foreground text-background' : 'rounded-bl-sm bg-muted'}`}>{item.text}</div>
+            <span className="mt-1 px-1 text-[10px] text-muted-foreground">{mine ? 'You' : name}, {ago(item.at)}</span>
+          </div>
         </div>
       )
     }
@@ -243,7 +247,10 @@ function AgentSheet({ agent, onClose }: { agent: Agent | null; onClose: () => vo
       <SheetContent side="right" className="flex w-full flex-col gap-0 p-0 sm:max-w-lg">
         <SheetHeader className="space-y-3 border-b">
           <div>
-            <SheetTitle className="flex items-center gap-2">{name}{agent?.model && <Badge variant="outline" className="text-[10px]">{agent.model}</Badge>}</SheetTitle>
+            <SheetTitle className="flex items-center gap-2.5">
+              {agent && <AgentAvatar id={agent.id} model={agent.model} size={40} />}
+              {name}{agent?.model && <Badge variant="outline" className="text-[10px]">{agent.model}</Badge>}
+            </SheetTitle>
             <SheetDescription>Everything {name} has done here, newest at the bottom: bots it sent in, what it wrote in the lab notebook, and your messages. It reads new messages at the start of every round.</SheetDescription>
           </div>
           {activity && <StatusBanner status={activity.status} name={name} />}
@@ -258,7 +265,7 @@ function AgentSheet({ agent, onClose }: { agent: Agent | null; onClose: () => vo
               {filter === 'message' ? `No messages yet. Say hi to ${name}!` : 'Nothing here yet.'}
             </div>
           )}
-          {items?.map((i) => <Item key={`${i.type}-${'n' in i ? i.n : i.id}`} item={i} name={name} />)}
+          {agent && items?.map((i) => <Item key={`${i.type}-${'n' in i ? i.n : i.id}`} item={i} agent={agent} />)}
           {last?.type === 'message' && last.from === 'you' && (filter === 'all' || filter === 'message') && (
             <p className="text-center text-[11px] text-muted-foreground">Delivered. {name} will see it at the start of its next round.</p>
           )}

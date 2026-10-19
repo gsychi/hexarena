@@ -15,9 +15,9 @@ type Body = 'blob' | 'round' | 'bean' | 'gumdrop' | 'blossom'
 type Eyes = 'dots' | 'oval' | 'happy' | 'sleepy' | 'big'
 type Mouth = 'smile' | 'cat' | 'o' | 'tongue'
 
-interface Palette { body: string; shade: string; light: string; blush: string; bg: string }
+export interface Palette { body: string; shade: string; light: string; blush: string; bg: string }
 
-const PALETTES: Palette[] = [
+export const PALETTES: Palette[] = [
   { body: '#D97757', shade: '#B85C3E', light: '#F2B59C', blush: '#F28B82', bg: '#3A221A' }, // terracotta
   { body: '#F4A582', shade: '#D9825F', light: '#FBD3BF', blush: '#F27A7A', bg: '#3B2620' }, // peach
   { body: '#8FBF9F', shade: '#6C9C7D', light: '#C5E3CE', blush: '#F29B9B', bg: '#1E2E24' }, // sage
@@ -29,7 +29,7 @@ const PALETTES: Palette[] = [
   { body: '#E5C9A8', shade: '#C7A783', light: '#F4E6D5', blush: '#F2998A', bg: '#332A20' }, // sand
   { body: '#A3B8F0', shade: '#7F95D1', light: '#D3DDF8', blush: '#F2A0C0', bg: '#1E2539' }, // periwinkle
 ]
-const INK = '#2B1D18'
+export const INK = '#2B1D18'
 
 const FAMILIES: [RegExp, Family][] = ([
   ['bunny|rabbit|hare|snowshoe|burrow|warren|thumper|jackrabbit', 'rabbit'],
@@ -43,7 +43,7 @@ const FAMILIES: [RegExp, Family][] = ([
   ['octopus|squid|jelly|kraken|expander', 'tentacle'],
 ] as [string, Family][]).map(([alts, f]): [RegExp, Family] => [new RegExp(`\\b(?:${alts})`), f])
 
-function hash(s: string): number {
+export function hash(s: string): number {
   let h = 2166136261
   for (let i = 0; i < s.length; i++) h = Math.imul(h ^ s.charCodeAt(i), 16777619) >>> 0
   return h
