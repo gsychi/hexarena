@@ -1,6 +1,6 @@
 //! Pure deterministic Hexarena rules engine. No I/O, clocks, or global state.
 
-pub mod europe;
+pub mod atlas;
 pub mod mapgen;
 pub mod rng;
 pub mod scoring;
@@ -1214,7 +1214,7 @@ impl State {
             own_queue: vec![],
             visible_events,
             storm_radius: self.storm_radius(),
-            rules: (self.tick == 0).then(|| self.rules().clone()),
+            rules: (self.tick == 0).then(|| RulesConfig { map: None, ..self.rules().clone() }),
         }
     }
 

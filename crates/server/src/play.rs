@@ -2,8 +2,8 @@
 //! thread at the speed the player picks; the person's orders wait in a queue and the
 //! next one runs each tick, exactly like a bot's one action per tick.
 
-use hexarena_arena::{seat_names, viewer_json};
-use hexarena_engine::{build_replay, europe, State};
+use hexarena_arena::{place_labels, seat_names, viewer_json};
+use hexarena_engine::{build_replay, State};
 use hexarena_protocol::*;
 use hexarena_sdk::{brains, style, Bot, Style};
 use serde::{Deserialize, Serialize};
@@ -342,13 +342,7 @@ impl Live {
     /// The board, terrain and seats: everything that never changes during the game.
     pub fn setup(&self) -> serde_json::Value {
         let st = &self.state;
-        let places: Vec<serde_json::Value> = match st.rules().map {
-            Some(MapPreset::Europe) => europe::places(st.board.radius)
-                .into_iter()
-                .filter_map(|(name, h)| st.board.index(h).map(|i| serde_json::json!({ "name": name, "idx": i })))
-                .collect(),
-            None => vec![],
-        };
+        let places = place_labels(st);
         serde_json::json!({
             "id": self.id,
             "radius": st.board.radius,

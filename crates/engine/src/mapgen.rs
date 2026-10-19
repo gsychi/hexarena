@@ -1,9 +1,9 @@
 //! Procedural asymmetric map generation with topology validation.
 
-use crate::europe;
+use crate::atlas;
 use crate::rng::{fbm, splitmix, Rng};
 use crate::Board;
-use hexarena_protocol::{Building, Hex, MapPreset, MatchSettings, Terrain, TerrainKind};
+use hexarena_protocol::{Building, Hex, MatchSettings, Terrain, TerrainKind};
 use std::collections::VecDeque;
 
 #[derive(Clone, Debug)]
@@ -263,9 +263,8 @@ pub fn generate(s: &MatchSettings) -> Result<GeneratedMap, String> {
             s.players, rules.min_players, rules.max_players
         ));
     }
-    match rules.map {
-        Some(MapPreset::Europe) => return europe::generate(s),
-        None => {}
+    if let Some(preset) = rules.map {
+        return atlas::generate(preset, s);
     }
     let radius = rules.radius_for_players(s.players);
     let board = Board::new(radius);

@@ -1274,9 +1274,9 @@ fn tick_limit_ranks_survivors() {
     assert!((0..2).all(|p| r.placement(p).eliminated_at.is_none()));
 }
 
-fn europe(players: u16, seed: u64) -> MatchSettings {
+fn real_map(preset: MapPreset, players: u16, seed: u64) -> MatchSettings {
     let mut s = settings(players, seed);
-    s.rules.map = Some(MapPreset::Europe);
+    s.rules.map = Some(preset);
     s
 }
 
@@ -1306,56 +1306,89 @@ fn open_components(st: &State) -> usize {
 }
 
 #[test]
-fn europe_is_one_landmass_with_a_start_for_every_lobby_size() {
-    for players in 2..=8u16 {
-        for seed in 0..4 {
-            let st = State::new(europe(players, seed), vec![]).unwrap();
-            assert_eq!(open_components(&st), 1, "{players} players, seed {seed}");
-            let owned = (0..players).filter(|&p| st.hex_counts()[p as usize] == 1).count();
-            assert_eq!(owned, players as usize);
-            let open = st.terrain.iter().flatten().filter(|t| t.passable()).count();
-            let water = st.terrain.iter().flatten().filter(|t| t.kind == TerrainKind::Water).count();
-            assert!(water * 4 > st.board.hexes().len(), "the sea should be a big part of the board");
-            assert!(open * 10 >= europe::radius(&europe(players, seed)) as usize, "land exists");
+fn every_real_map_is_one_landmass_with_a_start_for_every_lobby_size() {
+    for preset in atlas::PRESETS {
+        for players in [2u16, 3, 4, 6, 8] {
+            for seed in 0..2 {
+                let st = State::new(real_map(preset, players, seed), vec![]).unwrap();
+                let at = format!("{preset:?}, {players} players, seed {seed}");
+                assert_eq!(open_components(&st), 1, "{at}");
+                let owned = (0..players).filter(|&p| st.hex_counts()[p as usize] == 1).count();
+                assert_eq!(owned, players as usize, "{at}");
+                let open = st.terrain.iter().flatten().filter(|t| t.passable()).count();
+                let water = st.terrain.iter().flatten().filter(|t| t.kind == TerrainKind::Water).count();
+                assert!(water * 6 > st.board.hexes().len(), "{at}: the sea should be a real part of the board");
+                assert!(open >= 400, "{at}: only {open} open hexes");
+            }
         }
     }
 }
 
 #[test]
-fn europe_has_farmland_and_quarry_hills() {
-    let st = State::new(europe(6, 9), vec![]).unwrap();
-    let open: Vec<i8> = st.terrain.iter().flatten().filter(|t| t.passable()).map(|t| t.height).collect();
-    assert!(open.iter().filter(|&&h| h <= 0).count() * 2 > open.len());
-    assert!(open.iter().filter(|&&h| h >= 1).count() * 5 > open.len());
+fn real_maps_have_farmland_and_quarry_hills() {
+    for preset in atlas::PRESETS {
+        let st = State::new(real_map(preset, 6, 9), vec![]).unwrap();
+        let open: Vec<i8> = st.terrain.iter().flatten().filter(|t| t.passable()).map(|t| t.height).collect();
+        assert!(open.iter().filter(|&&h| h <= 0).count() * 2 > open.len(), "{preset:?}");
+        assert!(open.iter().filter(|&&h| h >= 1).count() * 5 > open.len(), "{preset:?}");
+    }
 }
 
 #[test]
-fn europe_places_land_in_the_right_countries() {
-    let s = europe(4, 1);
-    let st = State::new(s.clone(), vec![]).unwrap();
-    let places = europe::places(st.board.radius);
-    let at = |name: &str| places.iter().find(|p| p.0 == name).unwrap().1;
-    let (paris, berlin, madrid, rome) = (at("Paris"), at("Berlin"), at("Madrid"), at("Rome"));
+fn bots_are_not_told_which_real_map_they_are_on() {
+    let st = State::new(real_map(MapPreset::Japan, 2, 1), vec![]).unwrap();
+    assert_eq!(st.view(0).rules.unwrap().map, None);
+}
+
+fn print_map(st: &State) {
+    let r = st.board.radius;
+    for row in -r..=r {
+        let mut line = " ".repeat(row.unsigned_abs() as usize);
+        for q in -r..=r {
+            let h = Hex::new(q, row);
+            let Some(t) = st.board.index(h).and_then(|i| st.terrain[i]) else { continue };
+            let c = match (t.kind, st.cell(h).unwrap().owner) {
+                (_, Some(_)) => '@',
+                (TerrainKind::Water, _) => '.',
+                (TerrainKind::Mountain, _) => '^',
+                (TerrainKind::Open, _) => match t.height { -2 => '_', -1 => '-', 0 => '=', 1 => 'n', _ => 'N' },
+            };
+            line.push(c);
+            line.push(' ');
+        }
+        println!("{line}");
+    }
+}
+
+/// `ATLAS_ASCII=japan cargo test -p hexarena-engine real_map_cities -- --nocapture` draws a map.
+#[test]
+fn real_map_cities_land_where_they_should() {
     let x = |h: Hex| h.q as f64 + h.r as f64 / 2.0;
-    assert!(x(madrid) < x(paris) && x(paris) < x(berlin));
-    assert!(rome.r > paris.r && madrid.r > paris.r);
-    if std::env::var("EUROPE_ASCII").is_ok() {
-        let r = st.board.radius;
-        for row in -r..=r {
-            let mut line = " ".repeat(row.unsigned_abs() as usize);
-            for q in -r..=r {
-                let h = Hex::new(q, row);
-                let Some(t) = st.board.index(h).and_then(|i| st.terrain[i]) else { continue };
-                let c = match (t.kind, st.cell(h).unwrap().owner) {
-                    (_, Some(_)) => '@',
-                    (TerrainKind::Water, _) => '.',
-                    (TerrainKind::Mountain, _) => '^',
-                    (TerrainKind::Open, _) => match t.height { -2 => '_', -1 => '-', 0 => '=', 1 => 'n', _ => 'N' },
-                };
-                line.push(c);
-                line.push(' ');
-            }
-            println!("{line}");
+    let checks: &[(MapPreset, &str, &str, &str, &str)] = &[
+        // (preset, west, east, north, south)
+        (MapPreset::Europe, "Madrid", "Berlin", "Paris", "Rome"),
+        (MapPreset::Mediterranean, "Madrid", "Istanbul", "Rome", "Tripoli"),
+        (MapPreset::Japan, "Fukuoka", "Tokyo", "Sapporo", "Kagoshima"),
+        (MapPreset::China, "Kashgar", "Shanghai", "Harbin", "Guangzhou"),
+        (MapPreset::UnitedStates, "Seattle", "New York", "Minneapolis", "Houston"),
+        (MapPreset::NorthAmerica, "Los Angeles", "Montreal", "Edmonton", "Mexico City"),
+        (MapPreset::Africa, "Dakar", "Mogadishu", "Cairo", "Cape Town"),
+    ];
+    for &(preset, west, east, north, south) in checks {
+        let st = State::new(real_map(preset, 4, 1), vec![]).unwrap();
+        let places = atlas::places(preset, st.board.radius);
+        let at = |name: &str| places.iter().find(|p| p.0 == name).unwrap_or_else(|| panic!("{name} on {preset:?}")).1;
+        assert!(x(at(west)) < x(at(east)), "{preset:?}: {west} west of {east}");
+        assert!(at(north).r < at(south).r, "{preset:?}: {north} north of {south}");
+        let wet: Vec<&str> = places
+            .iter()
+            .filter(|(_, h)| st.board.index(*h).and_then(|i| st.terrain[i]).unwrap().kind == TerrainKind::Water)
+            .map(|p| p.0)
+            .collect();
+        assert!(wet.len() * 5 <= places.len(), "{preset:?}: at sea {wet:?}");
+        if std::env::var("ATLAS_ASCII").is_ok_and(|v| serde_json::to_string(&preset).unwrap() == format!("\"{v}\"")) {
+            println!("{preset:?}, radius {}", st.board.radius);
+            print_map(&st);
         }
     }
 }

@@ -278,11 +278,24 @@ pub struct RulesConfig {
     pub map: Option<MapPreset>,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+/// Real-world maps. Bots never see which one they are on: it is stripped from their view.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum MapPreset {
     /// Mainland Europe from Lisbon to Kyiv, without the islands.
     Europe,
+    /// The lands around the Mediterranean and Black Sea.
+    Mediterranean,
+    /// Honshu, Kyushu, Shikoku and Hokkaido, joined by their bridges and tunnels.
+    Japan,
+    /// Mainland China.
+    China,
+    /// The 48 contiguous states.
+    UnitedStates,
+    /// Canada, the United States, Mexico and Central America.
+    NorthAmerica,
+    /// Mainland Africa.
+    Africa,
 }
 
 fn is_false(b: &bool) -> bool {

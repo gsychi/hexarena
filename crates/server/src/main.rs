@@ -6,8 +6,9 @@ use axum::http::{header, StatusCode};
 use axum::response::{IntoResponse, Response};
 use axum::routing::get;
 use axum::{Json, Router};
-use hexarena_arena::{play, seat_names, viewer_json};
-use hexarena_protocol::{PlayerId, RulesConfig};
+use hexarena_arena::{play_on, seat_names, viewer_json};
+use hexarena_engine::atlas;
+use hexarena_protocol::{MapPreset, PlayerId, RulesConfig};
 use hexarena_sdk::Style;
 use serde::{Deserialize, Serialize};
 use catalog::Catalog;
@@ -104,6 +105,9 @@ struct Summary {
     /// Scheduled by the self-playing arena rather than requested by someone.
     #[serde(default)]
     auto: bool,
+    /// The real-world map it was played on; procedural when absent.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    map: Option<MapPreset>,
 }
 
 #[derive(Deserialize)]
@@ -111,6 +115,36 @@ struct CreateMatch {
     bots: Vec<String>,
     seed: Option<u64>,
     count: Option<u32>,
+    /// `"procedural"` (the default), `"any"` for a random real-world map per game, or a
+    /// map id from `/api/maps`.
+    #[serde(default)]
+    map: Option<String>,
+}
+
+/// One self-play game in this many is on a real-world map, rated with the rest.
+const REAL_MAP_EVERY: u64 = 10;
+
+/// A real-world map picked from `seed`.
+fn any_real_map(seed: u64) -> MapPreset {
+    atlas::PRESETS[(seed.rotate_right(17) % atlas::PRESETS.len() as u64) as usize]
+}
+
+fn parse_map(choice: Option<&str>, seed: u64) -> Result<Option<MapPreset>, String> {
+    match choice {
+        None | Some("") | Some("procedural") => Ok(None),
+        Some("any") => Ok(Some(any_real_map(seed))),
+        Some(id) => serde_json::from_value(serde_json::Value::String(id.into()))
+            .map(Some)
+            .map_err(|_| format!("unknown map '{id}'")),
+    }
+}
+
+async fn maps() -> Json<serde_json::Value> {
+    let v: Vec<serde_json::Value> = atlas::PRESETS
+        .iter()
+        .map(|&p| serde_json::json!({ "id": p, "name": atlas::name(p), "blurb": atlas::blurb(p) }))
+        .collect();
+    Json(serde_json::json!(v))
 }
 
 struct AppState {
@@ -229,7 +263,7 @@ impl AppState {
 }
 
 fn run_match(app: &AppState, mut summary: Summary, styles: Vec<Style>) -> Summary {
-    let outcome = play(summary.seed, &styles, summary.max_ticks).and_then(|played| {
+    let outcome = play_on(summary.seed, &styles, summary.max_ticks, summary.map).and_then(|played| {
         let replay = played.replay();
         let viewer = viewer_json(&replay)?;
         std::fs::write(
@@ -337,9 +371,14 @@ async fn create(State(app): State<Shared>, Json(req): Json<CreateMatch>) -> Resp
         );
     }
     let base_seed = req.seed.unwrap_or_else(random_seed);
-    let created: Vec<Summary> = (0..count)
-        .map(|i| launch(&app, &styles, base_seed.wrapping_add(i as u64), false))
-        .collect();
+    let mut created = vec![];
+    for i in 0..count {
+        let seed = base_seed.wrapping_add(i as u64);
+        match parse_map(req.map.as_deref(), seed) {
+            Ok(map) => created.push(launch(&app, &styles, seed, false, map)),
+            Err(e) => return err(StatusCode::BAD_REQUEST, e),
+        }
+    }
     (StatusCode::CREATED, Json(created)).into_response()
 }
 
@@ -348,7 +387,7 @@ fn random_seed() -> u64 {
 }
 
 /// Records a new match and plays it on a worker in the background.
-fn launch(app: &Shared, styles: &[Style], seed: u64, auto: bool) -> Summary {
+fn launch(app: &Shared, styles: &[Style], seed: u64, auto: bool, map: Option<MapPreset>) -> Summary {
     let names = seat_names(styles);
     let id = {
         let mut n = app.next_id.lock().unwrap();
@@ -374,6 +413,7 @@ fn launch(app: &Shared, styles: &[Style], seed: u64, auto: bool) -> Summary {
         winner: None,
         standings: vec![],
         auto,
+        map,
     };
     app.save(&summary);
     let (app, styles, queued) = (app.clone(), styles.to_vec(), summary.clone());
@@ -489,7 +529,7 @@ fn duel_lineup(app: &AppState, catalog: &Catalog, seed: u64) -> Vec<Style> {
 }
 
 /// The self-playing arena: keeps `autoplay_parallel` games going, 8-player free-for-alls
-/// and every [`DUEL_EVERY`]th one a 1v1.
+/// and every [`DUEL_EVERY`]th one a 1v1, now and then on a real-world map.
 async fn autoplay(app: Shared) {
     loop {
         tokio::time::sleep(std::time::Duration::from_secs(2)).await;
@@ -504,7 +544,8 @@ async fn autoplay(app: Shared) {
         } else {
             autoplay_lineup(&app, &catalog, seed)
         };
-        launch(&app, &lineup, seed, true);
+        let map = ((seed >> 8) % REAL_MAP_EVERY == 0).then(|| any_real_map(seed));
+        launch(&app, &lineup, seed, true, map);
     }
 }
 
@@ -1122,6 +1163,7 @@ async fn main() {
         .route("/api/matches/{id}/elo", get(match_elo))
         .route("/api/leaderboard", get(leaderboard))
         .route("/api/rules", get(|| async { Json(RulesConfig::default()) }))
+        .route("/api/maps", get(maps))
         .route("/api/arena", get(arena_info))
         .route("/api/observations", get(list_notes).post(add_note))
         .route("/api/agents", get(agents))
