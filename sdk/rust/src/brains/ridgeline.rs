@@ -90,6 +90,8 @@ pub struct Ridgeline {
     cost_pct: i64,
     enclose: i64,
     gather_until: u32,
+    keep_k: i64,
+    keep_w: i64,
 }
 
 impl Ridgeline {
@@ -110,6 +112,8 @@ impl Ridgeline {
             cost_pct: k("cost_pct", 100),
             enclose: k("enclose", 100),
             gather_until: k("gather_until", 400) as u32,
+            keep_k: k("keep_k", 40),
+            keep_w: k("keep_w", 100),
         }
     }
 
@@ -181,6 +185,65 @@ impl Ridgeline {
         gain
     }
 
+    /// Cheapest height multiplier (milli) any enemy neighbour of `h` attacks it with,
+    /// counting `ours` as already ours; `None` when no enemy touches `h`.
+    fn threat_mult(&self, geo: &Geometry, me: PlayerId, h: usize, ours: usize) -> Option<u64> {
+        geo.nbrs[h]
+            .iter()
+            .filter(|&&n| n != ours)
+            .filter(|&&n| self.seen[n].is_some_and(|c| c.owner.is_some_and(|o| o != me)))
+            .map(|&n| self.rules.height_multiplier_milli(geo.height[n], geo.height[h]) as u64)
+            .min()
+    }
+
+    /// Chance (milli) a hex holding `troops` behind `mult` is left alone.
+    fn keep(&self, troops: u64, mult: Option<u64>) -> i64 {
+        match mult {
+            None => 1000,
+            Some(m) => {
+                let x = troops * m / 1000;
+                (x * 1000 / (x + self.keep_k as u64)) as i64
+            }
+        }
+    }
+
+    /// How many of the source's `troops` to send so that both the captured hex and the
+    /// source stay unattractive to enemies. Returns the send and the net change in
+    /// held hexes (milli) it buys.
+    fn split(
+        &self,
+        geo: &Geometry,
+        me: PlayerId,
+        s: usize,
+        t: usize,
+        troops: u64,
+        loss: u64,
+        need: u64,
+    ) -> (u64, i64) {
+        let avail = troops - 1;
+        let mt = self.threat_mult(geo, me, t, s);
+        let ms_before = self.threat_mult(geo, me, s, usize::MAX);
+        let ms = self.threat_mult(geo, me, s, t);
+        let before = self.keep(troops, ms_before);
+        let mut cands = [need, avail, 0, 0, 0, 0];
+        for (k, f) in [1u64, 2, 3].iter().enumerate() {
+            cands[2 + k] = need + (avail - need) * f / 4;
+        }
+        if let (Some(a), Some(b)) = (mt, ms) {
+            cands[5] = ((troops * b + loss * a) / (a + b)).clamp(need, avail);
+        } else {
+            cands[5] = avail;
+        }
+        let mut best = (i64::MIN, avail);
+        for &send in &cands {
+            let v = self.keep(send.saturating_sub(loss), mt) + self.keep(troops - send, ms) - before;
+            if v > best.0 || (v == best.0 && send > best.1) {
+                best = (v, send);
+            }
+        }
+        (best.1, best.0)
+    }
+
     fn best_capture(&self, geo: &Geometry, me: PlayerId, mine: &[usize]) -> Option<Capture> {
         let mut best: Option<Capture> = None;
         for &s in mine {
@@ -208,19 +271,25 @@ impl Ridgeline {
                     continue;
                 }
                 let loss = mean.div_ceil(1000);
-                // Does the source keep facing land we don't own once `t` is ours?
-                let src_exposed = geo.nbrs[s].iter().any(|&n| n != t && !self.owned(n, me));
-                let send = if src_exposed {
-                    let surplus = avail.saturating_sub(loss);
-                    (loss + surplus * self.push_pct as u64 / 100).clamp(need, avail)
+                let (send, keep) = if self.keep_k > 0 {
+                    self.split(geo, me, s, t, src.troops as u64, loss, need)
                 } else {
-                    avail
+                    // Does the source keep facing land we don't own once `t` is ours?
+                    let src_exposed = geo.nbrs[s].iter().any(|&n| n != t && !self.owned(n, me));
+                    let send = if src_exposed {
+                        let surplus = avail.saturating_sub(loss);
+                        (loss + surplus * self.push_pct as u64 / 100).clamp(need, avail)
+                    } else {
+                        avail
+                    };
+                    (send, 0)
                 };
                 let hugged = geo.nbrs[t].iter().filter(|&&n| self.owned(n, me)).count() as i64;
                 let exposed = geo.nbrs[t].len() as i64 - hugged;
                 let mut score = self.land + self.hug * hugged - self.open * exposed
                     + self.height * geo.height[t] as i64
-                    - loss as i64 * self.cost_pct / 100;
+                    - loss as i64 * self.cost_pct / 100
+                    + keep * self.keep_w / 1000;
                 if tc.owner.is_some() {
                     score += self.enemy + self.enclose * self.enclosure_gain(geo, t, me);
                 }
