@@ -164,6 +164,21 @@ struct Knobs {
     duel_blitz: bool,
     blitz_send_pct: u64,
     blitz_push: u32,
+    /// Finishing mode, the blitz above plus `prey`, once at most this many players are
+    /// alive, us included (0 = never).
+    finish_alive: usize,
+    /// ... or once we hold at least this % of the passable board (0 = never).
+    finish_land_pct: u32,
+    /// Either way, only while our land is at least this % of every alive rival's known
+    /// land: a blitz that isn't leading feeds the bystander.
+    finish_lead_pct: u32,
+    /// Finishing mode turns the blitz on (0/1; 0 = only `prey` targeting).
+    finish_blitz: bool,
+    /// In finishing mode, score per hex of the alive rival we know the least land of, so
+    /// one rival is wiped out before the next.
+    prey: i64,
+    /// Extra score for that rival's Villages.
+    prey_village: i64,
     /// Tick the late phase began.
     late_at: Option<u32>,
     /// Bonus for an enemy hex of a rival we know `n` hexes of: `focus * 50 / n`, so the
@@ -263,6 +278,12 @@ impl Knobs {
             duel_blitz: k("duel_blitz", 0) > 0,
             blitz_send_pct: k("blitz_send_pct", 60) as u64,
             blitz_push: k("blitz_push", 10) as u32,
+            finish_alive: k("finish_alive", 0) as usize,
+            finish_land_pct: k("finish_land_pct", 0) as u32,
+            finish_lead_pct: k("finish_lead_pct", 0) as u32,
+            finish_blitz: k("finish_blitz", 1) > 0,
+            prey: k("prey", 0),
+            prey_village: k("prey_village", 0),
             late_at: None,
             focus: k("focus", 0),
             push_gather: k("push_gather", 0) as u32,
@@ -330,6 +351,12 @@ pub struct Core {
     seen: Vec<Option<Cell>>,
     /// Hexes we last saw each rival own.
     land_of: Vec<u32>,
+    /// In finishing mode (see `finish_alive`).
+    finishing: bool,
+    /// The rival finishing mode hunts this tick.
+    prey_of: Option<PlayerId>,
+    /// Late sprint, late Gather, send % and push gap to restore when finishing stops.
+    calm_late: Option<(bool, bool, u64, u32)>,
     board: Option<Board>,
     tarjan: Tarjan,
     /// Hexes we own this tick.
@@ -361,6 +388,9 @@ impl Core {
             geo: None,
             seen: vec![],
             land_of: vec![],
+            finishing: false,
+            prey_of: None,
+            calm_late: None,
             board: None,
             tarjan: Tarjan::default(),
             mine_now: vec![],
@@ -958,6 +988,9 @@ impl Core {
                 let n = self.land_of.get(o as usize).copied().unwrap_or(0).max(1) as i64;
                 gain += self.k.focus * 50 / n;
             }
+            if self.prey_of == Some(o) {
+                gain += self.k.prey + if tc.building == Some(Building::Village) { self.k.prey_village } else { 0 };
+            }
         }
         gain += self.k.hug * hugged - self.k.open * exposed + self.k.height * geo.height[t] as i64;
         if let Some(seal) = seal {
@@ -1109,6 +1142,7 @@ impl Bot for Core {
         }
         if self.k.duel_blitz && view.public_players.iter().filter(|p| p.alive && p.id != view.you).count() == 1 {
             self.k.duel_blitz = false;
+            self.calm_late = None;
             self.k.late_sprint = true;
             self.k.late_gather = true;
             self.k.send_pct = self.k.blitz_send_pct;
@@ -1147,13 +1181,55 @@ impl Bot for Core {
                 }
             }
         }
-        if self.k.focus > 0 {
+        let finish_on = self.k.finish_alive > 0 || self.k.finish_land_pct > 0;
+        if self.k.focus > 0 || finish_on {
             self.land_of = vec![0; 16];
             for o in self.seen.iter().flatten().filter_map(|c| c.owner) {
                 if let Some(n) = self.land_of.get_mut(o as usize) {
                     *n += 1;
                 }
             }
+        }
+        if finish_on {
+            let alive = view.public_players.iter().filter(|p| p.alive).count();
+            let passable = geo.passable.iter().filter(|&&p| p).count().max(1);
+            let biggest = view
+                .public_players
+                .iter()
+                .filter(|p| p.alive && p.id != me)
+                .map(|p| self.land_of.get(p.id as usize).copied().unwrap_or(0) as usize)
+                .max()
+                .unwrap_or(0);
+            let leading = mine.len() * 100 >= biggest * self.k.finish_lead_pct as usize;
+            let finishing = leading
+                && ((self.k.finish_alive > 0 && alive <= self.k.finish_alive)
+                    || (self.k.finish_land_pct > 0 && mine.len() * 100 >= passable * self.k.finish_land_pct as usize));
+            let changed = finishing != self.finishing;
+            self.finishing = finishing;
+            if changed && self.k.finish_blitz {
+                if finishing {
+                    self.calm_late = Some((self.k.late_sprint, self.k.late_gather, self.k.send_pct, self.k.push_gather));
+                    self.k.late_sprint = true;
+                    self.k.late_gather = true;
+                    self.k.send_pct = self.k.blitz_send_pct;
+                    self.k.push_gather = self.k.blitz_push;
+                } else if let Some((sprint, gather, send, push)) = self.calm_late.take() {
+                    self.k.late_sprint = sprint;
+                    self.k.late_gather = gather;
+                    self.k.send_pct = send;
+                    self.k.push_gather = push;
+                }
+            }
+        }
+        self.prey_of = None;
+        if self.finishing && self.k.prey > 0 {
+            self.prey_of = view
+                .public_players
+                .iter()
+                .filter(|p| p.alive && p.id != me)
+                .filter_map(|p| self.land_of.get(p.id as usize).filter(|&&n| n > 0).map(|&n| (n, p.id)))
+                .min()
+                .map(|(_, id)| id);
         }
         if self.k.ring {
             if self.board.is_none() {
