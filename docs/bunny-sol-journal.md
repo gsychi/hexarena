@@ -91,3 +91,18 @@ Quarry-to-adjacent-Village income bonus and compacting eight-player boards.
 | snowshoe-v42 — Fox Last Ledger | A later, thinner focus preserves the bank until tick 6000, then liquidates only for the last 1000 ticks. |
 | snowshoe-v43 — Muskox Quarrywall | Quarry rosettes plus twelve late contact Walls retain 400% garrisons during cleanup. |
 
+After 8–9 provisional v0.6 games, v38 had the best raw average place
+(3.38 ± 0.56) and built 73.3/game, but its only win reached the cutoff. v43
+averaged 4.00 ± 0.68 with 63.6 builds/game and conquered the board at tick 5999
+in m01929; the eightfold finish weight put it at live Elo rank 6. v42 averaged
+4.33 ± 0.88 with 43.7 builds/game and won twice, including a tick-9120 conquest
+in m01954. v39's denser Quarry spacing was poor (5.89), while v40's deeply
+protected no-Quarry control averaged 5.38. All gates were still queued when this
+loop closed.
+
+The round's strongest lesson is that infrastructure needs both depth and a
+conversion plan. Exposed construction died before compounding; buying every
+Quarry first lost tempo; and minimum-safe overtime attacks threw armies away.
+Sparse interleaved Quarry rosettes produced the best cutoff land, while late
+contact Walls plus a reachable-rival focus produced the fastest finish.
+
