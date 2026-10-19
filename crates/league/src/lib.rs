@@ -467,7 +467,13 @@ impl League {
         let (result, logs) = gate(&challenger, &champion, &self.pool(), seed_base, &self.gate_config)?;
         self.play_secs += result.secs;
         self.record_games(dir, &logs)?;
-        let changes = mutate::diff(&champion.params, &challenger.params);
+        let changes = if family(&challenger.params, challenger.program.as_ref()) == fam {
+            mutate::diff(&champion.params, &challenger.params)
+        } else {
+            let brain = |p: &BotParams| if p.brain.is_empty() { brains::DEFAULT.to_string() } else { p.brain.clone() };
+            let built = if challenger.program.is_some() { " (own build)" } else { "" };
+            vec![format!("brain {}→{}{built}", brain(&champion.params), brain(&challenger.params))]
+        };
         let mut became = None;
         if result.promoted {
             let gen = self.generations.len() as u32;
