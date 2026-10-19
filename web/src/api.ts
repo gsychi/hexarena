@@ -146,6 +146,26 @@ export interface LiveRules extends Rules {
   tick_rate_hz: number
 }
 
+export interface ChatMessage { n: number; at: number; agent: string; from: string; text: string }
+
+/** Someone designing bots for the arena, as `GET /api/agents` reports them. */
+export interface Agent {
+  id: string
+  model: string | null
+  bots: number
+  active_bots: number
+  latest_bot: { id: string; name: string; at: number; retired: boolean } | null
+  best_bot: { id: string; name: string; elo: number; rank: number } | null
+  notes: number
+  last_note: { n: number; at: number; kind: NoteKind; text: string } | null
+  /** Last publish, note or reply, in ms; 0 if never. */
+  last_seen: number
+  messages: number
+  last_message: ChatMessage | null
+  /** Messages since the agent last replied. */
+  unanswered: number
+}
+
 export interface CreateMatch { bots: string[]; seed?: number; count: number }
 
 async function json<T>(res: Response): Promise<T> {
@@ -169,6 +189,10 @@ export const api = {
   leaderboard: () => fetch('/api/leaderboard').then((r) => json<Leaderboard>(r)),
   matchElo: (id: string) => fetch(`/api/matches/${id}/elo`).then((r) => json<MatchElo>(r)),
   arena: () => fetch('/api/arena').then((r) => json<ArenaInfo>(r)),
+  agents: () => fetch('/api/agents').then((r) => json<Agent[]>(r)),
+  thread: (agent: string) => fetch(`/api/agents/${encodeURIComponent(agent)}/messages`).then((r) => json<ChatMessage[]>(r)),
+  say: (agent: string, text: string) =>
+    fetch(`/api/agents/${encodeURIComponent(agent)}/messages`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ from: 'you', text }) }).then((r) => json<ChatMessage>(r)),
   notes: () => fetch('/api/observations').then((r) => json<Note[]>(r)),
   addNote: (n: { author: string; kind: NoteKind; text: string; bots?: string[]; tags?: string[] }) =>
     fetch('/api/observations', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(n) }).then((r) => json<Note>(r)),

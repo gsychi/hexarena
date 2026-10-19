@@ -21,6 +21,7 @@ use tokio::sync::Semaphore;
 use tower_http::services::{ServeDir, ServeFile};
 
 mod catalog;
+mod chat;
 mod notes;
 mod standings;
 
@@ -119,6 +120,7 @@ struct AppState {
     autoplay_parallel: usize,
     autoplay: bool,
     notes: notes::Notebook,
+    chat: chat::Chat,
 }
 
 type Shared = Arc<AppState>;
@@ -217,6 +219,7 @@ impl AppState {
             autoplay_parallel: AUTOPLAY_PARALLEL,
             autoplay: false,
             notes: notes::Notebook::new(),
+            chat: chat::Chat::new(),
         }
     }
 }
@@ -490,6 +493,77 @@ async fn add_note(State(app): State<Shared>, Json(new): Json<notes::NewNote>) ->
     }
 }
 
+/// Authors that aren't agents designing bots: the lead's own notes and server logs.
+fn is_designer(author: &str) -> bool {
+    author.starts_with("agent:") && !author.starts_with("agent:lead")
+}
+
+/// Everyone designing bots, most recently seen first: what they have sent in, how their
+/// best bot is doing, what they last wrote in the notebook, and their message thread.
+async fn agents(State(app): State<Shared>) -> Json<Vec<serde_json::Value>> {
+    let catalog = app.catalog();
+    let board = board(&app, &catalog);
+    let models = hexarena_arena::entrants::author_models(&app.arena_dir);
+    let notes = app.notes.all(&app.arena_dir);
+    let messages = app.chat.all(&app.arena_dir);
+    let mut ids: std::collections::BTreeSet<&str> = catalog.entrants.iter().map(|e| e.author.as_str()).collect();
+    ids.extend(notes.iter().map(|n| n.author.as_str()));
+    ids.extend(messages.iter().map(|m| m.agent.as_str()));
+    let mut out: Vec<(u64, serde_json::Value)> = ids
+        .into_iter()
+        .filter(|a| is_designer(a))
+        .map(|a| {
+            let bots: Vec<&hexarena_arena::entrants::Entrant> = catalog.entrants.iter().filter(|e| e.author == a).collect();
+            let latest = bots.iter().max_by_key(|e| e.created_at);
+            let best = board.rows.iter().find(|r| bots.iter().any(|e| e.id == r.bot));
+            let mine: Vec<&notes::Note> = notes.iter().filter(|n| n.author == a).collect();
+            let thread: Vec<&chat::Message> = messages.iter().filter(|m| m.agent == a).collect();
+            let replied = thread.iter().rev().find(|m| m.from == a);
+            let last_seen = [
+                latest.map(|e| e.created_at),
+                mine.last().map(|n| n.at),
+                replied.map(|m| m.at),
+            ]
+            .into_iter()
+            .flatten()
+            .max()
+            .unwrap_or(0);
+            let unanswered = thread.iter().rev().take_while(|m| m.from != a).count();
+            let v = serde_json::json!({
+                "id": a,
+                "model": models.get(a),
+                "bots": bots.len(),
+                "active_bots": bots.iter().filter(|e| !e.retired).count(),
+                "latest_bot": latest.map(|e| serde_json::json!({"id": e.id, "name": e.name, "at": e.created_at, "retired": e.retired})),
+                "best_bot": best.map(|r| serde_json::json!({"id": r.bot, "name": r.name, "elo": r.elo, "rank": r.rank})),
+                "notes": mine.len(),
+                "last_note": mine.last().map(|n| serde_json::json!({"n": n.n, "at": n.at, "kind": n.kind, "text": n.text})),
+                "last_seen": last_seen,
+                "messages": thread.len(),
+                "last_message": thread.last(),
+                "unanswered": unanswered,
+            });
+            (last_seen, v)
+        })
+        .collect();
+    out.sort_by(|a, b| b.0.cmp(&a.0));
+    Json(out.into_iter().map(|(_, v)| v).collect())
+}
+
+async fn thread(State(app): State<Shared>, Path(agent): Path<String>) -> Json<Vec<chat::Message>> {
+    Json(app.chat.thread(&app.arena_dir, &agent))
+}
+
+async fn say(State(app): State<Shared>, Path(agent): Path<String>, Json(new): Json<chat::NewMessage>) -> Response {
+    if !is_designer(&agent) {
+        return err(StatusCode::BAD_REQUEST, "messages go to an agent, e.g. agent:sol");
+    }
+    match app.chat.add(&app.arena_dir, &agent, new, now_ms()) {
+        Ok(m) => (StatusCode::CREATED, Json(m)).into_response(),
+        Err(e) => err(StatusCode::BAD_REQUEST, e),
+    }
+}
+
 async fn one(State(app): State<Shared>, Path(id): Path<String>) -> Response {
     let catalog = app.catalog();
     match app.matches.lock().unwrap().get(&id) {
@@ -759,6 +833,8 @@ async fn main() {
         .route("/api/rules", get(|| async { Json(RulesConfig::default()) }))
         .route("/api/arena", get(arena_info))
         .route("/api/observations", get(list_notes).post(add_note))
+        .route("/api/agents", get(agents))
+        .route("/api/agents/{agent}/messages", get(thread).post(say))
         .route("/api/health", get(|| async { "ok" }))
         .with_state(app);
     if let Ok(web) = std::env::var("HEXARENA_WEB") {

@@ -10,6 +10,7 @@ import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
 import type { BotInfo, MatchStatus, MatchSummary } from './api'
 import { api } from './api'
 import { PLAYER_COLORS } from './model'
+import { AgentsPanel } from './Agents'
 import { EloScatter } from './EloScatter'
 import { Offline, Page } from './Page'
 import { usePoll } from './poll'
@@ -64,8 +65,9 @@ const loadGames = () => Promise.all([api.recentMatches(RECENT), api.leaderboard(
 export function BotsPage({ onBot }: { onBot: (id: string) => void }) {
   const { data: board, error, refresh } = usePoll(loadBoard, BOARD_MS)
   return (
-    <Page icon={Trophy} wide title="Bots" description="Every bot in the arena, ranked by Elo under the current rules. Click one to see its profile, family, rating curve and game log.">
+    <Page icon={Trophy} wide title="Bots" description="Who is sending bots in, and every bot in the arena ranked by Elo under the current rules. Click a bot to see its profile, family, rating curve and game log.">
       {error && <Offline error={error} onRetry={refresh} />}
+      <AgentsPanel onBot={onBot} />
       <Standings board={board} onBot={onBot} />
     </Page>
   )
