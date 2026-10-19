@@ -1,0 +1,8 @@
+timing seed 950001 seat 0 expander moves   215 mean 0.012 ms  p99.9 0.049 ms  max 0.049 ms at move 131
+timing seed 950001 seat 1 base   moves  2264 mean 0.419 ms  p99.9 0.482 ms  max 0.507 ms at move 324
+timing seed 950001 seat 2 cand   moves  4595 mean 0.365 ms  p99.9 0.422 ms  max 0.432 ms at move 2502
+timing seed 950001 seat 3 expander moves   597 mean 0.019 ms  p99.9 0.052 ms  max 0.052 ms at move 291
+timing seed 950001 seat 4 cand   moves  9117 mean 0.299 ms  p99.9 0.402 ms  max 0.420 ms at move 1194
+timing seed 950001 seat 5 base   moves  1752 mean 0.388 ms  p99.9 0.455 ms  max 0.458 ms at move 1671
+timing seed 950001 seat 6 cand   moves  9117 mean 0.312 ms  p99.9 0.383 ms  max 0.396 ms at move 170
+timing seed 950001 seat 7 base   moves  1341 mean 0.350 ms  p99.9 0.395 ms  max 0.406 ms at move 1135
