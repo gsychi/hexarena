@@ -171,6 +171,9 @@ fn report_work(author: &str, text: &str) {
         "POST {path} HTTP/1.1\r\nHost: {addr}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
         body.len()
     );
+    // The server drops a request whose client hangs up before it answers.
+    let _ = s.set_read_timeout(Some(std::time::Duration::from_secs(2)));
+    let _ = std::io::Read::read(&mut s, &mut [0u8; 512]);
 }
 
 pub fn eval(f: &HashMap<String, String>) -> Result<(), String> {
@@ -194,8 +197,12 @@ pub fn eval(f: &HashMap<String, String>) -> Result<(), String> {
         report_work(
             a,
             &format!(
-                "Tested {what}: {:+.2} ± {:.2} places over {} games (closes {} vs {})",
-                r.gain, r.gain_se, r.games, r.candidate_closes, r.base_closes
+                "Tested {what}: {:+.2} ± {} places over {} games (closes {} vs {})",
+                r.gain,
+                if r.gain_se.is_finite() { format!("{:.2}", r.gain_se) } else { "n/a".into() },
+                r.games,
+                r.candidate_closes,
+                r.base_closes
             ),
         );
     }
