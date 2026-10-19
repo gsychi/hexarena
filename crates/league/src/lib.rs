@@ -13,6 +13,7 @@ pub mod rng;
 
 use eval::{benchmark, gate, Benchmark, Entrant, GameLog, GateConfig, GateResult};
 use hexarena_protocol::RulesConfig;
+use hexarena_sdk::process::Program;
 use hexarena_sdk::{brains, roster, BotParams};
 use rng::Rng;
 use serde::{Deserialize, Serialize};
@@ -23,6 +24,8 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 pub const START_ELO: f64 = 1500.0;
 pub const K: f64 = 32.0;
+/// Challengers drawn per attempt before one that plays like the champion is gated anyway.
+const SCREEN_TRIES: usize = 12;
 /// Attempts kept in `league.json`; older ones are summarized by the counters.
 const KEEP_ATTEMPTS: usize = 5000;
 
@@ -47,6 +50,9 @@ pub struct Generation {
     pub note: Option<String>,
     pub created_at: u64,
     pub params: BotParams,
+    /// The program that plays it when it was built outside this binary (an arena version).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub program: Option<Program>,
     /// Gene changes relative to the parent.
     pub changes: Vec<String>,
     pub gate: Option<GateResult>,
@@ -66,6 +72,9 @@ pub struct Attempt {
     pub gate: GateResult,
     /// The generation this attempt became, if promoted.
     pub became: Option<u32>,
+    /// The arena version this challenger was, when the arena sent it for a gate.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub arena: Option<String>,
 }
 
 /// A genome dropped into `inbox/` to be gated ahead of random mutations.
@@ -79,6 +88,12 @@ pub struct Submission {
     /// matches the champion's, and to none (a new brain) otherwise.
     #[serde(default)]
     pub parents: Option<Vec<String>>,
+    /// The program that plays it, for bots built outside this binary.
+    #[serde(default)]
+    pub program: Option<Program>,
+    /// The arena version this is, so its gate result can be shown next to it.
+    #[serde(default)]
+    pub arena: Option<String>,
 }
 
 /// A generation's display name: its brain, its id, and where it came from.
@@ -115,6 +130,27 @@ pub struct League {
     /// Bots retired from the arena (`g1`, `raider`), left out of the sparring pool.
     #[serde(skip)]
     pub retired: BTreeSet<String>,
+    /// Mutations dropped before a gate because they played exactly like the champion.
+    #[serde(default)]
+    pub screened_out: u64,
+}
+
+/// What decides which genes a bot reads: its program if it has one, else its brain.
+pub fn family(params: &BotParams, program: Option<&Program>) -> String {
+    match program {
+        Some(p) => format!("program:{}", p.exe),
+        None if params.brain.is_empty() => brains::DEFAULT.into(),
+        None => params.brain.clone(),
+    }
+}
+
+/// Knob defaults come from the built-in brains; a program's knobs are whatever it was
+/// published with.
+fn fill_knobs(params: &mut BotParams, program: Option<&Program>) -> Result<(), String> {
+    match program {
+        Some(_) => Ok(()),
+        None => brains::complete_knobs(params),
+    }
 }
 
 pub fn now_ms() -> u64 {
@@ -128,10 +164,7 @@ pub fn now_ms() -> u64 {
 pub fn roster_entrants() -> Vec<Entrant> {
     roster()
         .into_iter()
-        .map(|s| Entrant {
-            id: format!("r-{}", s.id),
-            params: s.params,
-        })
+        .map(|s| Entrant::new(format!("r-{}", s.id), s.params))
         .collect()
 }
 
@@ -165,13 +198,13 @@ impl League {
     pub fn open(dir: &Path) -> Result<League, String> {
         std::fs::create_dir_all(dir.join("inbox")).map_err(|e| e.to_string())?;
         if !Self::path(dir).exists() {
-            return Self::seed(dir, BotParams::default(), "seed", "The hand-written Expander".into());
+            return Self::seed(dir, BotParams::default(), None, "seed", "The hand-written Expander".into());
         }
         let mut old = Self::load(dir)?;
         if old.rules_version == RulesConfig::default().version {
             old.backfill_lineage();
             for g in &mut old.generations {
-                brains::complete_knobs(&mut g.params)?;
+                fill_knobs(&mut g.params, g.program.as_ref())?;
             }
             if old.benchmark_roster != BENCHMARK_ROSTER {
                 old.rebenchmark(dir)?;
@@ -190,12 +223,12 @@ impl League {
         }
         let c = old.champion();
         let note = format!("Champion {} of the rules {} league, carried over", c.id, old.rules_version);
-        Self::seed(dir, c.params.clone(), "carryover", note)
+        Self::seed(dir, c.params.clone(), c.program.clone(), "carryover", note)
     }
 
-    fn seed(dir: &Path, mut params: BotParams, origin: &str, note: String) -> Result<League, String> {
-        brains::complete_knobs(&mut params)?;
-        let seed = Entrant { id: "g0".into(), params };
+    fn seed(dir: &Path, mut params: BotParams, program: Option<Program>, origin: &str, note: String) -> Result<League, String> {
+        fill_knobs(&mut params, program.as_ref())?;
+        let seed = Entrant { id: "g0".into(), params, program };
         let (bench, logs) = benchmark(&seed, &benchmark_entrants())?;
         let mut league = League {
             rules_version: RulesConfig::default().version,
@@ -213,6 +246,7 @@ impl League {
                 note: Some(note),
                 created_at: now_ms(),
                 params: seed.params,
+                program: seed.program,
                 changes: vec![],
                 gate: None,
                 benchmark: bench,
@@ -225,6 +259,7 @@ impl League {
             elo: BTreeMap::new(),
             benchmark_roster: BENCHMARK_ROSTER.iter().map(|s| s.to_string()).collect(),
             retired: BTreeSet::new(),
+            screened_out: 0,
         };
         league.record_games(dir, &logs)?;
         league.save(dir)?;
@@ -236,6 +271,30 @@ impl League {
         let tmp = dir.join("league.json.tmp");
         std::fs::write(&tmp, serde_json::to_vec(self).unwrap()).map_err(|e| e.to_string())?;
         std::fs::rename(&tmp, Self::path(dir)).map_err(|e| e.to_string())
+    }
+
+    /// Draws challengers from `make` until one plays differently from the champion, up to
+    /// [`SCREEN_TRIES`] draws. Most small nudges change nothing at all, and a full gate
+    /// would spend 16 games finding that out; the screen spends 4.
+    fn screened(
+        &mut self,
+        champion: &Entrant,
+        n: u64,
+        rng: &mut Rng,
+        mut make: impl FnMut(&mut Rng) -> BotParams,
+    ) -> Result<BotParams, String> {
+        let pool = self.pool();
+        let mut child = make(rng);
+        for _ in 1..SCREEN_TRIES {
+            let mut c = Entrant { id: "screen".into(), params: child.clone(), program: champion.program.clone() };
+            fill_knobs(&mut c.params, c.program.as_ref())?;
+            if !plays_like(&c, champion, &pool, 20_000_000 + n * 16)? {
+                break;
+            }
+            self.screened_out += 1;
+            child = make(rng);
+        }
+        Ok(child)
     }
 
     /// Fills `name`, `parents` and `beat` for generations saved before they existed.
@@ -269,7 +328,7 @@ impl League {
     pub fn rebenchmark(&mut self, dir: &Path) -> Result<(), String> {
         let opponents = benchmark_entrants();
         for g in &mut self.generations {
-            let entrant = Entrant { id: g.id.clone(), params: g.params.clone() };
+            let entrant = Entrant { id: g.id.clone(), params: g.params.clone(), program: g.program.clone() };
             g.benchmark = benchmark(&entrant, &opponents)?.0;
         }
         self.benchmark_roster = BENCHMARK_ROSTER.iter().map(|s| s.to_string()).collect();
@@ -285,6 +344,7 @@ impl League {
         Entrant {
             id: c.id.clone(),
             params: c.params.clone(),
+            program: c.program.clone(),
         }
     }
 
@@ -308,6 +368,7 @@ impl League {
             .map(|g| Entrant {
                 id: g.id.clone(),
                 params: g.params.clone(),
+                program: g.program.clone(),
             })
             .collect();
         pool.extend(roster_entrants());
@@ -359,38 +420,48 @@ impl League {
         let n = self.attempts_total + 1;
         let mut rng = Rng::new(self.started_at ^ n.wrapping_mul(0x9E37_79B9));
         let champion = self.champion_entrant();
-        let (origin, note, mut params, parents) = match Self::take_submission(dir) {
+        let fam = family(&champion.params, champion.program.as_ref());
+        // Crossover partners must play the same way as the champion for their genes to mean the same thing.
+        let partners: Vec<(String, BotParams)> = self.generations[..self.generations.len() - 1]
+            .iter()
+            .filter(|g| family(&g.params, g.program.as_ref()) == fam)
+            .map(|g| (g.id.clone(), g.params.clone()))
+            .collect();
+        let (origin, note, mut params, parents, program, arena) = match Self::take_submission(dir) {
             Some(s) => {
                 let parents = s.parents.unwrap_or_else(|| {
-                    if s.params.brain == champion.params.brain {
+                    if family(&s.params, s.program.as_ref()) == fam {
                         vec![champion.id.clone()]
                     } else {
                         vec![]
                     }
                 });
-                (s.origin, s.note, s.params, parents)
+                (s.origin, s.note, s.params, parents, s.program, s.arena)
             }
-            None if self.generations.len() > 2 && rng.chance(0.2) => {
-                let other = &self.generations[rng.below(self.generations.len() - 1)];
-                let child = mutate::crossover(&champion.params, &other.params, &mut rng);
+            None if partners.len() >= 2 && rng.chance(0.2) => {
+                let (other, other_params) = partners[rng.below(partners.len())].clone();
+                let child = self.screened(&champion, n, &mut rng, |rng| {
+                    mutate::crossover(&champion.params, &other_params, rng)
+                })?;
                 (
                     "crossover".into(),
-                    Some(format!("with {}", other.id)),
+                    Some(format!("with {other}")),
                     child,
-                    vec![champion.id.clone(), other.id.clone()],
+                    vec![champion.id.clone(), other],
+                    champion.program.clone(),
+                    None,
                 )
             }
-            None => (
-                "mutation".into(),
-                None,
-                mutate::mutate(&champion.params, &mut rng),
-                vec![champion.id.clone()],
-            ),
+            None => {
+                let child = self.screened(&champion, n, &mut rng, |rng| mutate::mutate(&champion.params, rng))?;
+                ("mutation".into(), None, child, vec![champion.id.clone()], champion.program.clone(), None)
+            }
         };
-        brains::complete_knobs(&mut params)?;
+        fill_knobs(&mut params, program.as_ref())?;
         let challenger = Entrant {
             id: format!("c{n}"),
             params,
+            program,
         };
         let seed_base = 10_000_000 + n * 1000;
         let (result, logs) = gate(&challenger, &champion, &self.pool(), seed_base, &self.gate_config)?;
@@ -404,6 +475,7 @@ impl League {
             let entrant = Entrant {
                 id: id.clone(),
                 params: challenger.params.clone(),
+                program: challenger.program.clone(),
             };
             let (bench, bench_logs) = benchmark(&entrant, &benchmark_entrants())?;
             let elo = self.elo.get(&challenger.id).copied().unwrap_or(START_ELO);
@@ -419,6 +491,7 @@ impl League {
                 note: note.clone(),
                 created_at: now_ms(),
                 params: challenger.params.clone(),
+                program: challenger.program.clone(),
                 changes: changes.clone(),
                 gate: Some(result.clone()),
                 benchmark: bench,
@@ -437,6 +510,7 @@ impl League {
             changes,
             gate: result,
             became,
+            arena,
         };
         self.attempts.push(attempt.clone());
         if self.attempts.len() > KEEP_ATTEMPTS {
@@ -446,6 +520,27 @@ impl League {
         self.save(dir)?;
         Ok(attempt)
     }
+}
+
+/// True when `a` in three seats of a lobby leaves exactly the same placements and
+/// ending as `b` in those seats, on two seeds: the change didn't alter a single move
+/// that mattered.
+fn plays_like(a: &Entrant, b: &Entrant, pool: &[Entrant], seed: u64) -> Result<bool, String> {
+    let lobbies: Vec<(u64, Vec<Entrant>)> = (0..2u64)
+        .flat_map(|k| {
+            let mut rng = Rng::new(seed ^ k ^ 0x5C2E);
+            let mut seats = vec![a.clone(); 3];
+            seats.extend(vec![b.clone(); 3]);
+            for _ in 0..eval::LOBBY - 6 {
+                seats.push(if pool.is_empty() { b.clone() } else { pool[rng.below(pool.len())].clone() });
+            }
+            rng.shuffle(&mut seats);
+            let swapped: Vec<Entrant> = seats.iter().map(|e| if e.id == a.id { b.clone() } else { e.clone() }).collect();
+            [(seed + k, seats), (seed + k, swapped)]
+        })
+        .collect();
+    let logs = eval::play_all(&lobbies)?;
+    Ok(logs.chunks(2).all(|p| p[0].avp == p[1].avp && p[0].final_tick == p[1].final_tick))
 }
 
 /// Multiplayer Elo: every pair of seats with different identities is a head-to-head
@@ -497,6 +592,16 @@ mod tests {
         assert_eq!(lineage_name(3, &relay, "mutation", &ids(&["g2"])), "Relay g3 ← g2");
         assert_eq!(lineage_name(4, &relay, "crossover", &ids(&["g3", "g2"])), "Relay g4 ← g3 × g2");
         assert_eq!(lineage_name(5, &relay, "agent:tempo", &ids(&["g4"])), "Relay g5 ← g4 (tuned by agent tempo)");
+    }
+
+    #[test]
+    fn screen_spots_changes_that_change_nothing() {
+        let champ = Entrant::new("h", BotParams::default());
+        let pool = benchmark_entrants();
+        let same = Entrant::new("c", BotParams::default());
+        assert!(plays_like(&same, &champ, &pool, 7).unwrap());
+        let timid = Entrant::new("c", BotParams { land_value: 0, attack_margin_pct: 260, ..BotParams::default() });
+        assert!(!plays_like(&timid, &champ, &pool, 7).unwrap());
     }
 
     #[test]

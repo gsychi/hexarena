@@ -17,7 +17,7 @@ fn main() {
     let dir = a.get(3).cloned().unwrap_or("/workspace/data/league".into());
     let league = League::load(Path::new(&dir)).unwrap();
     let champ = league.champion_entrant();
-    let cand = Entrant { id: "candidate".into(), params };
+    let cand = Entrant::new("candidate", params);
     let cfg = GateConfig { min_pairs: pairs, max_pairs: pairs, batch_pairs: pairs.min(12), ..GateConfig::default() };
     let (r, logs) = gate(&cand, &champ, &league.pool(), seed, &cfg).unwrap();
     let mut hist = std::collections::BTreeMap::<String, [u32; 8]>::new();
