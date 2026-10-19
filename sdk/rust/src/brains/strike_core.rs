@@ -131,11 +131,19 @@ struct Seal {
 
 /// What each capture would seal off from the board edge this tick (rules v0.7 region
 /// capture): taking slot `t` turns every region of not-ours hexes it cuts off into ours.
+/// The scratch buffers are kept between ticks so the pass allocates nothing.
+#[derive(Default)]
 struct Regions {
     /// Passable hexes taking `t` would seal off.
     land: Vec<u32>,
     /// Of those, hexes we last saw a rival own.
     enemy: Vec<u32>,
+    disc: Vec<u32>,
+    low: Vec<u32>,
+    sub_land: Vec<u32>,
+    sub_enemy: Vec<u32>,
+    parent: Vec<usize>,
+    stack: Vec<(usize, usize)>,
 }
 
 /// Tunables, read once from the genome's knobs.
@@ -323,6 +331,8 @@ pub struct StrikeCore {
     pub finishing: bool,
     /// Last tick the victim touched our land.
     victim_seen: u32,
+    /// Scratch space for the region pass.
+    region_buf: Regions,
     /// Tick each slot was last seen changing owner.
     flipped: Vec<u32>,
     tick: u32,
@@ -341,6 +351,7 @@ impl StrikeCore {
             victim: None,
             finishing: false,
             victim_seen: 0,
+            region_buf: Regions::default(),
             flipped: vec![],
             tick: 0,
         }
@@ -459,19 +470,19 @@ impl StrikeCore {
     /// ones included, rooted at a virtual outside node joined to the board edge. Taking a
     /// passable hex `v` seals off each DFS child subtree whose low link can't climb above
     /// `v`. Ownership of the not-ours side doesn't matter for the cut, only for its value.
-    fn regions(&self, geo: &Geometry, me: PlayerId) -> Regions {
+    fn regions(&self, geo: &Geometry, me: PlayerId, r: &mut Regions) {
         let slots = geo.passable.len();
         let open = |i: usize| geo.on_board[i] && !self.owned(i, me);
-        let mut land = vec![0u32; slots];
-        let mut enemy = vec![0u32; slots];
-        let mut disc = vec![0u32; slots];
-        let mut low = vec![0u32; slots];
-        let mut sub_land = vec![0u32; slots];
-        let mut sub_enemy = vec![0u32; slots];
-        let mut parent = vec![usize::MAX; slots];
+        for v in [&mut r.land, &mut r.enemy, &mut r.disc, &mut r.low, &mut r.sub_land, &mut r.sub_enemy] {
+            v.clear();
+            v.resize(slots, 0);
+        }
+        r.parent.clear();
+        r.parent.resize(slots, usize::MAX);
+        r.stack.clear();
+        let Regions { land, enemy, disc, low, sub_land, sub_enemy, parent, stack } = r;
         // The outside node has discovery time 1; every edge hex hangs off it.
         let mut timer = 1u32;
-        let mut stack: Vec<(usize, usize)> = vec![];
         for root in 0..slots {
             if !geo.edge[root] || !open(root) || disc[root] != 0 {
                 continue;
@@ -519,7 +530,6 @@ impl StrikeCore {
                 }
             }
         }
-        Regions { land, enemy }
     }
 
     /// Articulation points of the land we don't own (Tarjan, iterative). Enemy hexes
@@ -985,8 +995,14 @@ impl Bot for StrikeCore {
         let rush = sprinting || self.finishing;
         let seal = (self.k.seal > 0 || self.k.backyard > 0).then(|| self.seal(&geo, me));
         let supply = self.supply(&geo, me, &mine);
-        let regions = (self.k.region > 0 || self.k.region_enemy > 0).then(|| self.regions(&geo, me));
-        let (capture, blocked) = self.best_capture(&geo, me, &mine, sprinting, seal.as_ref(), regions.as_ref());
+        let mut buf = std::mem::take(&mut self.region_buf);
+        let use_regions = self.k.region > 0 || self.k.region_enemy > 0;
+        if use_regions {
+            self.regions(&geo, me, &mut buf);
+        }
+        let (capture, blocked) =
+            self.best_capture(&geo, me, &mine, sprinting, seal.as_ref(), use_regions.then_some(&buf));
+        self.region_buf = buf;
         let capture = capture.filter(|c| rush || c.score >= self.k.min_score);
         let supply_tick =
             !rush && self.k.supply_every > 0 && view.tick % self.k.supply_every == 0;
@@ -1069,7 +1085,8 @@ mod tests {
             let i = geo.slot(c.hex).unwrap();
             core.seen[i] = Some(Cell { owner: c.owner, troops: c.troops, wall_milli: c.wall_milli, building: None, income: 1 });
         }
-        let r = core.regions(&geo, 0);
+        let mut r = Regions::default();
+        core.regions(&geo, 0, &mut r);
         let g = geo.slot(gap).unwrap();
         // Inside the ring: the centre and five of the six distance-1 hexes are passable.
         assert_eq!(r.land[g], 6);

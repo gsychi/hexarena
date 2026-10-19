@@ -16,8 +16,24 @@ struct Timespec {
     nsec: i64,
 }
 
+#[repr(C)]
+struct Rusage {
+    utime: [i64; 2],
+    stime: [i64; 2],
+    rest: [i64; 14],
+}
+
 extern "C" {
     fn clock_gettime(clk: i32, ts: *mut Timespec) -> i32;
+    fn getrusage(who: i32, usage: *mut Rusage) -> i32;
+}
+
+/// (user, system) CPU microseconds of this thread so far.
+fn thread_rusage_us() -> (u64, u64) {
+    let mut r = Rusage { utime: [0; 2], stime: [0; 2], rest: [0; 14] };
+    // RUSAGE_THREAD
+    unsafe { getrusage(1, &mut r) };
+    ((r.utime[0] * 1_000_000 + r.utime[1]) as u64, (r.stime[0] * 1_000_000 + r.stime[1]) as u64)
 }
 
 fn thread_cpu_ns() -> u64 {
@@ -68,9 +84,14 @@ fn main() {
                 .filter(|&p| !st.eliminated[p as usize])
                 .map(|p| {
                     let view = st.view(p);
+                    let (u0, s0) = thread_rusage_us();
                     let (c0, w0) = (thread_cpu_ns(), Instant::now());
                     let cmd = bots[p as usize].act(&view);
                     let (c, w) = (thread_cpu_ns() - c0, w0.elapsed().as_nanos() as u64);
+                    let (u1, s1) = thread_rusage_us();
+                    if c > 5_000_000 {
+                        eprintln!("  slow move at tick {}: cpu {:.3} ms (user {:.3} ms, system {:.3} ms)", st.tick, c as f64 / 1e6, (u1 - u0) as f64 / 1e3, (s1 - s0) as f64 / 1e3);
+                    }
                     if is_timed[p as usize] {
                         moves += 1;
                         total_cpu += c;
