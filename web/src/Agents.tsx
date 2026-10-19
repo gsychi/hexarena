@@ -1,4 +1,4 @@
-import { Bot, FlaskConical, GraduationCap, Hammer, Lightbulb, Loader2, MessageCircle, Microscope, Send, Sparkles } from 'lucide-react'
+import { Bot, FlaskConical, GraduationCap, Hammer, Lightbulb, Loader2, MessageCircle, Microscope, Moon, Send, Sparkles } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Badge } from '@/components/ui/badge'
@@ -51,6 +51,8 @@ function ago(ms: number) {
 export function agentName(id: string) {
   return id.replace(/^agent:/, '').split(/[-_]/).map((w) => w.charAt(0).toUpperCase() + w.slice(1)).join(' ')
 }
+
+const awake = (a: Agent) => a.last_seen > 0 && Date.now() - a.last_seen < ACTIVE_MS
 
 function Status({ at }: { at: number }) {
   const live = at > 0 && Date.now() - at < ACTIVE_MS
@@ -126,6 +128,26 @@ function AgentCard({ a, onBot, onOpen }: { a: Agent; onBot: (id: string) => void
         {a.unanswered > 0 && !replied && <span className="text-[11px] text-muted-foreground">{a.unanswered} message{a.unanswered === 1 ? '' : 's'} waiting for a reply</span>}
       </div>
     </div>
+  )
+}
+
+function SleepingAgent({ a, onOpen }: { a: Agent; onOpen: () => void }) {
+  const replied = a.last_message?.from === a.id
+  return (
+    <button type="button" onClick={onOpen} title={`Open ${agentName(a.id)}'s activity and chat`}
+      className="flex min-w-0 cursor-pointer items-center gap-2.5 rounded-lg border border-transparent px-2 py-1.5 text-left opacity-75 transition hover:border-border hover:bg-muted/30 hover:opacity-100">
+      <AgentAvatar id={a.id} model={a.model} size={34} asleep className="shrink-0" />
+      <span className="min-w-0 flex-1">
+        <span className="flex items-center gap-1.5 text-sm">
+          <span className="truncate">{agentName(a.id)}</span>
+          {replied && <MessageCircle className="size-3 shrink-0 text-emerald-300" aria-label="New reply" />}
+        </span>
+        <span className="block truncate text-[11px] text-muted-foreground">
+          {a.last_seen ? `asleep, last seen ${ago(a.last_seen)}` : 'not seen yet'}
+          {a.best_bot ? `, best ${a.best_bot.name}` : ''}
+        </span>
+      </span>
+    </button>
   )
 }
 
@@ -271,7 +293,7 @@ function AgentSheet({ agent, onClose }: { agent: Agent | null; onClose: () => vo
         <SheetHeader className="space-y-3 border-b">
           <div>
             <SheetTitle className="flex items-center gap-2.5">
-              {agent && <AgentAvatar id={agent.id} model={agent.model} size={40} />}
+              {agent && <AgentAvatar id={agent.id} model={agent.model} size={40} asleep={!awake(agent)} />}
               {name}{agent?.model && <Badge variant="outline" className="text-[10px]">{agent.model}</Badge>}
             </SheetTitle>
             <SheetDescription>Everything {name} has done here, newest at the bottom: bots it sent in, what it wrote in the lab notebook, and your messages. It reads new messages at the start of every round.</SheetDescription>
@@ -317,7 +339,8 @@ export function AgentsPanel({ onBot }: { onBot: (id: string) => void }) {
   const [open, setOpen] = useState<string | null>(null)
   const [agents, arena] = data ?? [null, null]
   const arrivals = arena ? [...arena.entrants].sort((a, b) => b.created_at - a.created_at).slice(0, ARRIVALS) : []
-  const live = agents?.filter((a) => Date.now() - a.last_seen < ACTIVE_MS).length ?? 0
+  const working = agents?.filter(awake) ?? []
+  const sleeping = agents?.filter((a) => !awake(a)) ?? []
 
   return (
     <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_20rem]">
@@ -325,15 +348,26 @@ export function AgentsPanel({ onBot }: { onBot: (id: string) => void }) {
         <CardHeader>
           <CardTitle className="flex items-center gap-2"><Sparkles className="size-4 text-amber-300" />Agents</CardTitle>
           <CardDescription>
-            The agents writing bots for this arena{agents ? `: ${agents.length} so far, ${live} active in the last 20 minutes` : ''}. They study replays, write what they learn in the lab notebook, and send in new versions. Open one to see everything it has worked on, and say hi.
+            The agents writing bots for this arena{agents ? `: ${agents.length} so far, ${working.length} working right now` : ''}. They study replays, write what they learn in the lab notebook, and send in new versions. Open one to see everything it has worked on, and say hi. Agents that haven&apos;t done anything for 20 minutes are asleep at the bottom.
           </CardDescription>
         </CardHeader>
         <CardContent>
           {!agents && !error && <div className="flex items-center gap-2 text-sm text-muted-foreground"><Loader2 className="size-4 animate-spin" />Loading agents…</div>}
           {agents?.length === 0 && <p className="rounded-lg border border-dashed p-6 text-center text-sm text-muted-foreground">No agents have sent in a bot yet.</p>}
+          {agents && agents.length > 0 && working.length === 0 && (
+            <p className="rounded-lg border border-dashed p-6 text-center text-sm text-muted-foreground">Everyone is asleep right now. Message one below to leave it a note for its next round.</p>
+          )}
           <div className="grid gap-3 sm:grid-cols-2">
-            {agents?.map((a) => <AgentCard key={a.id} a={a} onBot={onBot} onOpen={() => setOpen(a.id)} />)}
+            {working.map((a) => <AgentCard key={a.id} a={a} onBot={onBot} onOpen={() => setOpen(a.id)} />)}
           </div>
+          {sleeping.length > 0 && (
+            <div className="mt-5 border-t pt-4">
+              <div className="mb-2 flex items-center gap-1.5 text-xs font-medium text-muted-foreground"><Moon className="size-3.5" />Sleeping ({sleeping.length})</div>
+              <div className="grid gap-1 sm:grid-cols-2 xl:grid-cols-3">
+                {sleeping.map((a) => <SleepingAgent key={a.id} a={a} onOpen={() => setOpen(a.id)} />)}
+              </div>
+            </div>
+          )}
         </CardContent>
       </Card>
       <Card>
