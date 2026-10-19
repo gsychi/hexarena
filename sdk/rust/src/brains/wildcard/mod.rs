@@ -189,6 +189,9 @@ pub struct Wildcard {
     style: Option<Style>,
     /// In a free-for-all with `portfolio` set, Keystone plays until the 1v1 switch below.
     delegate: Option<Box<dyn Bot>>,
+    /// Tick the delegate hands this format's game to the ring core (0 = never).
+    handover: u32,
+    inner_style: Style,
     /// In a free-for-all, switch to the 1v1 knobs once this few players are alive (0 = never).
     duel_when: usize,
     duel_style: Option<Style>,
@@ -253,6 +256,8 @@ impl Wildcard {
         Wildcard {
             style: Some(style.clone()),
             delegate: None,
+            handover: 0,
+            inner_style: style.clone(),
             duel_when: 0,
             duel_style: None,
             inner: Core::new(style.clone()),
@@ -745,13 +750,20 @@ impl Wildcard {
         if let Some(style) = self.style.take() {
             let duel = view.public_players.len() == 2;
             let s = Self::for_format(&style, if duel { "duel_" } else { "ffa_" });
+            self.inner_style = s.clone();
             self.inner = Core::new(s.clone());
             self.k = Knobs::read(&s);
             self.duel_when = if duel { 0 } else { s.params.knob("duel_when", 0).max(0) as usize };
             self.duel_style = (self.duel_when > 0).then(|| Self::for_format(&style, "duel_"));
-            if !duel && s.params.knob("portfolio", 0) > 0 {
-                self.delegate = Some(Box::new(KeystoneBot::new(s)));
+            if s.params.knob("portfolio", 0) > 0 {
+                self.delegate = Some(Box::new(KeystoneBot::new(Self::for_format(&s, "ks_"))));
+                self.handover = s.params.knob("handover", 0).max(0) as u32;
             }
+        }
+        if self.handover > 0 && view.tick >= self.handover && self.delegate.take().is_some() {
+            self.handover = 0;
+            let s = self.inner_style.clone();
+            self.inner = Core::new(s);
         }
         if self.duel_when > 0 && view.public_players.iter().filter(|p| p.alive).count() <= self.duel_when {
             if let Some(s) = self.duel_style.take() {

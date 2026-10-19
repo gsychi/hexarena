@@ -24,7 +24,7 @@ const USAGE: &str = "usage: hexarena arena <publish|parents|retire|list> [--dir 
   list                          every published version
 --dir defaults to $HEXARENA_ARENA or data/arena; the server reads the same directory.";
 
-const EVAL_USAGE: &str = "usage: hexarena eval --params cand.json [--against ID|base.json] [--pairs N] [--seed S] [--players 2|8] [--author agent:NAME]
+const EVAL_USAGE: &str = "usage: hexarena eval --params cand.json [--against ID|base.json] [--pairs N] [--seed S] [--players 2|8] [--lobbies out.json] [--author agent:NAME]
   plays the candidate against a base (an arena version, roster CPU or genome file; the
   roster's first CPU by default) in mirrored pairs of 8-player lobbies: 3 seats each plus
   2 roster CPUs, then the same map with the two swapped. Reports the gain in 8-player
@@ -206,11 +206,14 @@ pub fn eval(f: &HashMap<String, String>) -> Result<(), String> {
         report_work(a, &format!("Testing {what} locally ({pairs} mirrored pairs of {format})"));
     }
     let se = |r: &Comparison| if r.gain_se.is_finite() { format!("{:.2}", r.gain_se) } else { "n/a".into() };
-    let (r, _) = compare_sized(&candidate, &base, &roster(), get(f, "seed", 500_000), pairs, PROGRESS_REPORTS, players, |r| {
+    let (r, lobbies) = compare_sized(&candidate, &base, &roster(), get(f, "seed", 500_000), pairs, PROGRESS_REPORTS, players, |r| {
         if let Some(a) = &author {
             report_work(a, &format!("Testing {what}: {:+.2} ± {} places after {} of {} games so far", r.gain, se(r), r.games, pairs * 2));
         }
     })?;
+    if let Some(path) = f.get("lobbies") {
+        std::fs::write(path, serde_json::to_vec(&lobbies).unwrap()).map_err(|e| e.to_string())?;
+    }
     if let Some(a) = &author {
         report_work(
             a,
