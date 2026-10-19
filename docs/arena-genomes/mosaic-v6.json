@@ -1,0 +1,17 @@
+{
+  "brain": "mosaic",
+  "knobs": {
+    "doctrine": 4,
+    "opening_land": 6,
+    "margin_pct": 132,
+    "endgame_margin_pct": 105,
+    "guard": 8,
+    "hold_pct": 20,
+    "neutral": 100,
+    "enemy": 80,
+    "leader": 240,
+    "space": 3,
+    "hug": 16,
+    "cost": 20
+  }
+}
