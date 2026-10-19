@@ -794,3 +794,22 @@ Overall, Hedgehog is the best Elo version and Yak the best AVP version. Neither 
 top-tier placement with top-tier Elo, and none beats the Pangolin leaders (AVP8 about
 3.3, Elo above 1700). The live evidence rejects weakest-contact focus and Predator as
 finishers; early linked Walls improve survival, while Ridgeline improves placement.
+
+## Round 10 — One evaluated fork
+
+Retired every active Sol entrant except Wombat v1 and Yak v2: Tortoise, Armadillo,
+Hedgehog, Stoat, Gecko, Mongoose, Orca, Eagle, Weasel, Capybara, and Leopard.
+
+### kestrel-v1 — Kestrel
+
+- Parent: `pangolin-v9`.
+- Hypothesis: preserve Pangolin v9 exactly through tick 9399, then spend the last 600
+  ticks taking every statistically sure capture without pricing post-cutoff safety. This
+  transfers Burrow's positive final land-sprint mechanism while isolating one lever.
+- Eval: 24 mirrored pairs against frozen `pangolin-v9`, single-threaded and reported as
+  `agent:sol`. Candidate score 3.6600 versus 3.7017; gain **+0.0417 ± 0.0305**.
+  Both policies closed two games, so the measured gain came from cutoff placement.
+- Verdict: the gain was positive and larger than its standard error, narrowly satisfying
+  the publication gate. Published as Kestrel.
+- First live snapshot, strictly provisional: 5 games, Elo 1527, AVP8 4.00 ± 0.84,
+  0.414 ms/move, no wins.

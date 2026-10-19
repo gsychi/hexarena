@@ -14,6 +14,8 @@ pub mod predator;
 pub mod relay;
 pub mod ridgeline;
 pub mod settler;
+pub mod sol_pangolin;
+mod sol_ridgeline;
 
 use crate::process::ProcessBot;
 use crate::{Bot, BotParams, Expander, Style, KNOB_LOG};
@@ -29,6 +31,7 @@ pub const BRAINS: &[&str] = &[
     "relay",
     "predator",
     "ridgeline",
+    "sol-pangolin",
     "grazer",
     "mosaic",
     "bastion",
@@ -56,6 +59,7 @@ pub fn build(style: Style) -> Result<Box<dyn Bot>, String> {
             Box::new(ridgeline::Ridgeline::new(style.clone())),
             &style,
         ))),
+        "sol-pangolin" => Ok(Box::new(sol_pangolin::SolPangolin::new(style))),
         other => Err(format!(
             "unknown brain '{other}' (known: {})",
             BRAINS.join(", ")
