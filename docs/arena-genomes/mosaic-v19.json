@@ -1,0 +1,32 @@
+{
+  "brain": "mosaic",
+  "knobs": {
+    "doctrine": 6,
+    "counter_bonus": 320,
+    "logistics_min": 45,
+    "opening_land": 0,
+    "margin_pct": 143,
+    "endgame_margin_pct": 115,
+    "margin_abs": 5,
+    "guard": 20,
+    "hold_pct": 48,
+    "forward_pct": 72,
+    "neutral": 100,
+    "enemy": 40,
+    "leader": 170,
+    "prey": 165,
+    "revenge": 20,
+    "hug": 12,
+    "cost": 29,
+    "enclose_value": 160,
+    "finish_tick": 1500,
+    "finish_alive": 5,
+    "finish_ratio_pct": 105,
+    "finish_bonus": 580,
+    "hunt_value": 32,
+    "lookahead_value": 55,
+    "relay_floor": 1,
+    "relay_patience": 90,
+    "allow_gather": 0
+  }
+}
