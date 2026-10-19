@@ -129,6 +129,18 @@ struct Knobs {
     stage: i64,
     /// Score lost per troop the launch hex is short of a blocked capture.
     short_cost: i64,
+    /// From this tick (0 = never) the late knobs below replace their counterparts: once
+    /// overtime odds favour attackers, held borders can't be made safe and only pressure
+    /// ends the game.
+    late_from: u32,
+    late_margin_pct: u64,
+    late_safe_min: i64,
+    late_min_score: i64,
+    late_sure_x10: u64,
+    /// Tick the late phase began.
+    late_at: Option<u32>,
+    /// In the late phase, gather toward the best capture every this many ticks.
+    push_gather: u32,
 }
 
 impl Knobs {
@@ -158,7 +170,23 @@ impl Knobs {
             gather_until: k("gather_until", 600) as u32,
             stage: k("stage", 0),
             short_cost: k("short_cost", 0),
+            late_from: k("late_from", 0) as u32,
+            late_margin_pct: k("late_margin_pct", 100) as u64,
+            late_safe_min: k("late_safe_min", 0),
+            late_min_score: k("late_bar", 500) - 500,
+            late_sure_x10: k("late_sure_x10", 20) as u64,
+            late_at: None,
+            push_gather: k("push_gather", 0) as u32,
         }
+    }
+
+    fn go_late(&mut self, tick: u32) {
+        self.margin_pct = self.late_margin_pct;
+        self.safe_min = self.late_safe_min;
+        self.min_score = self.late_min_score;
+        self.sure_x10 = self.late_sure_x10;
+        self.late_at = Some(tick);
+        self.late_from = 0;
     }
 }
 
@@ -227,7 +255,8 @@ impl Ridgeline {
                 continue;
             }
             let stack = self.seen[n].unwrap().troops.saturating_sub(1) as u64;
-            let k = self.kills(stack, self.defense(geo, n, h, MILLI));
+            let wall = self.seen[h].map_or(MILLI, |c| c.wall_milli.max(MILLI));
+            let k = self.kills(stack, self.defense(geo, n, h, wall));
             worst = Some(worst.map_or(k, |w| w.max(k)));
         }
         worst.map(|k| self.k.guard + k * self.k.margin_pct / 100)
@@ -604,6 +633,9 @@ impl Bot for Ridgeline {
             self.rules = r.clone();
         }
         self.win = self.rules.attacker_win_milli(view.tick);
+        if self.k.late_from > 0 && view.tick >= self.k.late_from {
+            self.k.go_late(view.tick);
+        }
         let geo = self.geo.take().unwrap_or_else(|| Geometry::new(view));
         if self.seen.is_empty() {
             self.seen = vec![None; geo.passable.len()];
@@ -632,7 +664,12 @@ impl Bot for Ridgeline {
                     mine.iter().any(|&s| geo.nbrs[s].iter().any(|&n| self.enemy(n, me)));
                 self.stage_to(&geo, me, b.from, !contact && view.tick < self.k.gather_until)
             });
+        let push = self.k.late_at.is_some()
+            && self.k.push_gather > 0
+            && view.tick % self.k.push_gather == 0;
+        let pad = capture.or(blocked).map(|c| c.from);
         let action = match (supply, capture) {
+            _ if push && pad.is_some() => Action::Gather { target: geo.hexes[pad.unwrap()] },
             (Some((gain, a)), _) if supply_tick && gain >= self.k.supply_min => a,
             _ if staging.is_some() => staging.unwrap(),
             (_, Some(c)) => {
