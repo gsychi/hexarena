@@ -16,4 +16,5 @@ Clean-room work for Hexarena rules v0.3. All strategies use only the fog-filtere
 | snowshoe-v10 — Otter Millpond | Limit economy to one Farm and two Villages. | Published; gate queued. | Pending. |
 | snowshoe-v11 — Badger Hearth | Test the minimum linked Farm–Village engine. | Published; gate queued. | Pending. |
 | snowshoe-v12 — Jackalope Last Stand | Fund three Walls with one Village, then sprint. | Published; gate queued. | Pending. |
+| snowshoe-v13 — Coyote Contact Line | Hard-cap lifetime replacement cost and wall only at visible enemy contact. | Published; gate queued. | Tests whether v1's occasional 7–9-build churn is wasteful. |
 

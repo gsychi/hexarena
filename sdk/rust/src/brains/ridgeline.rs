@@ -151,6 +151,8 @@ struct Knobs {
     max_villages: usize,
     max_quarries: usize,
     max_walls: usize,
+    lifetime_build_cap: usize,
+    wall_enemy_only: bool,
 }
 
 impl Knobs {
@@ -190,6 +192,8 @@ impl Knobs {
             max_villages: k("max_villages", 5) as usize,
             max_quarries: k("max_quarries", 1) as usize,
             max_walls: k("max_walls", 5) as usize,
+            lifetime_build_cap: k("lifetime_build_cap", 0) as usize,
+            wall_enemy_only: k("wall_enemy_only", 0) > 0,
         }
     }
 }
@@ -202,6 +206,7 @@ pub struct Ridgeline {
     /// Last seen state of every slot.
     seen: Vec<Option<Cell>>,
     last_build: u32,
+    builds_made: usize,
 }
 
 impl Ridgeline {
@@ -213,6 +218,7 @@ impl Ridgeline {
             geo: None,
             seen: vec![],
             last_build: 0,
+            builds_made: 0,
         }
     }
 
@@ -659,6 +665,7 @@ impl Ridgeline {
             || view.tick < self.k.build_start
             || view.tick >= self.k.build_stop
             || view.tick.saturating_sub(self.last_build) < self.k.build_every
+            || (self.k.lifetime_build_cap > 0 && self.builds_made >= self.k.lifetime_build_cap)
         {
             return None;
         }
@@ -745,7 +752,7 @@ impl Ridgeline {
                             && geo.hexes[q].distance(geo.hexes[i])
                                 < self.rules.quarry.min_friendly_distance
                     }),
-                    Building::Wall => foreign > 0,
+                    Building::Wall => foreign > 0 && (!self.k.wall_enemy_only || enemy > 0),
                 };
                 if !valid_site {
                     continue;
@@ -783,6 +790,7 @@ impl Ridgeline {
             }
             if let Some((_, at)) = best {
                 self.last_build = view.tick;
+                self.builds_made += 1;
                 return Some(Action::Build {
                     at: geo.hexes[at],
                     building: kind,
