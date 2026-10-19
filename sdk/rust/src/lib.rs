@@ -2,9 +2,11 @@
 //! (free management commands plus at most one main action) each tick.
 
 pub mod brains;
+pub mod process;
 
 pub use hexarena_protocol::*;
 use serde::{Deserialize, Serialize};
+use std::cell::RefCell;
 use std::collections::{BTreeMap, HashMap, VecDeque};
 
 pub trait Bot {
@@ -85,9 +87,20 @@ fn is_default_brain(b: &str) -> bool {
     b == brains::DEFAULT
 }
 
+thread_local! {
+    /// While set, records every knob a brain reads with its default; see
+    /// [`brains::complete_knobs`].
+    static KNOB_LOG: RefCell<Option<BTreeMap<String, i64>>> = const { RefCell::new(None) };
+}
+
 impl BotParams {
     /// A brain-specific knob, or `default` when this genome doesn't set it.
     pub fn knob(&self, name: &str, default: i64) -> i64 {
+        KNOB_LOG.with(|log| {
+            if let Some(seen) = log.borrow_mut().as_mut() {
+                seen.entry(name.to_string()).or_insert(default);
+            }
+        });
         self.knobs.get(name).copied().unwrap_or(default)
     }
 }
@@ -129,18 +142,21 @@ struct Threat {
     target: Hex,
 }
 
-/// A named CPU: a preset of [`BotParams`].
+/// A named CPU: a preset of [`BotParams`], optionally played by another program.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Style {
     pub id: String,
     pub name: String,
     pub blurb: String,
     pub params: BotParams,
+    /// Plays the seat in this program instead of the brains compiled in here.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub program: Option<process::Program>,
 }
 
 impl Style {
     fn preset(id: &str, name: &str, blurb: &str, params: BotParams) -> Style {
-        Style { id: id.into(), name: name.into(), blurb: blurb.into(), params }
+        Style { id: id.into(), name: name.into(), blurb: blurb.into(), params, program: None }
     }
 }
 
@@ -194,8 +210,26 @@ pub fn roster() -> Vec<Style> {
                 build_every: 9,
                 kinds: vec![Wall, Quarry, Wall, Farm, Village],
                 gather_every: 6,
-                ..base
+                ..base.clone()
             },
+        ),
+        Style::preset(
+            "relay",
+            "Relay",
+            "Tempo. Turns every tick into land that stays taken, relaying spare troops to the front.",
+            BotParams { brain: "relay".into(), ..base.clone() },
+        ),
+        Style::preset(
+            "predator",
+            "Predator",
+            "Conqueror. Garrisons its captures, encloses pockets and finishes shrinking rivals.",
+            BotParams { brain: "predator".into(), ..base.clone() },
+        ),
+        Style::preset(
+            "ridgeline",
+            "Ridgeline",
+            "Border holder. Only sends sure captures and prefers short, shielded, high borders.",
+            BotParams { brain: "ridgeline".into(), ..base },
         ),
     ]
 }

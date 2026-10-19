@@ -158,7 +158,7 @@ export function Home({ onOpen, onLeague }: { onOpen: (id: string) => void; onLea
                         {bots.map((b) => (
                           <SelectItem key={b.id} value={b.id}>
                             <div className="flex flex-col">
-                              <span>{b.name}</span>
+                              <span>{b.name}{b.kind === 'entrant' && <span className="ml-1.5 text-[10px] uppercase tracking-wide text-violet-300">trial · {b.author}</span>}</span>
                               <span className="text-[11px] text-muted-foreground">{b.blurb}</span>
                             </div>
                           </SelectItem>
@@ -219,6 +219,7 @@ export function Home({ onOpen, onLeague }: { onOpen: (id: string) => void; onLea
                       <div className="flex items-center gap-2 text-sm">
                         <span className="font-mono text-xs text-muted-foreground">{m.id}</span>
                         <StatusBadge status={m.status} />
+                        {m.auto && <Badge variant="outline" className="text-[10px] text-muted-foreground">Self-play</Badge>}
                         {m.winner && <span className="flex items-center gap-1 text-xs"><Trophy className="size-3 text-amber-300" />{m.winner}</span>}
                       </div>
                       <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-xs text-muted-foreground">

@@ -52,6 +52,7 @@ pub fn play_lobby(seed: u64, seats: &[Entrant]) -> Result<GameLog, String> {
             name: e.id.clone(),
             blurb: String::new(),
             params: e.params.clone(),
+            program: None,
         })
         .collect();
     let result = play_result(seed, &styles, u32::MAX)?;

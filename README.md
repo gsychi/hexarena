@@ -60,17 +60,34 @@ A CPU's whole strategy is a genome of numbers (`BotParams` in `sdk/rust`: attack
 cargo run --release -p hexarena-cli -- league run                 # evolve forever (Ctrl-C any time; --attempts N to stop)
 cargo run --release -p hexarena-cli -- league show                # champion and progression
 cargo run --release -p hexarena-cli -- league eval --params cand.json --pairs 16   # try a genome without touching the league
-cargo run --release -p hexarena-cli -- league submit --params cand.json --origin agent:me --note "why"
+cargo run --release -p hexarena-cli -- league submit --params cand.json --origin agent:me --note "why" [--parents g3,g1]
 ```
 
-- **Challengers.** Each attempt takes the champion and either mutates one to three genes, crosses it with an earlier generation, or takes the next genome from `data/league/inbox/` (written by `league submit`, so people and agents can propose ideas).
+- **Challengers.** Each attempt takes the champion and either mutates one to three genes, crosses it with an earlier generation, or takes the next genome from `data/league/inbox/` (written by `league submit`, so people and agents can propose ideas). A genome only needs to name its `brain`: the league fills in every knob that brain reads, at its default, so mutations can tune them.
+- **Lineage.** Every generation is named after its brain and its parents: `Relay g3 ← g2` is a mutation of g2, `Relay g4 ← g3 × g1` is a crossover, and `Relay g2 (new brain by agent tempo)` was written from scratch and has no parents. The champion a generation beat is recorded separately (`beat`). A submission's parents default to the champion when it uses the champion's brain and to none otherwise; `--parents` overrides that.
 - **Gate.** Challenger and champion play mirrored pairs of 8-player lobbies on the same seeds: three seats each plus two sparring seats from earlier generations and the hand-written roster, then the same seeds again with challenger and champion swapped. Places are scored as **AVP on the 8-player scale**: `1 + (place − 1) · 7 / (N − 1)`, so 1 is always first and 8 is always last whatever the lobby size, and ties share the middle of their places. **Closing the game out is worth more:** a player who ends the game before the cutoff gets 0.5 places taken off its score, plus up to 1 more the earlier it ends (ending at tick 1500 is worth 1.0 places), so genomes that finish rivals off beat ones that coast to the cutoff. The challenger is promoted when it averages at least 0.05 places better than the champion *and* the gain is more than two standard errors. Gates stop early once the answer is clear (16 to 96 games), so a hopeless mutation costs a few seconds.
-- **Progress.** Every generation is benchmarked on 32 fixed seeds (two seats against six roster CPUs), and every league game updates a multiplayer Elo (K = 32, start 1500). The roster's Elo is the fixed yardstick.
-- **Watch it.** The start page links to **League progression** (`#/league`): benchmark AVP and Elo by generation, every gate result, and the gene changes of each generation. **Play** next to any generation runs it against the roster in an 8-player game you can watch. Generations are also playable CPUs in the API (`"champion"`, or an id like `"g3"`).
+- **Progress.** Every generation is benchmarked on 32 fixed seeds (two seats against six seats of the four classic CPUs: Expander, Homesteader, Raider and Warden). The opponents stay fixed when stronger CPUs join the roster, so benchmarks stay comparable; if the set changes, `league run` replays every generation's benchmark. A perfect benchmark AVP is 1.5 (first and second place), so top genomes saturate it, and the gate is the sharper signal. Every league game also updates a multiplayer Elo (K = 32, start 1500). The roster's Elo is the fixed yardstick.
+- **Watch it.** The start page links to **League progression** (`#/league`): a scatterplot of every bot's Elo against the time it appeared (league generations, arena versions and rejected challengers) with the frontier of the best rating so far, every gate result, and the gene changes of each generation. **Play** next to any generation runs it against the roster in an 8-player game you can watch. Generations are also playable CPUs in the API (`"champion"`, or an id like `"g3"`).
 
 **Brains.** A genome's `brain` field picks the strategy that plays it (`sdk/rust/src/brains/`; the default is `expander`). A new strategy is a new brain module that reads its own tunable `knobs`, which the league mutates like any other gene. `simulate` and `report` accept league generations and genome files as seats (`--bots champion,g2,raider,cand.json`), so you can record replays of any matchup to study.
 
 When the rules version changes, the old league is archived to `data/league/archive/<version>/` and a new one starts with the old champion as its g0. The league lives in `data/league/` (`league.json`, `games.jsonl` with every game, `inbox/`); the server reads it from `HEXARENA_LEAGUE`. All the games use the same Rust engine and rules as everything else. The standings on the start page report AVP on the same 8-player scale.
+
+## Arena: try bot versions live
+
+The server keeps an 8-player game running at all times (`HEXARENA_AUTOPLAY=0` turns this off). Each game seats up to four published **arena versions**, least-played first, plus the league champion and roster CPUs. Those games count in the standings like any other.
+
+Publish a version from any checkout. This freezes a copy of that checkout's `hexarena` binary, so the version keeps playing the same way after its code changes:
+
+```bash
+cargo build --release -p hexarena-cli
+./target/release/hexarena arena publish --dir /path/to/data/arena --id predator-v2 --name "Predator v2" \
+  --author agent:me --brain predator --note "what this version tests"   # or --params genome.json
+./target/release/hexarena arena list --dir /path/to/data/arena
+./target/release/hexarena arena retire --dir /path/to/data/arena --id predator-v2
+```
+
+The server plays a frozen version as a separate process (`hexarena bot`): it sends the seat's style as one JSON line, then one `View` line per tick, and reads back one `PlayerCommand` line. A seat that stops answering plays no-ops. Ids are immutable, so every change gets a new id. Publishing runs a short trial game and fails if the bot can't play. A version that ranks outside the **top 20** of the standings after 12 games is retired automatically: it stops being scheduled but keeps its results. `GET /api/arena` lists every version, and the version ids work as seats in `POST /api/matches` and in `simulate --bots`.
 
 ## Deploy
 
