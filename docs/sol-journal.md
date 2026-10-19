@@ -611,3 +611,12 @@ compares wall-only, lattice, Village, and Quarry economies.
   Walls turn the active border into a durable ratchet.
 - Economy: none; contact Walls from tick 800 through 7000, conservative Relay.
 - Result and replay lesson: pending 50-game sample.
+
+### armadillo-v1 — Armadillo
+
+- Hypothesis: Jackal's least-harmful 48-site lattice can coexist with early contact Walls
+  if both are paced; the lattice funds the late war while linked Walls reduce opening
+  churn and infrastructure loss.
+- Economy: sparse lattice through tick 3200 plus 80 contact Walls through tick 7500;
+  moderately aggressive Relay.
+- Result and replay lesson: pending 50-game sample.
