@@ -40,6 +40,8 @@ fn main() -> Result<(), String> {
         .into_iter()
         .map(brains::build)
         .collect::<Result<_, _>>()?;
+    // CPU_DUMP=1 prints every move so repeated runs can be compared per move (min-of-repeats).
+    let dump = std::env::var_os("CPU_DUMP").is_some();
     let mut moves = 0u64;
     let mut total = Duration::ZERO;
     let mut slowest = Duration::ZERO;
@@ -56,6 +58,9 @@ fn main() -> Result<(), String> {
             moves += 1;
             total += elapsed;
             slowest = slowest.max(elapsed);
+            if dump {
+                println!("move {} {} {:.6}", state.tick, player, elapsed.as_secs_f64() * 1000.0);
+            }
             if elapsed >= Duration::from_millis(2) {
                 eprintln!(
                     "slow tick={} player={} cpu_ms={:.6}",
