@@ -213,6 +213,8 @@ struct StrikeKnobs {
     depth: i64,
     /// Thumper marches to a launch pad at most this far through our land.
     reach: u32,
+    /// Spare stacks of at least this many walk toward the thumper on idle ticks (0 = never).
+    feed_min: u64,
 }
 
 impl StrikeKnobs {
@@ -224,6 +226,7 @@ impl StrikeKnobs {
             leave_pct: k("leave_pct", 15) as u64,
             depth: k("depth", 30),
             reach: k("reach", 8) as u32,
+            feed_min: k("feed_min", 0) as u64,
         }
     }
 }
@@ -257,6 +260,43 @@ impl Warren {
             seen: vec![],
             army: None,
         }
+    }
+
+    /// Walks the spare stack that adds the most per step one hex toward the thumper.
+    fn feed(&self, geo: &Geometry, me: PlayerId) -> Option<Action> {
+        let a = self.army?;
+        if self.s.feed_min == 0 {
+            return None;
+        }
+        let mut prev = vec![usize::MAX; geo.passable.len()];
+        let mut dist = vec![0u32; geo.passable.len()];
+        prev[a] = a;
+        let mut queue = VecDeque::from([a]);
+        let mut best: Option<(u64, usize)> = None;
+        while let Some(c) = queue.pop_front() {
+            if c != a {
+                let spare = self.spare(geo, me, c);
+                if spare >= self.s.feed_min {
+                    let v = spare / dist[c] as u64;
+                    if best.map_or(true, |b| v > b.0) {
+                        best = Some((v, c));
+                    }
+                }
+            }
+            if dist[c] >= self.s.reach {
+                continue;
+            }
+            for &n in &geo.nbrs[c] {
+                if prev[n] == usize::MAX && self.owned(n, me) {
+                    prev[n] = c;
+                    dist[n] = dist[c] + 1;
+                    queue.push_back(n);
+                }
+            }
+        }
+        let (_, i) = best?;
+        let troops = self.spare(geo, me, i) as u32;
+        Some(Action::Move { from: geo.hexes[i], to: geo.hexes[prev[i]], troops })
     }
 
     /// The thumper's move this tick: chain a sure capture into enemy ground, or march
@@ -982,6 +1022,7 @@ impl Bot for Warren {
             .then(|| self.build(view, &geo))
             .flatten();
         let strike = self.strike(&geo, me, &mine, view.tick);
+        let feed = if sprinting { None } else { self.feed(&geo, me) };
         let action = match (supply, capture) {
             _ if strike.is_some() => strike.unwrap(),
             (Some((gain, a)), _) if supply_tick && gain >= self.k.supply_min => a,
@@ -990,6 +1031,7 @@ impl Bot for Warren {
             (_, Some(c)) => {
                 Action::Move { from: geo.hexes[c.from], to: geo.hexes[c.to], troops: c.send }
             }
+            _ if feed.is_some() => feed.unwrap(),
             (Some((gain, a)), None) if gain > 0 => a,
             _ => self.regroup(&geo, me, &mine, view.tick).unwrap_or(Action::NoOp),
         };
