@@ -186,7 +186,7 @@ export function Home({ onOpen, onLeague, onNotes }: { onOpen: (id: string) => vo
             </div>
 
             <p className="text-[11px] text-muted-foreground">
-              Every game ends the moment one player is left standing. From tick 3,000 a storm closes in from the edge: hexes outside the safe zone make nothing and lose a quarter of their troops each tick, until by tick 9,000 only the centre is safe. The hard cutoff is 10,000 ticks, where survivors are ranked by land.
+              Every game ends the moment one player is left standing. From tick 3,000 attackers win each exchange more often (47% rising to 85%), and the cutoff is 10,000 ticks, where survivors are ranked by land. Games that end before the cutoff count double for Elo.
             </p>
 
             <div className="grid grid-cols-2 gap-4">

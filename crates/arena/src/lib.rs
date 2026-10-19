@@ -158,10 +158,10 @@ fn visible_building(st: &State, h: Hex) -> (u32, [Option<Hex>; 3], u32) {
         }
         _ => 0,
     };
-    let links = match c.building {
-        Some(Building::Village) => [st.supporting_farm(h), None, None],
-        _ => c.links,
-    };
+    let mut links = [None; 3];
+    for (slot, l) in links.iter_mut().zip(st.building_links(h)) {
+        *slot = Some(l);
+    }
     (remaining, links, c.link_ready_tick.saturating_sub(st.tick))
 }
 

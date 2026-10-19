@@ -33,7 +33,8 @@ export interface Rules {
   storm_decay_pct?: number
   height_factor_milli: number
   maximum_total_defense_milli: number
-  farm: { troop_cost: number; resource_cost: number; allowed_heights: number[]; sockets: number; relink_cooldown: number }
+  /** `adjacent_boost` (v0.5+): every adjacent Farm boosts a Village, no links or sockets. */
+  farm: { troop_cost: number; resource_cost: number; allowed_heights: number[]; sockets: number; relink_cooldown: number; adjacent_boost?: boolean }
   village: { troop_cost: number; resource_cost: number; bonus: number; farm_bonus: number }
   quarry: { troop_cost: number; resource_cost: number; allowed_heights: number[]; min_friendly_distance: number; discount_radius: number; troop_discount_pct: number; resource_discount: number }
   wall: { troop_cost: number; resource_cost: number; max_links: number; defense_milli_by_links: number[]; relink_cooldown: number }
@@ -310,7 +311,7 @@ export function buildPreview(rep: ViewerReplay, cells: Map<number, Cell>, idx: n
   if (!t || t.kind !== 'open') reason = 'impassable'
   else if (owner < 0) reason = 'not owned'
   else if (cell && cell.building > 0) reason = 'hex already has a building'
-  else if (kind === 1 && !r.farm.allowed_heights.includes(t.height)) reason = 'Farms need height −2 or −1'
+  else if (kind === 1 && !r.farm.allowed_heights.includes(t.height)) reason = 'no Farms on hills'
   else if (kind === 3 && !r.quarry.allowed_heights.includes(t.height)) reason = 'Quarries need height +1 or +2'
   else if (kind === 3 && near(r.quarry.min_friendly_distance - 1, 3, owner)) reason = `within ${r.quarry.min_friendly_distance - 1} hexes of your Quarry`
   return { kind, legal: reason === null, reason, baseTroops: rule.troop_cost, baseResource: rule.resource_cost, troops, resource, discounted: disc }

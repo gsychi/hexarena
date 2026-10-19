@@ -10,10 +10,12 @@
 pub mod predator;
 pub mod relay;
 pub mod ridgeline;
+pub mod settler;
 pub mod snowshoe;
 
 use crate::process::ProcessBot;
 use crate::{Bot, BotParams, Expander, Style, KNOB_LOG};
+use settler::Settler;
 use std::collections::BTreeMap;
 
 /// The brain genomes play when they don't name one.
@@ -29,9 +31,9 @@ pub fn build(style: Style) -> Result<Box<dyn Bot>, String> {
     }
     match style.params.brain.as_str() {
         DEFAULT => Ok(Box::new(Expander::new(style))),
-        "relay" => Ok(Box::new(relay::Relay::new(style))),
-        "predator" => Ok(Box::new(predator::Predator::new(style))),
-        "ridgeline" => Ok(Box::new(ridgeline::Ridgeline::new(style))),
+        "relay" => Ok(Box::new(Settler::wrap(Box::new(relay::Relay::new(style.clone())), &style))),
+        "predator" => Ok(Box::new(Settler::wrap(Box::new(predator::Predator::new(style.clone())), &style))),
+        "ridgeline" => Ok(Box::new(Settler::wrap(Box::new(ridgeline::Ridgeline::new(style.clone())), &style))),
         "snowshoe" => Ok(Box::new(snowshoe::Snowshoe::new(style))),
         other => Err(format!(
             "unknown brain '{other}' (known: {})",

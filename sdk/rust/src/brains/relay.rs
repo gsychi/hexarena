@@ -453,6 +453,9 @@ impl Bot for Relay {
     }
 
     fn act(&mut self, view: &View) -> PlayerCommand {
+        if let Some(r) = &view.rules {
+            self.rules = r.clone();
+        }
         if self.radius != view.radius {
             self.init(view);
         }
