@@ -1,4 +1,4 @@
-use hexarena_arena::{play, settings, viewer_json};
+use hexarena_arena::{play, play_on, settings, viewer_json};
 use hexarena_engine::stats::BuildingReport;
 use hexarena_engine::{mapgen::generate, replay_state};
 use hexarena_protocol::*;
@@ -77,10 +77,15 @@ fn describe(names: &[String], r: &MatchResult) -> String {
 }
 
 fn simulate(f: HashMap<String, String>) -> Result<(), String> {
-    let played = play(
+    let map = f
+        .get("map")
+        .map(|m| serde_json::from_value(serde_json::Value::String(m.clone())).map_err(|e| format!("--map {m}: {e}")))
+        .transpose()?;
+    let played = play_on(
         get(&f, "seed", 1),
         &styles(&f)?,
         get(&f, "max-ticks", u32::MAX),
+        map,
     )?;
     let result = played.result();
     println!(
