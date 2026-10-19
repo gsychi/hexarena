@@ -24,7 +24,9 @@ struct Cell {
 struct Knobs {
     doctrine: i64,
     margin_pct: u64,
+    endgame_margin_pct: u64,
     margin_abs: u64,
+    opening_land: usize,
     guard: u64,
     hold_pct: u64,
     neutral: i64,
@@ -49,7 +51,9 @@ impl Knobs {
         Self {
             doctrine: k("doctrine", 0),
             margin_pct: k("margin_pct", 145).max(100) as u64,
+            endgame_margin_pct: k("endgame_margin_pct", 118).max(100) as u64,
             margin_abs: k("margin_abs", 5).max(1) as u64,
+            opening_land: k("opening_land", 5).max(0) as usize,
             guard: k("guard", 12).max(0) as u64,
             hold_pct: k("hold_pct", 25).max(0) as u64,
             neutral: k("neutral", 120),
@@ -342,7 +346,7 @@ impl Mosaic {
                     }
             }
             // Breaker: seek the strongest rival and turn its loss into a two-sided swing.
-            _ => {
+            4 => {
                 self.k.enemy
                     + if Some(owner) == leader {
                         self.k.leader
@@ -350,6 +354,18 @@ impl Mosaic {
                         0
                     }
                     + their_land / 2
+            }
+            // Sheriff: police whichever neighbour is visibly gaining land fastest.
+            _ => {
+                let hottest = self.hostility.iter().copied().max().unwrap_or(0);
+                let heat = self.hostility.get(p).copied().unwrap_or(0);
+                if heat > 0 && heat == hottest {
+                    self.k.revenge * heat
+                } else if endgame {
+                    self.k.enemy
+                } else {
+                    -self.k.prey
+                }
             }
         }
     }
@@ -364,9 +380,30 @@ impl Mosaic {
     ) -> Bid {
         let me = view.you;
         let loss = self.loss(from, to);
-        let target_hold = self.reserve(to, from, me);
-        let source_hold = self.reserve(from, to, me);
-        let need = loss * self.k.margin_pct / 100 + self.k.margin_abs + target_hold;
+        let own_land = self.own.iter().filter(|owned| **owned).count();
+        let opening = own_land <= self.k.opening_land;
+        let living = view
+            .public_players
+            .iter()
+            .filter(|player| player.alive)
+            .count();
+        let endgame = living <= 3 || view.tick >= 2200;
+        let target_hold = if opening || endgame {
+            0
+        } else {
+            self.reserve(to, from, me)
+        };
+        let source_hold = if opening {
+            0
+        } else {
+            self.reserve(from, to, me)
+        };
+        let margin = if endgame {
+            self.k.endgame_margin_pct
+        } else {
+            self.k.margin_pct
+        };
+        let need = loss * margin / 100 + self.k.margin_abs + target_hold;
         let source = self.seen[from].as_ref().expect("own source is visible");
         let available = (source.troops as u64).saturating_sub(1 + source_hold);
         let short = need.saturating_sub(available);
