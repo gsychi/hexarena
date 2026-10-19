@@ -11,6 +11,7 @@ pub mod predator;
 pub mod relay;
 pub mod ridgeline;
 
+use crate::process::ProcessBot;
 use crate::{Bot, BotParams, Expander, Style, KNOB_LOG};
 use std::collections::BTreeMap;
 
@@ -22,6 +23,9 @@ pub const BRAINS: &[&str] = &[DEFAULT, "relay", "predator", "ridgeline"];
 
 /// The bot that plays `style`, or an error naming an unknown brain.
 pub fn build(style: Style) -> Result<Box<dyn Bot>, String> {
+    if let Some(program) = &style.program {
+        return Ok(Box::new(ProcessBot::spawn(program, &style)?));
+    }
     match style.params.brain.as_str() {
         DEFAULT => Ok(Box::new(Expander::new(style))),
         "relay" => Ok(Box::new(relay::Relay::new(style))),
@@ -38,7 +42,7 @@ pub fn build(style: Style) -> Result<Box<dyn Bot>, String> {
 /// can mutate knobs a genome never set. Values already set are kept.
 pub fn complete_knobs(params: &mut BotParams) -> Result<(), String> {
     KNOB_LOG.with(|log| *log.borrow_mut() = Some(BTreeMap::new()));
-    let style = Style { id: String::new(), name: String::new(), blurb: String::new(), params: params.clone() };
+    let style = Style { id: String::new(), name: String::new(), blurb: String::new(), params: params.clone(), program: None };
     let built = build(style).map(drop);
     let seen = KNOB_LOG.with(|log| log.borrow_mut().take()).unwrap_or_default();
     built?;

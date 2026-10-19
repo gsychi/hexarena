@@ -1,4 +1,12 @@
-export interface BotInfo { id: string; name: string; blurb: string }
+export interface BotInfo {
+  id: string
+  name: string
+  blurb: string
+  kind?: 'roster' | 'league' | 'entrant'
+  /** Arena entrants only: who published the version. */
+  author?: string
+  own_build?: boolean
+}
 
 export interface Seat { bot: string; name: string }
 
@@ -27,6 +35,8 @@ export interface MatchSummary {
   max_ticks: number
   seats: Seat[]
   final_tick: number | null
+  /** Scheduled by the self-playing arena. */
+  auto?: boolean
   winner: string | null
   standings: Standing[]
 }

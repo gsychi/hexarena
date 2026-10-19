@@ -10,6 +10,7 @@ use hexarena_arena::{play, seat_names, viewer_json};
 use hexarena_protocol::{PlayerId, RulesConfig};
 use hexarena_sdk::Style;
 use serde::{Deserialize, Serialize};
+use league::Catalog;
 use standings::{standings, SeatResult, K, START_ELO};
 use std::collections::BTreeMap;
 use std::net::IpAddr;
@@ -26,6 +27,8 @@ const MAX_PLAYERS: usize = 8;
 const MAX_BATCH: u32 = 20;
 /// Refuse new games while this many are still queued or running.
 const MAX_RUNNING: usize = 100;
+/// Entrant seats in each self-play game; the rest are the champion and roster CPUs.
+const AUTOPLAY_ENTRANTS: usize = 4;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -82,6 +85,9 @@ struct Summary {
     final_tick: Option<u32>,
     winner: Option<String>,
     standings: Vec<Standing>,
+    /// Scheduled by the self-playing arena rather than requested by someone.
+    #[serde(default)]
+    auto: bool,
 }
 
 #[derive(Deserialize)]
@@ -94,10 +100,12 @@ struct CreateMatch {
 struct AppState {
     dir: PathBuf,
     league_dir: PathBuf,
+    arena_dir: PathBuf,
     matches: Mutex<BTreeMap<String, Summary>>,
     league_games: Mutex<league::LeagueGames>,
     next_id: Mutex<u64>,
     workers: Semaphore,
+    autoplay: bool,
 }
 
 type Shared = Arc<AppState>;
@@ -130,7 +138,15 @@ impl AppState {
         self.matches.lock().unwrap().insert(s.id.clone(), s.clone());
     }
 
-    fn load(dir: PathBuf, league_dir: PathBuf) -> AppState {
+    fn catalog(&self) -> Catalog {
+        Catalog::load(&self.league_dir, &self.arena_dir)
+    }
+
+    fn running(&self) -> usize {
+        self.matches.lock().unwrap().values().filter(|m| m.status == Status::Running).count()
+    }
+
+    fn load(dir: PathBuf, league_dir: PathBuf, arena_dir: PathBuf) -> AppState {
         std::fs::create_dir_all(&dir).expect("create data dir");
         let mut matches = BTreeMap::new();
         for entry in std::fs::read_dir(&dir).unwrap().flatten() {
@@ -160,10 +176,12 @@ impl AppState {
         AppState {
             dir,
             league_dir,
+            arena_dir,
             matches: Mutex::new(matches),
             league_games: Mutex::new(league::LeagueGames::default()),
             next_id: Mutex::new(next),
             workers: Semaphore::new(workers),
+            autoplay: false,
         }
     }
 }
@@ -228,7 +246,7 @@ fn run_match(app: &AppState, mut summary: Summary, styles: Vec<Style>) -> Summar
 }
 
 async fn bots(State(app): State<Shared>) -> Json<serde_json::Value> {
-    Json(serde_json::json!(league::bots(league::load(&app.league_dir).as_ref())))
+    Json(serde_json::json!(app.catalog().bots()))
 }
 
 async fn league_snapshot(State(app): State<Shared>) -> Response {
@@ -254,77 +272,147 @@ async fn create(State(app): State<Shared>, Json(req): Json<CreateMatch>) -> Resp
             format!("pick 2 to {MAX_PLAYERS} CPU players"),
         );
     }
-    let current = league::load(&app.league_dir);
+    let catalog = app.catalog();
     let styles: Result<Vec<Style>, String> = req
         .bots
         .iter()
-        .map(|id| league::resolve(id, current.as_ref()).ok_or_else(|| format!("unknown bot '{id}'")))
+        .map(|id| catalog.resolve(id).ok_or_else(|| format!("unknown bot '{id}'")))
         .collect();
     let styles = match styles {
         Ok(s) => s,
         Err(e) => return err(StatusCode::BAD_REQUEST, e),
     };
     let count = req.count.unwrap_or(1).clamp(1, MAX_BATCH);
-    let running = app
-        .matches
-        .lock()
-        .unwrap()
-        .values()
-        .filter(|m| m.status == Status::Running)
-        .count();
-    if running + count as usize > MAX_RUNNING {
+    if app.running() + count as usize > MAX_RUNNING {
         return err(
             StatusCode::TOO_MANY_REQUESTS,
             "the arena is busy, try again once some games finish",
         );
     }
-    let max_ticks = RulesConfig::default().max_ticks;
-    let base_seed = req
-        .seed
-        .unwrap_or_else(|| now_ms().wrapping_mul(0x9E37_79B9_7F4A_7C15) >> 16);
-    let names = seat_names(&styles);
-    let mut created = vec![];
-    for i in 0..count {
-        let id = {
-            let mut n = app.next_id.lock().unwrap();
-            let id = format!("m{:05}", *n);
-            *n += 1;
-            id
-        };
-        let summary = Summary {
-            id,
-            created_at: now_ms(),
-            rules_version: RulesConfig::default().version,
-            ending: None,
-            status: Status::Running,
-            error: None,
-            seed: base_seed.wrapping_add(i as u64),
-            max_ticks,
-            seats: styles
-                .iter()
-                .zip(&names)
-                .map(|(s, n)| Seat {
-                    bot: s.id.clone(),
-                    name: n.clone(),
-                })
-                .collect(),
-            final_tick: None,
-            winner: None,
-            standings: vec![],
-        };
-        app.save(&summary);
-        created.push(summary.clone());
-        let (app, styles) = (app.clone(), styles.clone());
-        tokio::spawn(async move {
-            let _permit = app.workers.acquire().await.unwrap();
-            let worker = app.clone();
-            let done = tokio::task::spawn_blocking(move || run_match(&worker, summary, styles))
-                .await
-                .expect("match task panicked");
-            app.save(&done);
-        });
-    }
+    let base_seed = req.seed.unwrap_or_else(random_seed);
+    let created: Vec<Summary> = (0..count)
+        .map(|i| launch(&app, &styles, base_seed.wrapping_add(i as u64), false))
+        .collect();
     (StatusCode::CREATED, Json(created)).into_response()
+}
+
+fn random_seed() -> u64 {
+    now_ms().wrapping_mul(0x9E37_79B9_7F4A_7C15) >> 16
+}
+
+/// Records a new match and plays it on a worker in the background.
+fn launch(app: &Shared, styles: &[Style], seed: u64, auto: bool) -> Summary {
+    let names = seat_names(styles);
+    let id = {
+        let mut n = app.next_id.lock().unwrap();
+        let id = format!("m{:05}", *n);
+        *n += 1;
+        id
+    };
+    let summary = Summary {
+        id,
+        created_at: now_ms(),
+        rules_version: RulesConfig::default().version,
+        ending: None,
+        status: Status::Running,
+        error: None,
+        seed,
+        max_ticks: RulesConfig::default().max_ticks,
+        seats: styles
+            .iter()
+            .zip(&names)
+            .map(|(s, n)| Seat { bot: s.id.clone(), name: n.clone() })
+            .collect(),
+        final_tick: None,
+        winner: None,
+        standings: vec![],
+        auto,
+    };
+    app.save(&summary);
+    let (app, styles, queued) = (app.clone(), styles.to_vec(), summary.clone());
+    tokio::spawn(async move {
+        let _permit = app.workers.acquire().await.unwrap();
+        let worker = app.clone();
+        let done = tokio::task::spawn_blocking(move || run_match(&worker, queued, styles))
+            .await
+            .expect("match task panicked");
+        app.save(&done);
+    });
+    summary
+}
+
+/// Seats for the next self-play game: the active entrants with the fewest arena games
+/// (up to [`AUTOPLAY_ENTRANTS`]), the league champion, then roster CPUs, in seed order.
+fn autoplay_lineup(app: &AppState, catalog: &Catalog, seed: u64) -> Vec<Style> {
+    let mut played: BTreeMap<String, usize> = BTreeMap::new();
+    for m in app.matches.lock().unwrap().values() {
+        if m.status != Status::Failed {
+            for seat in &m.seats {
+                *played.entry(seat.bot.clone()).or_default() += 1;
+            }
+        }
+    }
+    let mut entrants: Vec<&hexarena_arena::entrants::Entrant> = catalog.active_entrants().collect();
+    entrants.sort_by_key(|e| (played.get(&e.id).copied().unwrap_or(0), e.created_at));
+    let mut seats: Vec<Style> = entrants.iter().take(AUTOPLAY_ENTRANTS).map(|e| e.style()).collect();
+    if let Some(champion) = catalog.resolve("champion") {
+        seats.push(champion);
+    }
+    let mut rng = seed | 1;
+    let mut next = move || {
+        rng ^= rng << 13;
+        rng ^= rng >> 7;
+        rng ^= rng << 17;
+        rng
+    };
+    let mut roster = hexarena_sdk::roster();
+    while seats.len() < MAX_PLAYERS {
+        if roster.is_empty() {
+            roster = hexarena_sdk::roster();
+        }
+        let pick = (next() % roster.len() as u64) as usize;
+        seats.push(roster.swap_remove(pick));
+    }
+    for i in (1..seats.len()).rev() {
+        seats.swap(i, (next() % (i as u64 + 1)) as usize);
+    }
+    seats
+}
+
+/// The self-playing arena: whenever no match is running, start an 8-player game.
+async fn autoplay(app: Shared) {
+    loop {
+        tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+        if app.running() > 0 {
+            continue;
+        }
+        let catalog = app.catalog();
+        let seed = random_seed();
+        let lineup = autoplay_lineup(&app, &catalog, seed);
+        launch(&app, &lineup, seed, true);
+    }
+}
+
+async fn arena_info(State(app): State<Shared>) -> Json<serde_json::Value> {
+    let catalog = app.catalog();
+    let matches = app.matches.lock().unwrap();
+    let entrants: Vec<serde_json::Value> = catalog
+        .entrants
+        .iter()
+        .map(|e| {
+            let games = matches
+                .values()
+                .filter(|m| m.status == Status::Done && m.seats.iter().any(|s| s.bot == e.id))
+                .count();
+            serde_json::json!({
+                "id": e.id, "name": e.name, "author": e.author, "note": e.note,
+                "created_at": e.created_at, "retired": e.retired, "games": games,
+                "brain": if e.params.brain.is_empty() { "expander" } else { e.params.brain.as_str() },
+                "own_build": e.program.is_some(),
+            })
+        })
+        .collect();
+    Json(serde_json::json!({ "autoplay": app.autoplay, "entrants": entrants }))
 }
 
 async fn one(State(app): State<Shared>, Path(id): Path<String>) -> Response {
@@ -374,7 +462,8 @@ struct BoardQuery {
 /// one-off challengers are left out.
 async fn leaderboard(State(app): State<Shared>, Query(q): Query<BoardQuery>) -> Json<serde_json::Value> {
     let rules = RulesConfig::default().version;
-    let current = league::load(&app.league_dir);
+    let catalog = app.catalog();
+    let current = catalog.league.as_ref();
     let matches = app.matches.lock().unwrap();
     let mut done: Vec<&Summary> = matches
         .values()
@@ -428,7 +517,7 @@ async fn leaderboard(State(app): State<Shared>, Query(q): Query<BoardQuery>) -> 
     }
     games.sort_by_key(|(at, _)| *at);
     let games: Vec<Vec<SeatResult>> = games.into_iter().map(|(_, g)| g).collect();
-    let rows = standings(&games, |id| league::display_name(id, current.as_ref()));
+    let rows = standings(&games, |id| catalog.display_name(id));
     Json(serde_json::json!({
         "games": games.len(),
         "arena_games": arena_games,
@@ -452,7 +541,14 @@ async fn main() {
         .or_else(|| env("PORT"))
         .unwrap_or(47240);
     let league_dir = std::env::var("HEXARENA_LEAGUE").unwrap_or_else(|_| "data/league".into());
-    let app: Shared = Arc::new(AppState::load(PathBuf::from(&dir), PathBuf::from(league_dir)));
+    let arena_dir = std::env::var("HEXARENA_ARENA").unwrap_or_else(|_| "data/arena".into());
+    let mut state = AppState::load(PathBuf::from(&dir), PathBuf::from(league_dir), PathBuf::from(&arena_dir));
+    state.autoplay = std::env::var("HEXARENA_AUTOPLAY").map_or(true, |v| v != "0");
+    let app: Shared = Arc::new(state);
+    if app.autoplay {
+        tokio::spawn(autoplay(app.clone()));
+        println!("self-playing arena on: 8-player games with entrants from {arena_dir} (HEXARENA_AUTOPLAY=0 turns it off)");
+    }
     let mut router = Router::new()
         .route("/api/bots", get(bots))
         .route("/api/matches", get(list).post(create))
@@ -461,6 +557,7 @@ async fn main() {
         .route("/api/matches/{id}/replay", get(replay))
         .route("/api/leaderboard", get(leaderboard))
         .route("/api/league", get(league_snapshot))
+        .route("/api/arena", get(arena_info))
         .route("/api/health", get(|| async { "ok" }))
         .with_state(app);
     if let Ok(web) = std::env::var("HEXARENA_WEB") {

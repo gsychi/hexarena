@@ -2,6 +2,7 @@
 //! (free management commands plus at most one main action) each tick.
 
 pub mod brains;
+pub mod process;
 
 pub use hexarena_protocol::*;
 use serde::{Deserialize, Serialize};
@@ -141,18 +142,21 @@ struct Threat {
     target: Hex,
 }
 
-/// A named CPU: a preset of [`BotParams`].
+/// A named CPU: a preset of [`BotParams`], optionally played by another program.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Style {
     pub id: String,
     pub name: String,
     pub blurb: String,
     pub params: BotParams,
+    /// Plays the seat in this program instead of the brains compiled in here.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub program: Option<process::Program>,
 }
 
 impl Style {
     fn preset(id: &str, name: &str, blurb: &str, params: BotParams) -> Style {
-        Style { id: id.into(), name: name.into(), blurb: blurb.into(), params }
+        Style { id: id.into(), name: name.into(), blurb: blurb.into(), params, program: None }
     }
 }
 

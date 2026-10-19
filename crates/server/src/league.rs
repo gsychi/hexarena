@@ -1,5 +1,6 @@
 //! League generations as playable CPUs, and the league snapshot for the web page.
 
+use hexarena_arena::entrants::{load_all, Entrant};
 use hexarena_league::eval::GameLog;
 use hexarena_league::League;
 use hexarena_sdk::{roster, style, Style};
@@ -14,49 +15,83 @@ pub fn load(dir: &Path) -> Option<League> {
     League::load(dir).ok()
 }
 
-/// A roster style, a league generation (`g12`), or `champion` for the latest
-/// generation. Generations keep their own id so their results never blur together.
-pub fn resolve(id: &str, league: Option<&League>) -> Option<Style> {
-    if let Some(s) = style(id) {
-        return Some(s);
+/// Everything a seat id can name: roster CPUs, league generations and arena entrants.
+pub struct Catalog {
+    pub league: Option<League>,
+    pub entrants: Vec<Entrant>,
+}
+
+impl Catalog {
+    pub fn load(league_dir: &Path, arena_dir: &Path) -> Catalog {
+        Catalog { league: load(league_dir), entrants: load_all(arena_dir) }
     }
-    let league = league?;
-    let g = if id == "champion" {
-        league.champion()
-    } else {
-        league.generations.iter().find(|g| g.id == id)?
-    };
-    Some(Style {
-        id: g.id.clone(),
-        name: if g.name.is_empty() { format!("League {}", g.id) } else { g.name.clone() },
-        blurb: match (g.parents.as_slice(), &g.beat) {
-            ([], Some(beat)) => format!("Generation {}, a new brain that beat champion {beat}.", g.gen),
-            ([], None) => format!("Generation {}, the league's starting genome.", g.gen),
-            (ps, Some(beat)) => format!("Generation {}, bred from {}; beat champion {beat}.", g.gen, ps.join(" × ")),
-            (ps, None) => format!("Generation {}, bred from {}.", g.gen, ps.join(" × ")),
-        },
-        params: g.params.clone(),
-    })
-}
 
-pub fn display_name(id: &str, league: Option<&League>) -> String {
-    resolve(id, league).map(|s| s.name).unwrap_or_else(|| id.to_string())
-}
+    /// A roster style, a league generation (`g12`), `champion` for the latest generation,
+    /// or an arena entrant (retired ones too, so old games keep their names).
+    /// Generations keep their own id so their results never blur together.
+    pub fn resolve(&self, id: &str) -> Option<Style> {
+        if let Some(s) = style(id) {
+            return Some(s);
+        }
+        if let Some(e) = self.entrants.iter().find(|e| e.id == id) {
+            return Some(e.style());
+        }
+        let league = self.league.as_ref()?;
+        let g = if id == "champion" {
+            league.champion()
+        } else {
+            league.generations.iter().find(|g| g.id == id)?
+        };
+        Some(Style {
+            id: g.id.clone(),
+            name: if g.name.is_empty() { format!("League {}", g.id) } else { g.name.clone() },
+            blurb: match (g.parents.as_slice(), &g.beat) {
+                ([], Some(beat)) => format!("Generation {}, a new brain that beat champion {beat}.", g.gen),
+                ([], None) => format!("Generation {}, the league's starting genome.", g.gen),
+                (ps, Some(beat)) => format!("Generation {}, bred from {}; beat champion {beat}.", g.gen, ps.join(" × ")),
+                (ps, None) => format!("Generation {}, bred from {}.", g.gen, ps.join(" × ")),
+            },
+            params: g.params.clone(),
+            program: None,
+        })
+    }
 
-pub fn bots(league: Option<&League>) -> Vec<serde_json::Value> {
-    let mut out: Vec<serde_json::Value> = roster()
-        .iter()
-        .map(|s| serde_json::json!({ "id": s.id, "name": s.name, "blurb": s.blurb }))
-        .collect();
-    if let Some(l) = league {
-        let c = l.champion();
-        out.push(serde_json::json!({
-            "id": "champion",
-            "name": format!("League champion: {}", if c.name.is_empty() { &c.id } else { &c.name }),
-            "blurb": format!("The strongest genome the league has evolved so far: generation {}.", c.gen),
+    pub fn display_name(&self, id: &str) -> String {
+        self.resolve(id).map(|s| s.name).unwrap_or_else(|| id.to_string())
+    }
+
+    pub fn active_entrants(&self) -> impl Iterator<Item = &Entrant> {
+        self.entrants.iter().filter(|e| !e.retired)
+    }
+
+    pub fn bots(&self) -> Vec<serde_json::Value> {
+        let mut out: Vec<serde_json::Value> = roster()
+            .iter()
+            .map(|s| serde_json::json!({ "id": s.id, "name": s.name, "blurb": s.blurb, "kind": "roster" }))
+            .collect();
+        if let Some(l) = &self.league {
+            let c = l.champion();
+            out.push(serde_json::json!({
+                "id": "champion",
+                "name": format!("League champion: {}", if c.name.is_empty() { &c.id } else { &c.name }),
+                "blurb": format!("The strongest genome the league has evolved so far: generation {}.", c.gen),
+                "kind": "league",
+            }));
+        }
+        out.extend(self.active_entrants().map(|e| {
+            serde_json::json!({
+                "id": e.id,
+                "name": e.name,
+                "blurb": e.style().blurb,
+                "kind": "entrant",
+                "author": e.author,
+                "brain": if e.params.brain.is_empty() { "expander" } else { e.params.brain.as_str() },
+                "own_build": e.program.is_some(),
+                "created_at": e.created_at,
+            })
         }));
+        out
     }
-    out
 }
 
 /// A league game reduced to the seats that count in the standings.

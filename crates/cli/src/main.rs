@@ -5,6 +5,7 @@ use hexarena_protocol::*;
 use hexarena_sdk::{roster, style, Style};
 use std::collections::HashMap;
 
+mod arena;
 mod league;
 
 pub(crate) fn flags(args: &[String]) -> HashMap<String, String> {
@@ -12,8 +13,15 @@ pub(crate) fn flags(args: &[String]) -> HashMap<String, String> {
     let mut i = 0;
     while i < args.len() {
         if let Some(k) = args[i].strip_prefix("--") {
-            m.insert(k.to_string(), args.get(i + 1).cloned().unwrap_or_default());
-            i += 1;
+            match args.get(i + 1) {
+                Some(v) if !v.starts_with("--") => {
+                    m.insert(k.to_string(), v.clone());
+                    i += 1;
+                }
+                _ => {
+                    m.insert(k.to_string(), String::new());
+                }
+            }
         }
         i += 1;
     }
@@ -26,16 +34,21 @@ pub(crate) fn get<T: std::str::FromStr>(f: &HashMap<String, String>, k: &str, d:
 
 /// `--bots a,b,c` picks one CPU style per seat; otherwise `--players N` Expanders.
 /// A seat: a roster id (`raider`), a league generation (`g3`, `champion`) from
-/// `--league` (default `data/league`), or a genome file (`cand.json`).
+/// `--league` (default `data/league`), an arena entrant (`predator-v2`) from `--arena`
+/// (default `$HEXARENA_ARENA` or `data/arena`), or a genome file (`cand.json`).
 fn seat_style(id: &str, f: &HashMap<String, String>) -> Result<Style, String> {
     if let Some(s) = style(id) {
         return Ok(s);
+    }
+    let arena = f.get("arena").cloned().or_else(|| std::env::var("HEXARENA_ARENA").ok()).unwrap_or_else(|| "data/arena".into());
+    if let Some(e) = hexarena_arena::entrants::load_all(std::path::Path::new(&arena)).into_iter().find(|e| e.id == id) {
+        return Ok(e.style());
     }
     if id.ends_with(".json") {
         let name = std::path::Path::new(id)
             .file_stem()
             .map_or(id.to_string(), |s| s.to_string_lossy().to_string());
-        return Ok(Style { id: name.clone(), name, blurb: String::new(), params: league::read_params(id)? });
+        return Ok(Style { id: name.clone(), name, blurb: String::new(), params: league::read_params(id)?, program: None });
     }
     let dir = f.get("league").cloned().unwrap_or_else(|| "data/league".into());
     let l = hexarena_league::League::load(std::path::Path::new(&dir))
@@ -45,7 +58,7 @@ fn seat_style(id: &str, f: &HashMap<String, String>) -> Result<Style, String> {
     } else {
         l.generations.iter().find(|g| g.id == id).ok_or_else(|| format!("unknown bot '{id}'"))?
     };
-    Ok(Style { id: g.id.clone(), name: if g.name.is_empty() { format!("League {}", g.id) } else { g.name.clone() }, blurb: String::new(), params: g.params.clone() })
+    Ok(Style { id: g.id.clone(), name: if g.name.is_empty() { format!("League {}", g.id) } else { g.name.clone() }, blurb: String::new(), params: g.params.clone(), program: None })
 }
 
 fn styles(f: &HashMap<String, String>) -> Result<Vec<Style>, String> {
@@ -156,12 +169,14 @@ fn main() {
         Some("report") => report(flags(rest)),
         Some("map") => map(flags(rest)),
         Some("league") => league::main(rest),
+        Some("arena") => arena::main(rest),
+        Some("bot") => hexarena_sdk::process::serve_stdio(),
         Some("verify") => rest.first().map(|p| verify(p)).unwrap_or(Err("usage: hexarena verify <replay.json>".into())),
         Some("export") => match (rest.first(), rest.get(1)) {
             (Some(a), Some(b)) => export(a, b),
             _ => Err("usage: hexarena export <replay.json> <viewer.json>".into()),
         },
-        _ => Err("usage: hexarena <simulate|report|map|verify|export|league> [--players N | --bots expander,raider,... --seed S --matches M --max-ticks T --out file]".into()),
+        _ => Err("usage: hexarena <simulate|report|map|verify|export|league|arena|bot> [--players N | --bots expander,raider,... --seed S --matches M --max-ticks T --out file]".into()),
     };
     if let Err(e) = res {
         eprintln!("error: {e}");
