@@ -138,10 +138,13 @@ struct Regions {
     land: Vec<u32>,
     /// Of those, hexes we last saw a rival own.
     enemy: Vec<u32>,
+    /// Of those, hexes we own (nonzero only when the capturer is a rival).
+    mine: Vec<u32>,
     disc: Vec<u32>,
     low: Vec<u32>,
     sub_land: Vec<u32>,
     sub_enemy: Vec<u32>,
+    sub_mine: Vec<u32>,
     parent: Vec<usize>,
     stack: Vec<(usize, usize)>,
 }
@@ -244,6 +247,12 @@ struct Knobs {
     /// The churn penalty applies from this tick (before it, fresh enemy expansion is thin
     /// land worth taking).
     churn_from: u32,
+    /// Score per hex of ours a rival would swallow by taking a hex we can take first.
+    neck_take: i64,
+    /// Extra % of garrison per hex of ours a rival would swallow by taking this one.
+    neck_want_pct: u64,
+    /// Most swallowed hexes the neck terms count.
+    neck_cap: u32,
 }
 
 impl Knobs {
@@ -299,6 +308,9 @@ impl Knobs {
             churn_pen: k("churn_pen", 0),
             churn_ticks: k("churn_ticks", 20) as u32,
             churn_from: k("churn_from", 3000) as u32,
+            neck_take: k("neck_take", 0),
+            neck_want_pct: k("neck_want_pct", 0) as u64,
+            neck_cap: k("neck_cap", 30) as u32,
         }
     }
 
@@ -333,6 +345,10 @@ pub struct StrikeCore {
     victim_seen: u32,
     /// Scratch space for the region pass.
     region_buf: Regions,
+    /// Scratch space for the per-rival neck passes.
+    neck_buf: Regions,
+    /// Most of our hexes one rival capture of each slot would swallow, this tick.
+    neck: Vec<u32>,
     /// Tick each slot was last seen changing owner.
     flipped: Vec<u32>,
     tick: u32,
@@ -352,6 +368,8 @@ impl StrikeCore {
             finishing: false,
             victim_seen: 0,
             region_buf: Regions::default(),
+            neck_buf: Regions::default(),
+            neck: vec![],
             flipped: vec![],
             tick: 0,
         }
@@ -402,7 +420,8 @@ impl StrikeCore {
             let k = self.kills(stack, self.defense(geo, n, h, MILLI));
             worst = Some(worst.map_or(k, |w| w.max(k)));
         }
-        worst.map(|k| self.k.guard + k * self.k.margin_pct / 100)
+        let neck = if self.owned(h, me) { self.neck.get(h).copied().unwrap_or(0) as u64 } else { 0 };
+        worst.map(|k| (self.k.guard + k * self.k.margin_pct / 100) * (100 + self.k.neck_want_pct * neck) / 100)
     }
 
     /// How safe (milli) a hex holding `troops` is against `want`: concave, full at `want`.
@@ -470,17 +489,28 @@ impl StrikeCore {
     /// ones included, rooted at a virtual outside node joined to the board edge. Taking a
     /// passable hex `v` seals off each DFS child subtree whose low link can't climb above
     /// `v`. Ownership of the not-ours side doesn't matter for the cut, only for its value.
-    fn regions(&self, geo: &Geometry, me: PlayerId, r: &mut Regions) {
+    /// `by` is the capturer: us, or a rival when looking for the necks of our pockets.
+    fn regions(&self, geo: &Geometry, me: PlayerId, by: PlayerId, r: &mut Regions) {
         let slots = geo.passable.len();
-        let open = |i: usize| geo.on_board[i] && !self.owned(i, me);
-        for v in [&mut r.land, &mut r.enemy, &mut r.disc, &mut r.low, &mut r.sub_land, &mut r.sub_enemy] {
+        let owner = |i: usize| self.seen[i].and_then(|c| c.owner);
+        let open = |i: usize| geo.on_board[i] && owner(i) != Some(by);
+        for v in [
+            &mut r.land,
+            &mut r.enemy,
+            &mut r.mine,
+            &mut r.disc,
+            &mut r.low,
+            &mut r.sub_land,
+            &mut r.sub_enemy,
+            &mut r.sub_mine,
+        ] {
             v.clear();
             v.resize(slots, 0);
         }
         r.parent.clear();
         r.parent.resize(slots, usize::MAX);
         r.stack.clear();
-        let Regions { land, enemy, disc, low, sub_land, sub_enemy, parent, stack } = r;
+        let Regions { land, enemy, mine, disc, low, sub_land, sub_enemy, sub_mine, parent, stack } = r;
         // The outside node has discovery time 1; every edge hex hangs off it.
         let mut timer = 1u32;
         for root in 0..slots {
@@ -513,8 +543,10 @@ impl StrikeCore {
                 stack.pop();
                 if geo.passable[v] {
                     sub_land[v] += 1;
-                    if self.enemy(v, me) {
-                        sub_enemy[v] += 1;
+                    match owner(v) {
+                        Some(o) if o == me => sub_mine[v] += 1,
+                        Some(_) => sub_enemy[v] += 1,
+                        None => {}
                     }
                 }
                 let p = parent[v];
@@ -524,12 +556,40 @@ impl StrikeCore {
                 low[p] = low[p].min(low[v]);
                 sub_land[p] += sub_land[v];
                 sub_enemy[p] += sub_enemy[v];
+                sub_mine[p] += sub_mine[v];
                 if low[v] >= disc[p] {
                     land[p] += sub_land[v];
                     enemy[p] += sub_enemy[v];
+                    mine[p] += sub_mine[v];
                 }
             }
         }
+    }
+
+    /// One region pass per rival we have seen (Mason's neck defence, reused with credit):
+    /// `neck[i]` is the most of our hexes a rival next to slot `i` would swallow by taking it.
+    fn necks(&mut self, geo: &Geometry, me: PlayerId) {
+        let slots = geo.passable.len();
+        self.neck.clear();
+        self.neck.resize(slots, 0);
+        let mut rivals = [false; 64];
+        for o in self.seen.iter().flatten().filter_map(|c| c.owner) {
+            if o != me && (o as usize) < rivals.len() {
+                rivals[o as usize] = true;
+            }
+        }
+        let mut buf = std::mem::take(&mut self.neck_buf);
+        for r in (0..rivals.len()).filter(|&r| rivals[r]) {
+            let r = r as PlayerId;
+            self.regions(geo, me, r, &mut buf);
+            for i in 0..slots {
+                let m = buf.mine[i];
+                if m > self.neck[i] && geo.nbrs[i].iter().any(|&n| self.seen[n].is_some_and(|c| c.owner == Some(r))) {
+                    self.neck[i] = m.min(self.k.neck_cap);
+                }
+            }
+        }
+        self.neck_buf = buf;
     }
 
     /// Articulation points of the land we don't own (Tarjan, iterative). Enemy hexes
@@ -722,6 +782,7 @@ impl StrikeCore {
             }
         }
         gain += self.k.hug * hugged - self.k.open * exposed + self.k.height * geo.height[t] as i64;
+        gain += self.k.neck_take * self.neck.get(t).copied().unwrap_or(0) as i64;
         if self.k.churn_pen > 0 && self.tick >= self.k.churn_from && self.flipped.get(t).is_some_and(|&f| f > 0 && self.tick < f + self.k.churn_ticks) {
             gain -= self.k.churn_pen;
         }
@@ -994,11 +1055,14 @@ impl Bot for StrikeCore {
             || (self.k.late_sprint && self.k.late_at.is_some());
         let rush = sprinting || self.finishing;
         let seal = (self.k.seal > 0 || self.k.backyard > 0).then(|| self.seal(&geo, me));
+        if self.k.neck_take > 0 || self.k.neck_want_pct > 0 {
+            self.necks(&geo, me);
+        }
         let supply = self.supply(&geo, me, &mine);
         let mut buf = std::mem::take(&mut self.region_buf);
         let use_regions = self.k.region > 0 || self.k.region_enemy > 0;
         if use_regions {
-            self.regions(&geo, me, &mut buf);
+            self.regions(&geo, me, me, &mut buf);
         }
         let (capture, blocked) =
             self.best_capture(&geo, me, &mine, sprinting, seal.as_ref(), use_regions.then_some(&buf));
@@ -1086,7 +1150,7 @@ mod tests {
             core.seen[i] = Some(Cell { owner: c.owner, troops: c.troops, wall_milli: c.wall_milli, building: None, income: 1 });
         }
         let mut r = Regions::default();
-        core.regions(&geo, 0, &mut r);
+        core.regions(&geo, 0, 0, &mut r);
         let g = geo.slot(gap).unwrap();
         // Inside the ring: the centre and five of the six distance-1 hexes are passable.
         assert_eq!(r.land[g], 6);
@@ -1094,5 +1158,11 @@ mod tests {
         // Taking a hex outside the ring seals nothing.
         assert_eq!(r.land[geo.slot(Hex::new(3, 0)).unwrap()], 0);
         assert_eq!(r.land[geo.slot(Hex::new(0, 0)).unwrap()], 0);
+
+        // Seen from the centre's owner, the gap is the neck its one hex would fall through.
+        core.necks(&geo, 1);
+        assert_eq!(core.neck[g], 1);
+        assert_eq!(core.neck[geo.slot(Hex::new(3, 0)).unwrap()], 0);
+        assert!(core.neck.iter().all(|&n| n <= 1));
     }
 }
