@@ -23,6 +23,7 @@ use tower_http::services::{ServeDir, ServeFile};
 mod catalog;
 mod chat;
 mod notes;
+mod play;
 mod standings;
 
 const MAX_PLAYERS: usize = 8;
@@ -122,6 +123,7 @@ struct AppState {
     autoplay: bool,
     notes: notes::Notebook,
     chat: chat::Chat,
+    play: play::Games,
 }
 
 type Shared = Arc<AppState>;
@@ -184,7 +186,7 @@ impl AppState {
         self.matches.lock().unwrap().values().filter(|m| m.status == Status::Running).count()
     }
 
-    fn load(dir: PathBuf, arena_dir: PathBuf) -> AppState {
+    fn load(dir: PathBuf, arena_dir: PathBuf, play_dir: PathBuf) -> AppState {
         std::fs::create_dir_all(&dir).expect("create data dir");
         let mut matches = BTreeMap::new();
         for entry in std::fs::read_dir(&dir).unwrap().flatten() {
@@ -221,6 +223,7 @@ impl AppState {
             autoplay: false,
             notes: notes::Notebook::new(),
             chat: chat::Chat::new(),
+            play: play::Games::new(play_dir),
         }
     }
 }
@@ -978,6 +981,113 @@ fn retire_outside_top(app: &AppState, catalog: &Catalog) {
     }
 }
 
+/// Opponents for a live game: roster CPUs, mid-table arena bots, or the leaders.
+fn live_lineup(app: &AppState, level: play::Level, count: usize, seed: u64) -> Vec<Style> {
+    let catalog = app.catalog();
+    let mut rng = seed;
+    let mut shuffle = |v: &mut Vec<Style>| {
+        for i in (1..v.len()).rev() {
+            rng = rng.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+            v.swap(i, (rng >> 33) as usize % (i + 1));
+        }
+    };
+    let ranked: Vec<Style> = board(app, &catalog)
+        .rows
+        .iter()
+        .filter(|r| r.rated && !is_anchor(&r.bot))
+        .filter_map(|r| catalog.resolve(&r.bot))
+        .collect();
+    let mut pool = match level {
+        play::Level::Easy => {
+            let mut p = catalog.active_field();
+            shuffle(&mut p);
+            p
+        }
+        play::Level::Medium => {
+            let mid: Vec<Style> = ranked.iter().skip(ranked.len() / 3).take(ranked.len() / 3).cloned().collect();
+            let mut p = if mid.len() >= count { mid } else { ranked.clone() };
+            shuffle(&mut p);
+            p
+        }
+        play::Level::Hard => ranked.clone(),
+    };
+    if pool.is_empty() {
+        pool = catalog.active_field();
+    }
+    (0..count).map(|i| pool[i % pool.len()].clone()).collect()
+}
+
+async fn start_live(State(app): State<Shared>, Json(req): Json<play::NewGame>) -> Response {
+    if req.opponents == 0 || req.opponents >= MAX_PLAYERS {
+        return err(StatusCode::BAD_REQUEST, format!("pick 1 to {} CPU opponents", MAX_PLAYERS - 1));
+    }
+    let seed = random_seed();
+    let lineup = live_lineup(&app, req.level, req.opponents, seed);
+    let speed = req.speed.unwrap_or(play::DEFAULT_SPEED);
+    match app.play.start(req.map, lineup, speed, seed, now_ms()) {
+        Ok(g) => (StatusCode::CREATED, Json(g.lock().unwrap().summary())).into_response(),
+        Err(e) => err(StatusCode::TOO_MANY_REQUESTS, e),
+    }
+}
+
+async fn live_games(State(app): State<Shared>) -> Json<Vec<serde_json::Value>> {
+    let mut v: Vec<serde_json::Value> = app.play.list().iter().map(|g| g.lock().unwrap().summary()).collect();
+    v.reverse();
+    Json(v)
+}
+
+fn live_game(app: &AppState, id: &str) -> Result<play::Game, Response> {
+    app.play.get(id).ok_or_else(|| err(StatusCode::NOT_FOUND, "no such live game"))
+}
+
+async fn live_setup(State(app): State<Shared>, Path(id): Path<String>) -> Response {
+    match live_game(&app, &id) {
+        Ok(g) => Json(g.lock().unwrap().setup()).into_response(),
+        Err(r) => r,
+    }
+}
+
+async fn live_state(State(app): State<Shared>, Path(id): Path<String>, Query(q): Query<play::Since>) -> Response {
+    match live_game(&app, &id) {
+        Ok(g) => Json(g.lock().unwrap().snapshot(q.since)).into_response(),
+        Err(r) => r,
+    }
+}
+
+async fn live_orders(State(app): State<Shared>, Path(id): Path<String>, Json(req): Json<play::NewOrders>) -> Response {
+    let g = match live_game(&app, &id) {
+        Ok(g) => g,
+        Err(r) => return r,
+    };
+    let mut g = g.lock().unwrap();
+    match g.add_orders(req) {
+        Ok(()) => Json(serde_json::json!({ "queue": g.queue })).into_response(),
+        Err(e) => err(StatusCode::BAD_REQUEST, e),
+    }
+}
+
+async fn live_control(State(app): State<Shared>, Path(id): Path<String>, Json(req): Json<play::Control>) -> Response {
+    let g = match live_game(&app, &id) {
+        Ok(g) => g,
+        Err(r) => return r,
+    };
+    let mut g = g.lock().unwrap();
+    match g.control(req) {
+        Ok(()) => Json(serde_json::json!({ "speed": g.speed, "paused": g.paused, "assist": g.assist, "phase": g.phase })).into_response(),
+        Err(e) => err(StatusCode::BAD_REQUEST, e),
+    }
+}
+
+async fn live_viewer(State(app): State<Shared>, Path(id): Path<String>) -> Response {
+    if !id.chars().all(|c| c.is_ascii_alphanumeric()) {
+        return err(StatusCode::BAD_REQUEST, "bad id");
+    }
+    match tokio::fs::read(app.play.viewer_path(&id)).await {
+        Ok(bytes) => ([(header::CONTENT_TYPE, "application/json")], bytes).into_response(),
+        Err(_) => err(StatusCode::NOT_FOUND, "the replay is saved when the game ends"),
+    }
+}
+
 fn env<T: std::str::FromStr>(key: &str) -> Option<T> {
     std::env::var(key).ok().and_then(|v| v.parse().ok())
 }
@@ -990,7 +1100,8 @@ async fn main() {
         .or_else(|| env("PORT"))
         .unwrap_or(47240);
     let arena_dir = std::env::var("HEXARENA_ARENA").unwrap_or_else(|_| "data/arena".into());
-    let mut state = AppState::load(PathBuf::from(&dir), PathBuf::from(&arena_dir));
+    let play_dir = std::env::var("HEXARENA_PLAY").unwrap_or_else(|_| "data/play".into());
+    let mut state = AppState::load(PathBuf::from(&dir), PathBuf::from(&arena_dir), PathBuf::from(play_dir));
     state.autoplay = std::env::var("HEXARENA_AUTOPLAY").map_or(true, |v| v != "0");
     state.autoplay_parallel = env("HEXARENA_AUTOPLAY_PARALLEL").unwrap_or(AUTOPLAY_PARALLEL).max(1);
     let app: Shared = Arc::new(state);
@@ -1018,6 +1129,12 @@ async fn main() {
         .route("/api/agents/{agent}/status", axum::routing::post(set_status))
         .route("/api/agents/{agent}/work", axum::routing::post(log_work))
         .route("/api/agents/{agent}/activity", get(activity))
+        .route("/api/play", get(live_games).post(start_live))
+        .route("/api/play/{id}", get(live_setup))
+        .route("/api/play/{id}/state", get(live_state))
+        .route("/api/play/{id}/orders", axum::routing::post(live_orders))
+        .route("/api/play/{id}/control", axum::routing::post(live_control))
+        .route("/api/play/{id}/viewer", get(live_viewer))
         .route("/api/health", get(|| async { "ok" }))
         .with_state(app);
     if let Ok(web) = std::env::var("HEXARENA_WEB") {
