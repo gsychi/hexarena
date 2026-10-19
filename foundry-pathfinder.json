@@ -1,0 +1,16 @@
+{
+  "brain": "foundry",
+  "knobs": {
+    "fog": 75,
+    "height": 25,
+    "hug": 145,
+    "exposure": 65,
+    "salient_enemy": 3,
+    "min_safety": 360,
+    "target_safety": 800,
+    "build_from": 350,
+    "build_gap": 5,
+    "build_cap": 60,
+    "sprint": 900
+  }
+}

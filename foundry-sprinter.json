@@ -1,0 +1,19 @@
+{
+  "brain": "foundry",
+  "knobs": {
+    "land": 1150,
+    "enemy": 420,
+    "fog": 15,
+    "cost": 14,
+    "min_safety": 500,
+    "strict_until": 8200,
+    "build_from": 180,
+    "build_until": 7900,
+    "build_gap": 2,
+    "build_income": 1050,
+    "build_cap": 160,
+    "sprint": 1800,
+    "sprint_safety": 0,
+    "centre": 8
+  }
+}
