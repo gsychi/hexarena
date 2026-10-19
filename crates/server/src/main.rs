@@ -10,8 +10,9 @@ use hexarena_arena::{play, seat_names, viewer_json};
 use hexarena_protocol::{PlayerId, RulesConfig};
 use hexarena_sdk::Style;
 use serde::{Deserialize, Serialize};
+use hexarena_arena::entrants::with_model;
 use league::Catalog;
-use standings::{standings, SeatResult, K, START_ELO};
+use standings::{standings, SeatResult, K, RATED_GAMES, START_ELO};
 use std::collections::BTreeMap;
 use std::net::IpAddr;
 use std::path::PathBuf;
@@ -21,6 +22,7 @@ use tokio::sync::Semaphore;
 use tower_http::services::{ServeDir, ServeFile};
 
 mod league;
+mod notes;
 mod standings;
 
 const MAX_PLAYERS: usize = 8;
@@ -28,11 +30,9 @@ const MAX_BATCH: u32 = 20;
 /// Refuse new games while this many are still queued or running.
 const MAX_RUNNING: usize = 100;
 /// Entrant seats in each self-play game; the rest are the champion and roster CPUs.
-const AUTOPLAY_ENTRANTS: usize = 4;
+const AUTOPLAY_ENTRANTS: usize = 6;
 /// Arena entrants stay scheduled while they rank in this many places of the standings.
 const ACTIVE_TOP: usize = 20;
-/// Games an entrant plays before it can be retired for its ranking.
-const TRIAL_GAMES: u32 = 20;
 /// Self-play games kept running at once.
 const AUTOPLAY_PARALLEL: usize = 2;
 
@@ -112,6 +112,7 @@ struct AppState {
     next_id: Mutex<u64>,
     workers: Semaphore,
     autoplay: bool,
+    notes: notes::Notebook,
 }
 
 type Shared = Arc<AppState>;
@@ -188,6 +189,7 @@ impl AppState {
             next_id: Mutex::new(next),
             workers: Semaphore::new(workers),
             autoplay: false,
+            notes: notes::Notebook::new(),
         }
     }
 }
@@ -351,9 +353,10 @@ fn launch(app: &Shared, styles: &[Style], seed: u64, auto: bool) -> Summary {
 /// (up to [`AUTOPLAY_ENTRANTS`]), the league champion, then bots drawn from the rest of
 /// the active field (roster CPUs and league generations that aren't retired), in seed order.
 fn autoplay_lineup(app: &AppState, catalog: &Catalog, seed: u64) -> Vec<Style> {
+    let rules = RulesConfig::default().version;
     let mut played: BTreeMap<String, usize> = BTreeMap::new();
     for m in app.matches.lock().unwrap().values() {
-        if m.status != Status::Failed {
+        if m.status != Status::Failed && m.rules_version == rules {
             for seat in &m.seats {
                 *played.entry(seat.bot.clone()).or_default() += 1;
             }
@@ -395,7 +398,9 @@ fn autoplay_lineup(app: &AppState, catalog: &Catalog, seed: u64) -> Vec<Style> {
 async fn autoplay(app: Shared) {
     loop {
         tokio::time::sleep(std::time::Duration::from_secs(2)).await;
-        queue_gates(&app, &app.catalog());
+        let catalog = app.catalog();
+        queue_gates(&app, &catalog);
+        note_gate_results(&app, &catalog);
         if app.running() >= AUTOPLAY_PARALLEL {
             continue;
         }
@@ -431,6 +436,7 @@ fn queue_gates(app: &AppState, catalog: &Catalog) {
             parents: None,
             program: e.program.clone(),
             arena: Some(e.id.clone()),
+            label: catalog.models.get(&e.author).map(|m| with_model(&hexarena_league::brain_label(&e.params), Some(m))),
         };
         let at = now_ms();
         let inbox = app.league_dir.join("inbox");
@@ -448,6 +454,53 @@ fn queue_gates(app: &AppState, catalog: &Catalog) {
     }
     if changed {
         let _ = std::fs::write(app.arena_dir.join("gates.json"), serde_json::to_vec_pretty(&sent).unwrap());
+    }
+}
+
+/// Writes each finished arena gate into the notebook once, so the record of what worked
+/// and what didn't builds itself.
+fn note_gate_results(app: &AppState, catalog: &Catalog) {
+    let Some(league) = &catalog.league else { return };
+    let path = app.arena_dir.join("gates_noted.json");
+    let mut noted: std::collections::BTreeSet<String> =
+        std::fs::read(&path).ok().and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or_default();
+    let mut changed = false;
+    for a in &league.attempts {
+        let Some(id) = &a.arena else { continue };
+        if noted.contains(id) {
+            continue;
+        }
+        let Some(e) = catalog.entrants.iter().find(|e| &e.id == id) else { continue };
+        let verdict = match a.became {
+            Some(g) => format!("promoted: it is now league champion g{g}"),
+            None => "rejected".into(),
+        };
+        let text = format!(
+            "Gate: {} ({id}) {:+.2} ± {:.2} places vs champion {} over {} games, {verdict}. Its score {:.2} vs the champion's {:.2} (8-player places, lower is better). Hypothesis: {}",
+            e.name,
+            a.gate.gain,
+            a.gate.gain_se,
+            a.parent,
+            a.gate.games,
+            a.gate.challenger_avp,
+            a.gate.champion_avp,
+            e.note.as_deref().unwrap_or("none given"),
+        );
+        let note = notes::NewNote {
+            author: "server".into(),
+            kind: notes::Kind::Lesson,
+            text,
+            bots: vec![id.clone(), a.parent.clone()],
+            matches: vec![],
+            tags: vec!["gate".into(), e.author.clone()],
+        };
+        if app.notes.add(&app.arena_dir, note, a.at).is_ok() {
+            noted.insert(id.clone());
+            changed = true;
+        }
+    }
+    if changed {
+        let _ = std::fs::write(&path, serde_json::to_vec_pretty(&noted).unwrap());
     }
 }
 
@@ -490,10 +543,21 @@ async fn arena_info(State(app): State<Shared>) -> Json<serde_json::Value> {
     Json(serde_json::json!({
         "autoplay": app.autoplay,
         "top": ACTIVE_TOP,
-        "trial_games": TRIAL_GAMES,
+        "trial_games": RATED_GAMES,
         "entrants": entrants,
         "retired": catalog.retired_reasons(),
     }))
+}
+
+async fn list_notes(State(app): State<Shared>, Query(f): Query<notes::Filter>) -> Json<Vec<notes::Note>> {
+    Json(app.notes.list(&app.arena_dir, &f))
+}
+
+async fn add_note(State(app): State<Shared>, Json(new): Json<notes::NewNote>) -> Response {
+    match app.notes.add(&app.arena_dir, new, now_ms()) {
+        Ok(n) => (StatusCode::CREATED, Json(n)).into_response(),
+        Err(e) => err(StatusCode::BAD_REQUEST, e),
+    }
 }
 
 async fn one(State(app): State<Shared>, Path(id): Path<String>) -> Response {
@@ -552,6 +616,7 @@ async fn leaderboard(State(app): State<Shared>, Query(q): Query<BoardQuery>) -> 
         "start_elo": START_ELO,
         "k": K,
         "top": ACTIVE_TOP,
+        "rated_games": RATED_GAMES,
         "retired": catalog.retired_reasons(),
         "bots": board.rows,
         "retired_bots": board.retired_rows,
@@ -593,6 +658,7 @@ fn board(app: &AppState, catalog: &Catalog, source: Source) -> Board {
                     normalized: s.normalized,
                     won: s.place_start == 1 && s.place_end == 1,
                     players: m.standings.len(),
+                    ended: matches!(m.ending, Some(Ending::Conquest | Ending::LastStanding)),
                 })
                 .collect();
             (m.created_at, seats)
@@ -616,6 +682,7 @@ fn board(app: &AppState, catalog: &Catalog, source: Source) -> Board {
                         normalized: (n - place) / (n - 1.0),
                         won: place == 1.0,
                         players: g.players,
+                        ended: g.ended,
                     }
                 })
                 .collect();
@@ -641,7 +708,7 @@ fn retire_outside_top(app: &AppState, catalog: &Catalog) {
     let cut = rows.get(ACTIVE_TOP - 1).map(|r| r.elo);
     let champion = catalog.league.as_ref().map(|l| l.champion().id.clone());
     for row in &rows {
-        if row.games < TRIAL_GAMES || row.rank as usize <= ACTIVE_TOP {
+        if !row.rated || row.rank as usize <= ACTIVE_TOP {
             continue;
         }
         if Some(&row.bot) == champion.as_ref() {
@@ -695,6 +762,7 @@ async fn main() {
         .route("/api/leaderboard", get(leaderboard))
         .route("/api/league", get(league_snapshot))
         .route("/api/arena", get(arena_info))
+        .route("/api/observations", get(list_notes).post(add_note))
         .route("/api/health", get(|| async { "ok" }))
         .with_state(app);
     if let Ok(web) = std::env::var("HEXARENA_WEB") {

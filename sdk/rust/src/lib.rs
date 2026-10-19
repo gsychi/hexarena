@@ -110,7 +110,7 @@ impl Default for BotParams {
         BotParams {
             attack_margin_pct: 130,
             enemy_bonus: 20,
-            build_cap: 8,
+            build_cap: 16,
             build_every: 12,
             kinds: vec![Building::Farm, Building::Village, Building::Quarry, Building::Wall],
             gather_every: 4,
@@ -178,9 +178,9 @@ pub fn roster() -> Vec<Style> {
             BotParams {
                 attack_margin_pct: 150,
                 enemy_bonus: 0,
-                build_cap: 18,
+                build_cap: 60,
                 build_every: 6,
-                kinds: vec![Farm, Village, Village, Quarry],
+                kinds: vec![Farm, Village, Village, Village, Quarry],
                 gather_every: 5,
                 ..base.clone()
             },
@@ -215,19 +215,19 @@ pub fn roster() -> Vec<Style> {
         ),
         Style::preset(
             "relay",
-            "Relay",
+            "Claude-Relay",
             "Tempo. Turns every tick into land that stays taken, relaying spare troops to the front.",
             BotParams { brain: "relay".into(), ..base.clone() },
         ),
         Style::preset(
             "predator",
-            "Predator",
+            "Claude-Predator",
             "Conqueror. Garrisons its captures, encloses pockets and finishes shrinking rivals.",
             BotParams { brain: "predator".into(), ..base.clone() },
         ),
         Style::preset(
             "ridgeline",
-            "Ridgeline",
+            "Claude-Ridgeline",
             "Border holder. Only sends sure captures and prefers short, shielded, high borders.",
             BotParams { brain: "ridgeline".into(), ..base },
         ),
@@ -243,6 +243,8 @@ pub struct Expander {
     name: String,
     p: BotParams,
     rules: RulesConfig,
+    /// Chance (milli) an attacker wins an exchange this tick; rises in overtime.
+    win: u32,
     seen: Memory,
     next_kind: usize,
     last_build: u32,
@@ -309,6 +311,7 @@ impl Expander {
             name: name.into(),
             p,
             rules: RulesConfig::default(),
+            win: RulesConfig::default().attacker_exchange_win_milli,
             seen: Memory::default(),
             next_kind: 0,
             last_build: 0,
@@ -375,7 +378,9 @@ impl Expander {
         }
         for off in 0..kinds.len() {
             let kind = kinds[(self.next_kind + off) % kinds.len()];
-            let at = mine.iter().filter(|c| c.building.is_none()).find(|c| {
+            let next_to_farm =
+                |c: &&&VisibleHex| mine.iter().any(|f| f.hex.distance(c.hex) == 1 && is_kind(f, Building::Farm));
+            let site = |c: &&&VisibleHex| {
                 let h = Self::height(view, c.hex);
                 if !self.rules.terrain_allowed(kind, h) {
                     return false;
@@ -393,9 +398,8 @@ impl Expander {
                         .any(|o| o.hex == *n && o.owner != Some(view.you))
                 });
                 match kind {
-                    Building::Village => mine
-                        .iter()
-                        .any(|f| f.hex.distance(c.hex) == 1 && is_kind(f, Building::Farm)),
+                    // Anywhere off the border pays for itself; a Farm next door adds +1.
+                    Building::Village => !border,
                     Building::Quarry => !mine.iter().any(|q| {
                         q.hex.distance(c.hex) < self.rules.quarry.min_friendly_distance
                             && is_kind(q, Building::Quarry)
@@ -403,7 +407,12 @@ impl Expander {
                     Building::Wall => border,
                     Building::Farm => true,
                 }
-            });
+            };
+            let empty = || mine.iter().filter(|c| c.building.is_none());
+            let at = match kind {
+                Building::Village => empty().filter(site).find(next_to_farm).or_else(|| empty().find(site)),
+                _ => empty().find(site),
+            };
             if let Some(c) = at {
                 self.next_kind = (self.next_kind + off + 1) % kinds.len();
                 self.last_build = view.tick;
@@ -434,7 +443,7 @@ impl Expander {
     fn fight_loss(&self, from_h: i8, to_h: i8, def: u32, wall: u32) -> u64 {
         let d = (self.rules.height_multiplier_milli(from_h, to_h) as u64 * wall as u64 / 1000)
             .min(self.rules.maximum_total_defense_milli as u64);
-        let p = self.rules.attacker_exchange_win_milli as u64;
+        let p = self.win as u64;
         def as u64 * d * (1000 - p) / p / 1000
     }
 
@@ -712,6 +721,10 @@ impl Bot for Expander {
     }
 
     fn act(&mut self, view: &View) -> PlayerCommand {
+        if let Some(r) = &view.rules {
+            self.rules = r.clone();
+        }
+        self.win = self.rules.attacker_win_milli(view.tick);
         for c in &view.visible_hexes {
             self.seen.insert(view.radius, c);
         }

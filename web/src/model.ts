@@ -22,10 +22,19 @@ export interface Rules {
   starting_troops: number
   base_income: number
   extractor_period: number
+  /** 0 from v0.4: Farms and Quarries make no Resource and every build costs troops only. */
+  extractor_output: number
   attacker_exchange_win_milli: number
+  overtime_start?: number
+  overtime_win_milli_per_1000?: number
+  overtime_max_win_milli?: number
+  storm_start?: number
+  storm_end?: number
+  storm_decay_pct?: number
   height_factor_milli: number
   maximum_total_defense_milli: number
-  farm: { troop_cost: number; resource_cost: number; allowed_heights: number[]; sockets: number; relink_cooldown: number }
+  /** `adjacent_boost` (v0.5+): every adjacent Farm boosts a Village, no links or sockets. */
+  farm: { troop_cost: number; resource_cost: number; allowed_heights: number[]; sockets: number; relink_cooldown: number; adjacent_boost?: boolean }
   village: { troop_cost: number; resource_cost: number; bonus: number; farm_bonus: number }
   quarry: { troop_cost: number; resource_cost: number; allowed_heights: number[]; min_friendly_distance: number; discount_radius: number; troop_discount_pct: number; resource_discount: number }
   wall: { troop_cost: number; resource_cost: number; max_links: number; defense_milli_by_links: number[]; relink_cooldown: number }
@@ -88,6 +97,26 @@ export function hexAt(radius: number, idx: number): Hex {
   const w = 2 * radius + 1
   return { q: (idx % w) - radius, r: Math.floor(idx / w) - radius }
 }
+export const usesResource = (r: Rules) => r.extractor_output > 0
+
+/** Distance from the centre of the innermost passable hex: the storm stops there. */
+export function stormFloor(rep: ViewerReplay): number {
+  let best = rep.radius
+  rep.terrain.forEach((t, i) => {
+    if (t && t.kind === 'open') best = Math.min(best, hexDist(hexAt(rep.radius, i), { q: 0, r: 0 }))
+  })
+  return best
+}
+
+/** Mirrors `RulesConfig::storm_radius`: safe distance from the centre, or null while the board is safe. */
+export function stormRadius(r: Rules, tick: number, radius: number, floor: number): number | null {
+  const start = r.storm_start ?? 0, end = r.storm_end ?? 0
+  if (end <= start || tick <= start) return null
+  const left = Math.max(0, end - tick)
+  const v = floor + Math.ceil((Math.max(0, radius - floor) * left) / (end - start))
+  return v < radius ? v : null
+}
+
 export const hexIndex = (radius: number, h: Hex) => (h.r + radius) * (2 * radius + 1) + h.q + radius
 export const onBoard = (radius: number, h: Hex) =>
   Math.abs(h.q) <= radius && Math.abs(h.r) <= radius && Math.abs(h.q + h.r) <= radius
@@ -282,7 +311,7 @@ export function buildPreview(rep: ViewerReplay, cells: Map<number, Cell>, idx: n
   if (!t || t.kind !== 'open') reason = 'impassable'
   else if (owner < 0) reason = 'not owned'
   else if (cell && cell.building > 0) reason = 'hex already has a building'
-  else if (kind === 1 && !r.farm.allowed_heights.includes(t.height)) reason = 'Farms need height −2 or −1'
+  else if (kind === 1 && !r.farm.allowed_heights.includes(t.height)) reason = 'no Farms on hills'
   else if (kind === 3 && !r.quarry.allowed_heights.includes(t.height)) reason = 'Quarries need height +1 or +2'
   else if (kind === 3 && near(r.quarry.min_friendly_distance - 1, 3, owner)) reason = `within ${r.quarry.min_friendly_distance - 1} hexes of your Quarry`
   return { kind, legal: reason === null, reason, baseTroops: rule.troop_cost, baseResource: rule.resource_cost, troops, resource, discounted: disc }

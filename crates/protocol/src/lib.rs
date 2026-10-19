@@ -156,6 +156,11 @@ pub struct FarmRules {
     pub allowed_heights: Vec<i8>,
     pub sockets: u8,
     pub relink_cooldown: u32,
+    /// Every adjacent friendly Farm boosts a Village by `village.farm_bonus`, with no
+    /// links or sockets (v0.5 onward). When false, a Farm boosts only the Villages it
+    /// links, up to `sockets` of them, one Farm per Village.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub adjacent_boost: bool,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -164,7 +169,7 @@ pub struct VillageRules {
     pub resource_cost: u32,
     /// Extra troops per tick on its own hex.
     pub bonus: u32,
-    /// Additional troops per tick while supported by a Farm.
+    /// Additional troops per tick for each Farm supporting it.
     pub farm_bonus: u32,
 }
 
@@ -215,9 +220,30 @@ pub struct RulesConfig {
     pub queue_limit: usize,
     pub public_terrain: bool,
     pub attacker_exchange_win_milli: u32,
+    /// Overtime: from this tick on, attackers win each exchange more often...
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub overtime_start: u32,
+    /// ...by this much per 1000 ticks (milli; 0 turns overtime off)...
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub overtime_win_milli_per_1000: u32,
+    /// ...up to this chance.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub overtime_max_win_milli: u32,
+    /// Storm: from this tick the safe zone (hexes within some distance of the centre)
+    /// shrinks from the board edge...
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub storm_start: u32,
+    /// ...reaching the innermost passable ring at this tick (0 turns the storm off).
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub storm_end: u32,
+    /// Hexes outside the zone make no troops and lose this share of their troops (at
+    /// least one) every tick; an emptied hex turns neutral.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub storm_decay_pct: u32,
     pub height_factor_milli: u32,
     pub maximum_total_defense_milli: u32,
     pub extractor_period: u32,
+    /// Resource per extractor every `extractor_period` ticks (0 = troops-only economy).
     pub extractor_output: u32,
     pub farm: FarmRules,
     pub village: VillageRules,
@@ -232,10 +258,14 @@ fn is_false(b: &bool) -> bool {
     !*b
 }
 
+fn is_zero(v: &u32) -> bool {
+    *v == 0
+}
+
 impl Default for RulesConfig {
     fn default() -> Self {
         RulesConfig {
-            version: "v0.2".into(),
+            version: "v0.5".into(),
             min_players: 2,
             max_players: 8,
             map_radius_factor: 7.5,
@@ -248,41 +278,48 @@ impl Default for RulesConfig {
             base_income: 1,
             start_resource: 0,
             tick_rate_hz: 2,
-            max_ticks: 3000,
+            max_ticks: 10_000,
             end_on_total_conquest: false,
             fog_radius: 3,
             queue_limit: 1,
             public_terrain: true,
             attacker_exchange_win_milli: 470,
+            overtime_start: 3000,
+            overtime_win_milli_per_1000: 60,
+            overtime_max_win_milli: 850,
+            storm_start: 0,
+            storm_end: 0,
+            storm_decay_pct: 0,
             height_factor_milli: 1500,
             maximum_total_defense_milli: 5000,
             extractor_period: 10,
-            extractor_output: 1,
+            extractor_output: 0,
             farm: FarmRules {
-                troop_cost: 60,
+                troop_cost: 30,
                 resource_cost: 0,
-                allowed_heights: vec![-2, -1],
+                allowed_heights: vec![-2, -1, 0],
                 sockets: 3,
                 relink_cooldown: 10,
+                adjacent_boost: true,
             },
             village: VillageRules {
-                troop_cost: 90,
-                resource_cost: 2,
+                troop_cost: 120,
+                resource_cost: 0,
                 bonus: 1,
                 farm_bonus: 1,
             },
             quarry: QuarryRules {
-                troop_cost: 180,
+                troop_cost: 50,
                 resource_cost: 0,
                 allowed_heights: vec![1, 2],
                 min_friendly_distance: 3,
                 discount_radius: 1,
-                troop_discount_pct: 25,
-                resource_discount: 1,
+                troop_discount_pct: 40,
+                resource_discount: 0,
             },
             wall: WallRules {
-                troop_cost: 40,
-                resource_cost: 1,
+                troop_cost: 33,
+                resource_cost: 0,
                 max_links: 2,
                 defense_milli_by_links: vec![2000, 2500, 3000],
                 relink_cooldown: 10,
@@ -375,6 +412,30 @@ impl RulesConfig {
             };
         }
         m as u32
+    }
+
+    /// The attacker's chance (milli) of winning one exchange at `tick`: the base chance,
+    /// rising in overtime so held borders eventually break and games end.
+    pub fn attacker_win_milli(&self, tick: u32) -> u32 {
+        let base = self.attacker_exchange_win_milli;
+        if self.overtime_win_milli_per_1000 == 0 || tick <= self.overtime_start {
+            return base;
+        }
+        let extra = (tick - self.overtime_start) as u64 * self.overtime_win_milli_per_1000 as u64 / 1000;
+        (base as u64 + extra).min(self.overtime_max_win_milli.max(base) as u64) as u32
+    }
+
+    /// The storm's safe distance from the centre at `tick` on a board of `radius`, or
+    /// `None` while the whole board is safe. It shrinks linearly from `radius` at
+    /// `storm_start` to `floor` (the innermost ring holding a passable hex) at `storm_end`.
+    pub fn storm_radius(&self, tick: u32, radius: i32, floor: i32) -> Option<i32> {
+        if self.storm_end <= self.storm_start || tick <= self.storm_start {
+            return None;
+        }
+        let left = self.storm_end.saturating_sub(tick) as u64;
+        let span = (self.storm_end - self.storm_start) as u64;
+        let r = floor as i64 + ((radius - floor).max(0) as u64 * left).div_ceil(span) as i64;
+        (r < radius as i64).then_some(r as i32)
     }
 
     /// Terrain multiplied by Wall multiplier, capped.
@@ -510,6 +571,14 @@ pub struct View {
     pub own_economy: PlayerEconomy,
     pub own_queue: Vec<Action>,
     pub visible_events: Vec<Event>,
+    /// Hexes farther than this from the centre are in the storm (see
+    /// [`RulesConfig::storm_radius`]); `None` while the whole board is safe.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub storm_radius: Option<i32>,
+    /// The match's rules, sent with the tick-0 view only. Bots should play by these
+    /// rather than the defaults they were compiled with.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rules: Option<RulesConfig>,
 }
 
 pub type FixedPoints = FixedScore;

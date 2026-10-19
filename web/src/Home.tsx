@@ -1,5 +1,5 @@
-import { Dice5, Dna, Loader2, Play, Plus, Shuffle, Trophy, TriangleAlert, Users } from 'lucide-react'
-import { useCallback, useEffect, useState } from 'react'
+import { BookOpen, Dice5, Dna, Loader2, Play, Plus, Shuffle, Trophy, TriangleAlert, Users } from 'lucide-react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
@@ -50,13 +50,7 @@ function StatusBadge({ status }: { status: MatchStatus }) {
   }
 }
 
-const BOT_GROUPS: [NonNullable<BotInfo['kind']>, string][] = [
-  ['roster', 'Roster CPUs'],
-  ['league', 'League generations'],
-  ['entrant', 'Arena versions (agents and people)'],
-]
-
-export function Home({ onOpen, onLeague }: { onOpen: (id: string) => void; onLeague: () => void }) {
+export function Home({ onOpen, onLeague, onNotes }: { onOpen: (id: string) => void; onLeague: () => void; onNotes: () => void }) {
   const [bots, setBots] = useState<BotInfo[]>([])
   const [matches, setMatches] = useState<MatchSummary[] | null>(null)
   const [board, setBoard] = useState<Leaderboard | null>(null)
@@ -88,7 +82,13 @@ export function Home({ onOpen, onLeague }: { onOpen: (id: string) => void; onLea
   const setPlayers = (n: number) => setLineup((l) => Array.from({ length: n }, (_, i) => l[i] ?? DEFAULT_LINEUP[i % DEFAULT_LINEUP.length]))
   const active = bots.filter((b) => !b.retired)
   const randomize = () => setLineup((l) => l.map(() => active[Math.floor(Math.random() * active.length)]?.id ?? 'expander'))
-  const groups = BOT_GROUPS.map(([kind, title]) => [title, bots.filter((b) => (b.kind ?? 'roster') === kind)] as const).filter(([, list]) => list.length > 0)
+  const elo = useMemo(() => new Map([...(board?.bots ?? []), ...(board?.retired_bots ?? [])].map((r) => [r.bot, r.elo])), [board])
+  const byElo = (list: BotInfo[]) => [...list].sort((a, b) => (elo.get(b.id) ?? -Infinity) - (elo.get(a.id) ?? -Infinity) || a.name.localeCompare(b.name))
+  const choices = bots.filter((b) => b.id !== 'champion')
+  const groups = [
+    ['Active', byElo(choices.filter((b) => !b.retired))],
+    ['Retired', byElo(choices.filter((b) => b.retired))],
+  ] as const
 
   const create = async () => {
     setCreating(true); setCreateError(null)
@@ -114,6 +114,7 @@ export function Home({ onOpen, onLeague }: { onOpen: (id: string) => void; onLea
         </div>
         <div className="flex flex-wrap gap-2">
           <Button variant="outline" size="sm" onClick={onLeague}><Dna />League progression</Button>
+          <Button variant="outline" size="sm" onClick={onNotes}><BookOpen />Lab notebook</Button>
           <Button variant="outline" size="sm" onClick={() => onOpen('sample')}><Play />Watch sample match</Button>
         </div>
       </header>
@@ -163,20 +164,16 @@ export function Home({ onOpen, onLeague }: { onOpen: (id: string) => void; onLea
                       items={bots.map((b) => ({ value: b.id, label: b.name }))}>
                       <SelectTrigger size="sm" className="flex-1"><SelectValue /></SelectTrigger>
                       <SelectContent className="max-h-[22rem]">
-                        {groups.map(([title, list], gi) => (
+                        {groups.filter(([, list]) => list.length > 0).map(([title, list], gi) => (
                           <SelectGroup key={title}>
                             {gi > 0 && <SelectSeparator />}
-                            <SelectLabel>{title}</SelectLabel>
+                            {title === 'Retired' && <SelectLabel>Retired</SelectLabel>}
                             {list.map((b) => (
-                              <SelectItem key={b.id} value={b.id}>
-                                <div className={`flex flex-col ${b.retired ? 'opacity-60' : ''}`}>
-                                  <span>
-                                    {b.name}
-                                    {b.kind === 'entrant' && <span className="ml-1.5 text-[10px] uppercase tracking-wide text-violet-300">{b.author}</span>}
-                                    {b.retired && <span className="ml-1.5 text-[10px] uppercase tracking-wide text-red-300">retired</span>}
-                                  </span>
-                                  <span className="text-[11px] text-muted-foreground">{b.retired ?? b.blurb}</span>
-                                </div>
+                              <SelectItem key={b.id} value={b.id} title={b.retired ?? b.blurb}>
+                                <span className={`flex w-full items-center justify-between gap-3 ${b.retired ? 'opacity-60' : ''}`}>
+                                  <span className="truncate">{b.name}</span>
+                                  <span className="tabular-nums text-muted-foreground">{elo.has(b.id) ? Math.round(elo.get(b.id)!) : '—'}</span>
+                                </span>
                               </SelectItem>
                             ))}
                           </SelectGroup>
@@ -189,7 +186,7 @@ export function Home({ onOpen, onLeague }: { onOpen: (id: string) => void; onLea
             </div>
 
             <p className="text-[11px] text-muted-foreground">
-              Every game ends the moment one player is left standing, with a cutoff at 3000 ticks. At the cutoff, survivors are ranked by land.
+              Every game ends the moment one player is left standing. From tick 3,000 attackers win each exchange more often (47% rising to 85%), and the cutoff is 10,000 ticks, where survivors are ranked by land. Games that end before the cutoff count double for Elo.
             </p>
 
             <div className="grid grid-cols-2 gap-4">

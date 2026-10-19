@@ -2,7 +2,7 @@ import { Eye, EyeOff, Maximize2, ZoomIn, ZoomOut } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { BUILDING_KEYS, HEIGHT_STYLE, HEX_DIRS, PLAYER_COLORS, PLAYER_MARKS, addHex, hexAt, hexIndex, onBoard } from './model'
+import { BUILDING_KEYS, HEIGHT_STYLE, HEX_DIRS, PLAYER_COLORS, PLAYER_MARKS, addHex, hexAt, hexDist, hexIndex, onBoard, stormFloor, stormRadius } from './model'
 import type { Cell, Hex, Rules, ViewerReplay } from './model'
 import { BUILDING_STYLE, drawBuilding, drawHeightMark, drawPlot } from './icons'
 import type { Pips } from './icons'
@@ -98,8 +98,10 @@ function drawTerrain(ctx: CanvasRenderingContext2D, rep: ViewerReplay, geo: Geom
 export function buildingPips(c: Cell, rules: Rules): Pips | undefined {
   const linked = c.links.filter((l) => l >= 0).length
   switch (c.building) {
-    case 1: return { filled: linked, total: rules.farm.sockets, color: BUILDING_STYLE[0].color }
-    case 2: return { filled: c.links[0] >= 0 ? 1 : 0, total: 1, color: BUILDING_STYLE[0].color }
+    case 1: return rules.farm.adjacent_boost ? undefined : { filled: linked, total: rules.farm.sockets, color: BUILDING_STYLE[0].color }
+    case 2: return rules.farm.adjacent_boost
+      ? (linked > 0 ? { filled: linked, total: linked, color: BUILDING_STYLE[0].color } : undefined)
+      : { filled: c.links[0] >= 0 ? 1 : 0, total: 1, color: BUILDING_STYLE[0].color }
     case 4: return { filled: linked, total: rules.wall.max_links, color: BUILDING_STYLE[3].color }
     default: return undefined
   }
@@ -189,6 +191,8 @@ export function Board({ rep, cells, perspective, visible, selected, heightMode, 
     [rep, cells, selected, visible])
 
   const geo = useMemo(() => geometry(rep, all), [rep, all])
+  const floor = useMemo(() => stormFloor(rep), [rep])
+  const storm = stormRadius(rep.rules, tick, rep.radius, floor)
   const terrainLayer = useRef<{ key: string; canvas: HTMLCanvasElement } | null>(null)
 
   useEffect(() => {
@@ -229,6 +233,12 @@ export function Board({ rep, cells, perspective, visible, selected, heightMode, 
       ctx.beginPath()
       for (const idx of all) if (rep.terrain[idx]!.kind === 'open' && !visible.has(idx)) hexPoly(ctx, geo.x[idx], geo.y[idx], s)
       ctx.fillStyle = 'rgba(6,7,10,0.62)'; ctx.fill()
+    }
+
+    if (storm !== null) {
+      ctx.beginPath()
+      for (const idx of all) if (hexDist(hexAt(rep.radius, idx), { q: 0, r: 0 }) > storm) hexPoly(ctx, geo.x[idx], geo.y[idx], s)
+      ctx.fillStyle = 'rgba(168,85,247,0.28)'; ctx.fill()
     }
 
     // Territory: one tinted fill, one border path and one front path per player.
@@ -369,7 +379,7 @@ export function Board({ rep, cells, perspective, visible, selected, heightMode, 
       const x = geo.x[i], y = geo.y[i]
       hexPath(ctx, x, y, s); ctx.fillStyle = 'rgba(111,214,255,0.22)'; ctx.fill()
       ctx.setLineDash([3, 2]); ctx.strokeStyle = '#6fd6ff'; ctx.lineWidth = 1.6; ctx.stroke(); ctx.setLineDash([])
-      if (detail >= 1) { ctx.font = '700 7px sans-serif'; ctx.textAlign = 'center'; outlinedText(ctx, '-25%', x, y - SIZE * 0.5, '#9fe6ff') }
+      if (detail >= 1) { ctx.font = '700 7px sans-serif'; ctx.textAlign = 'center'; outlinedText(ctx, `-${rep.rules.quarry.troop_discount_pct}%`, x, y - SIZE * 0.5, '#9fe6ff') }
     }
     for (const i of rel.alternatives) {
       hexPath(ctx, geo.x[i], geo.y[i], s - 0.5); ctx.setLineDash([4, 3]); ctx.strokeStyle = '#ffd36b'; ctx.lineWidth = 2; ctx.stroke(); ctx.setLineDash([])
@@ -380,7 +390,7 @@ export function Board({ rep, cells, perspective, visible, selected, heightMode, 
     if (selected !== null && !rel.hexes.has(selected)) {
       hexPath(ctx, geo.x[selected], geo.y[selected], s + 1); ctx.strokeStyle = '#fff'; ctx.lineWidth = 3; ctx.stroke()
     }
-  }, [rep, cells, visible, cam, dims, selected, all, perspective, heightMode, rel, recentBuilds, geo])
+  }, [rep, cells, visible, cam, dims, selected, all, perspective, heightMode, rel, recentBuilds, geo, storm])
 
   useEffect(() => {
     const c = mini.current!
@@ -439,6 +449,11 @@ export function Board({ rep, cells, perspective, visible, selected, heightMode, 
         {perspective < 0 ? <Eye className="size-3" /> : <EyeOff className="size-3" />}
         {perspective < 0 ? 'God view, no fog' : `${rep.names[perspective]} fog`}
       </Badge>
+      {storm !== null && (
+        <Badge variant="outline" className="absolute right-3 top-11 border-purple-400/50 bg-background/80 text-purple-200 backdrop-blur">
+          Storm: safe within {storm} of the centre
+        </Badge>
+      )}
       <canvas ref={mini} width={140} height={140} className="absolute bottom-3 right-3 rounded-lg border bg-background/80" style={{ width: 112, height: 112 }} />
       <div className="absolute bottom-3 left-3 flex gap-1">
         <Button variant="outline" size="icon-sm" onClick={() => setCam((c) => ({ ...c, k: Math.min(7, c.k * 1.25) }))}><ZoomIn /></Button>

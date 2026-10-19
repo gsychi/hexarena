@@ -1,6 +1,6 @@
 //! League generations as playable CPUs, and the league snapshot for the web page.
 
-use hexarena_arena::entrants::{load_all, retired_others, Entrant, Retirement};
+use hexarena_arena::entrants::{author_models, load_all, retired_others, with_model, Entrant, Retirement};
 use std::collections::{BTreeMap, BTreeSet};
 use hexarena_league::eval::GameLog;
 use hexarena_league::League;
@@ -24,15 +24,21 @@ pub struct Catalog {
     pub others_retired: BTreeMap<String, Retirement>,
     /// Every retired id, entrants included.
     pub retired: BTreeSet<String>,
+    /// Model by author, e.g. `agent:bunny-sol` → `GPT`.
+    pub models: BTreeMap<String, String>,
 }
 
 impl Catalog {
     pub fn load(league_dir: &Path, arena_dir: &Path) -> Catalog {
-        let entrants = load_all(arena_dir);
+        let models = author_models(arena_dir);
+        let mut entrants = load_all(arena_dir);
+        for e in &mut entrants {
+            e.name = with_model(&e.name, models.get(&e.author).map(String::as_str));
+        }
         let others_retired = retired_others(arena_dir);
         let mut retired: BTreeSet<String> = others_retired.keys().cloned().collect();
         retired.extend(entrants.iter().filter(|e| e.retired).map(|e| e.id.clone()));
-        Catalog { league: load(league_dir), entrants, others_retired, retired }
+        Catalog { league: load(league_dir), entrants, others_retired, retired, models }
     }
 
     /// Why each retired bot was retired, by id.
@@ -143,6 +149,8 @@ impl Catalog {
 pub struct RatedGame {
     pub at: u64,
     pub players: usize,
+    /// Ended before the cutoff.
+    pub ended: bool,
     /// (index into [`LeagueGames::names`], 8-player-scale place).
     pub seats: Vec<(usize, f64)>,
 }
@@ -211,7 +219,7 @@ impl LeagueGames {
                 .filter_map(|(id, &avp)| Some((self.intern(id)?, avp)))
                 .collect();
             if seats.len() >= 2 {
-                self.games.push(RatedGame { at: log.at, players, seats });
+                self.games.push(RatedGame { at: log.at, players, seats, ended: log.closer.is_some() });
             }
         }
         self.offset += end as u64 + 1;

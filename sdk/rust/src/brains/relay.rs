@@ -89,6 +89,8 @@ pub struct Relay {
     name: String,
     k: Knobs,
     rules: RulesConfig,
+    /// Chance (milli) an attacker wins an exchange this tick; rises in overtime.
+    win: u32,
     radius: i32,
     hexes: Vec<Hex>,
     nbrs: Vec<[Option<usize>; 6]>,
@@ -113,6 +115,7 @@ impl Relay {
             name: style.id.clone(),
             k: Knobs::read(&style),
             rules: RulesConfig::default(),
+            win: RulesConfig::default().attacker_exchange_win_milli,
             radius: -1,
             hexes: vec![],
             nbrs: vec![],
@@ -178,13 +181,13 @@ impl Relay {
 
     /// Expected attacker losses to kill `def` troops on `to` attacking from `from`.
     fn loss(&self, from: usize, to: usize, def: u32) -> u64 {
-        let p = self.rules.attacker_exchange_win_milli as u64;
+        let p = self.win as u64;
         def as u64 * self.defense(from, to) * (1000 - p) / p / 1000
     }
 
     /// Defenders a stack of `a` troops on `from` expects to kill on `to` going all in.
     fn kills(&self, from: usize, to: usize, a: u32) -> u64 {
-        let p = self.rules.attacker_exchange_win_milli as u64;
+        let p = self.win as u64;
         a as u64 * p * 1000 / ((1000 - p) * self.defense(from, to).max(1))
     }
 
@@ -450,9 +453,13 @@ impl Bot for Relay {
     }
 
     fn act(&mut self, view: &View) -> PlayerCommand {
+        if let Some(r) = &view.rules {
+            self.rules = r.clone();
+        }
         if self.radius != view.radius {
             self.init(view);
         }
+        self.win = self.rules.attacker_win_milli(view.tick);
         self.stamp += 1;
         let seen = self.stamp;
         for v in &view.visible_hexes {

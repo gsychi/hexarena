@@ -5,6 +5,7 @@
 
 use crate::{play_result, seat_names, settings};
 use hexarena_engine::State;
+use hexarena_protocol::RulesConfig;
 use hexarena_sdk::process::{probe, Program};
 use hexarena_sdk::{roster, BotParams, Style};
 use serde::{Deserialize, Serialize};
@@ -40,6 +41,23 @@ impl Entrant {
             params: self.params.clone(),
             program: self.program.clone(),
         }
+    }
+}
+
+/// Which model each author is (`authors.json` in the arena dir, e.g.
+/// `{"agent:bunny-sol": "GPT"}`), so every bot's name can start with the model that wrote it.
+pub fn author_models(dir: &Path) -> BTreeMap<String, String> {
+    std::fs::read(dir.join("authors.json"))
+        .ok()
+        .and_then(|b| serde_json::from_slice(&b).ok())
+        .unwrap_or_default()
+}
+
+/// `GPT-Snowshoe v1` for `Snowshoe v1` by a GPT agent; unchanged if it already says so.
+pub fn with_model(name: &str, model: Option<&str>) -> String {
+    match model {
+        Some(m) if !name.to_lowercase().starts_with(&m.to_lowercase()) => format!("{m}-{name}"),
+        _ => name.to_string(),
     }
 }
 
@@ -118,20 +136,29 @@ pub fn retire(dir: &Path, id: &str, reason: Option<String>) -> Result<Entrant, S
 pub struct Retirement {
     pub reason: String,
     pub at: u64,
+    /// The rules it was ranked under. A new rules version gives every roster CPU a fresh
+    /// trial, and starts a new league whose generation ids (`g0`, `g1`) are new bots.
+    #[serde(default)]
+    pub rules: String,
 }
 
-/// Retired bots that aren't arena entrants (roster CPUs, league generations), from
-/// `retired.json`.
-pub fn retired_others(dir: &Path) -> BTreeMap<String, Retirement> {
+fn all_retired_others(dir: &Path) -> BTreeMap<String, Retirement> {
     std::fs::read(dir.join("retired.json"))
         .ok()
         .and_then(|b| serde_json::from_slice(&b).ok())
         .unwrap_or_default()
 }
 
+/// Roster CPUs and league generations retired under the current rules, from
+/// `retired.json`.
+pub fn retired_others(dir: &Path) -> BTreeMap<String, Retirement> {
+    let rules = RulesConfig::default().version;
+    all_retired_others(dir).into_iter().filter(|(_, r)| r.rules == rules).collect()
+}
+
 pub fn retire_other(dir: &Path, id: &str, reason: String, at: u64) -> Result<(), String> {
-    let mut all = retired_others(dir);
-    all.insert(id.to_string(), Retirement { reason, at });
+    let mut all = all_retired_others(dir);
+    all.insert(id.to_string(), Retirement { reason, at, rules: RulesConfig::default().version });
     std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
     std::fs::write(dir.join("retired.json"), serde_json::to_vec_pretty(&all).unwrap()).map_err(|e| e.to_string())
 }

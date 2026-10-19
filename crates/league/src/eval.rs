@@ -54,12 +54,15 @@ pub struct GameLog {
     pub closer: Option<usize>,
 }
 
+/// Seats are named `Player 1`..`Player 8`, so a bot can't spot copies of itself by name
+/// and team up with them against the bot it is being compared with.
 pub fn play_lobby(seed: u64, seats: &[Entrant]) -> Result<GameLog, String> {
     let styles: Vec<Style> = seats
         .iter()
-        .map(|e| Style {
+        .enumerate()
+        .map(|(i, e)| Style {
             id: e.id.clone(),
-            name: e.id.clone(),
+            name: format!("Player {}", i + 1),
             blurb: String::new(),
             params: e.params.clone(),
             program: e.program.clone(),

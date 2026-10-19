@@ -5,7 +5,8 @@
 //! style are not compared with each other. A seat's rating change is
 //! `K / (N - 1) * sum(actual - expected)` over its opponents, and a style with
 //! several seats in one game takes the average of their changes. A style's first
-//! [`PROVISIONAL_GAMES`] games use [`PROVISIONAL_K`] times K. Ratings move only
+//! [`PROVISIONAL_GAMES`] games use [`PROVISIONAL_K`] times K, and a game that ended
+//! before the cutoff counts [`ENDED_WEIGHT`] times. Ratings move only
 //! after the whole game is scored, and games are applied oldest first.
 
 use serde::Serialize;
@@ -17,6 +18,13 @@ pub const K: f64 = 32.0;
 /// its real level before it can be retired for its ranking.
 pub const PROVISIONAL_K: f64 = 3.0;
 pub const PROVISIONAL_GAMES: u32 = 20;
+/// A game that ends before the cutoff moves every rating this many times as far, so
+/// finishing rivals off is worth much more than coasting to the cutoff.
+pub const ENDED_WEIGHT: f64 = 2.0;
+/// Games before a rating counts as settled. One 8-player place varies by about 2.2
+/// places, so 50 games pin the average to about +-0.3 places (one standard error),
+/// enough to tell apart bots half a place to a place apart.
+pub const RATED_GAMES: u32 = 50;
 const HISTORY: usize = 60;
 
 /// One seat's outcome in one finished game.
@@ -28,6 +36,8 @@ pub struct SeatResult<'a> {
     pub won: bool,
     /// Lobby size, used for the top-half rate.
     pub players: usize,
+    /// The game ended before the cutoff, with one player left standing.
+    pub ended: bool,
 }
 
 #[derive(Serialize, Default, Debug)]
@@ -50,6 +60,12 @@ pub struct BotStanding {
     /// Average place stretched onto the 8-player scale (1 best, 8 worst), so lobbies of
     /// every size compare like 8-player games.
     pub avp8: f64,
+    /// Standard error of `avp8`: how far the true average place might be from it.
+    pub avp8_se: f64,
+    /// Played [`RATED_GAMES`] games, so the rating can be trusted.
+    pub rated: bool,
+    #[serde(skip)]
+    avp8_sq: f64,
     pub avg_normalized: f64,
     /// Rating after each of this style's most recent games, oldest first.
     pub history: Vec<f64>,
@@ -96,6 +112,7 @@ pub fn standings(games: &[Vec<SeatResult>], name: impl Fn(&str) -> String) -> Ve
                 d += actual - expected(rating[i], rating[j]);
             }
             let k = if rows[a.bot].games < PROVISIONAL_GAMES { K * PROVISIONAL_K } else { K };
+            let k = if a.ended { k * ENDED_WEIGHT } else { k };
             let e = delta.entry(a.bot).or_insert((0.0, 0));
             e.0 += k / (n - 1) as f64 * d;
             e.1 += 1;
@@ -117,7 +134,9 @@ pub fn standings(games: &[Vec<SeatResult>], name: impl Fn(&str) -> String) -> Ve
             r.wins += s.won as u32;
             r.top_half += (s.place <= s.players as f64 / 2.0) as u32;
             r.avg_place += s.place;
-            r.avp8 += 1.0 + (s.place - 1.0) * 7.0 / (s.players as f64 - 1.0);
+            let avp8 = 1.0 + (s.place - 1.0) * 7.0 / (s.players as f64 - 1.0);
+            r.avp8 += avp8;
+            r.avp8_sq += avp8 * avp8;
             r.avg_normalized += s.normalized;
         }
     }
@@ -125,7 +144,11 @@ pub fn standings(games: &[Vec<SeatResult>], name: impl Fn(&str) -> String) -> Ve
         .into_values()
         .map(|mut r| {
             r.avg_place /= r.seats as f64;
-            r.avp8 /= r.seats as f64;
+            let n = r.seats as f64;
+            r.avp8 /= n;
+            let var = (r.avp8_sq / n - r.avp8 * r.avp8).max(0.0) * n / (n - 1.0).max(1.0);
+            r.avp8_se = (var / n).sqrt();
+            r.rated = r.games >= RATED_GAMES;
             r.avg_normalized /= r.seats as f64;
             r.win_rate = r.wins as f64 / r.seats as f64;
             r.top_half_rate = r.top_half as f64 / r.seats as f64;
@@ -150,6 +173,7 @@ mod tests {
             normalized: 0.0,
             won: place == 1.0,
             players: 3,
+            ended: false,
         }
     }
 
