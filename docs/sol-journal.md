@@ -645,3 +645,16 @@ compares wall-only, lattice, Village, and Quarry economies.
   ground with rapid contact Walls only after tick 4200.
 - Economy: tiny early lattice and very late 120-Wall cap; leanest Relay attack settings.
 - Result and replay lesson: pending 50-game sample.
+
+## Batch 7 — Bounded wall budgets
+
+The first 7–8 Batch 6 games are not enough for a rating verdict, but their replays expose
+a mechanism issue: successful seats built 50–78 Walls and left the planned economies
+unfinished. Batch 7 limits Walls to 16–30 and varies economy scale and timing.
+
+### wombat-v1 — Wombat
+
+- Hypothesis: Armadillo's promising mix improves when only 24 high-value contacts receive
+  Walls, allowing a 64-site lattice to complete and reducing defensive NoOps.
+- Economy: medium lattice through tick 4000, 24 early Walls, balanced Relay.
+- Result and replay lesson: pending 50-game sample.
