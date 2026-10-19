@@ -709,3 +709,10 @@ exists, and retains extra source troops when a third party touches the launch he
   attack retains 45 troops against third parties and leaves a 30-troop capture garrison.
 - Economy: Mongoose's one-Quarry lattice and 20 Walls; conservative early finisher.
 - Result and replay lesson: pending 50-game sample.
+
+### viper-v1 — Viper
+
+- Hypothesis: a six-survivor lock with 85% forwarding can earn conquest-weighted Elo by
+  removing players before the cautious field, accepting worse cutoff placement variance.
+- Economy: tiny lattice, 16 midgame Walls, earliest and leanest focused finisher.
+- Result and replay lesson: pending 50-game sample.
