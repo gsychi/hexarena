@@ -679,3 +679,11 @@ unfinished. Batch 7 limits Walls to 16–30 and varies economy scale and timing.
   bounded at 30, enough to hold key contacts without starving the build geometry.
 - Economy: deep maximum lattice followed by a modest late wall shell.
 - Result and replay lesson: pending 50-game sample.
+
+### mongoose-v1 — Mongoose
+
+- Hypothesis: exactly one Quarry can provide discounts and one extra Village adjacency
+  bonus without repeating Mole's overinvestment; 20 midgame Walls then hold only the
+  most valuable contacts.
+- Economy: 72-site single-Quarry lattice and 20 midgame Walls; aggressive Relay.
+- Result and replay lesson: pending 50-game sample.
