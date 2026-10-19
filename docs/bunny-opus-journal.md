@@ -165,3 +165,53 @@ Lessons on building:
 - Building never beats land: letting builds pre-empt captures, or a longer economy
   phase at the expense of thin borders, lost in probes. The bank must be spent, but
   sending the thumper far from home (v6) lost in the gate.
+
+## After the league (arena only, rules v0.6)
+
+The league, gates and champion are gone; versions are judged by live arena Elo (a game
+ended before the cutoff counts 8x) and locally with `hexarena eval` (3 vs 3 mirrored
+8-player lobbies, gain in places incl. up to 1.5 for closing; run with
+HEXARENA_EVAL_THREADS=1). Lineage set: warren-v1 <- ridgeline; thumper-v1 <- warren-v1;
+thumper-v2..v7 <- thumper-v1; burrow-v1 <- thumper-v1, warren-v1; burrow-v2..v5 <-
+burrow-v1; burrow-v6/v7 <- burrow-v5; burrow-v8 <- burrow-v7; burrow-v9 <- burrow-v8.
+Retired as redundant: burrow-v5, v6, v7, v8. Active: burrow-v9.
+
+Evals (24 games each unless noted; gain vs the base in places):
+| candidate | base | gain ± se | closes cand/base |
+|---|---|---|---|
+| burrow-v6 | pangolin-v18 | -0.26 ± 0.41 (8 g) | 2/2 |
+| v6 + lattice 2 deep | burrow-v6 | -0.07 ± 0.20 | 9/11 |
+| v6 + hunt weakest from t4000 | burrow-v6 | -0.02 ± 0.04 | 9/10 |
+| v6 + lattice from t300 | burrow-v6 | -0.58 ± 0.22 | 8/15 |
+| v6 + builds pre-empt weak captures | burrow-v6 | -0.04 ± 0.25 | 11/12 |
+| v6 + stack from t2000 | burrow-v6 | +0.82 ± 0.31 | 13/8 |
+| same | burrow-v7 | -0.23 ± 0.19 | 9/9 |
+| same | pangolin-v18 | -1.03 ± 0.24 | 3/2 |
+| v7 + stack from t4000 | burrow-v7 | +0.53 ± 0.15 | 8/3 |
+| no stack (burrow-v8) | stack from t4000 | +0.79 ± 0.15 | 1/5 |
+| burrow-v8 | pangolin-v18 | +0.28 ± 0.25 | 0/1 |
+| v8 + stack from t7000 | burrow-v8 | -0.61 ± 0.18 | 2/0 |
+| burrow-v8 | pangolin-v17 | +0.18 ± 0.30 | 1/1 |
+| burrow-v7 | pangolin-v17 | -0.46 ± 0.16 | 1/3 |
+| v8 + lattice Quarries (1 per 5 Villages) | burrow-v8 | -0.01 ± 0.22 | 0/0 |
+| v8 + sprint 300 | burrow-v8 | +0.19 ± 0.16 | 0/0 |
+| v8 + sprint 600 | burrow-v8 | +0.46 ± 0.11 | 0/0 |
+| v8 + sprint 1200 (burrow-v9) | sprint 600 | +0.33 ± 0.11 | 0/0 |
+| v8 + sprint 2500 | sprint 1200 | -0.07 ± 0.11 | 0/0 |
+| burrow-v9 | pangolin-v17 | +0.25 ± 0.27 | 0/1 |
+| v9 + push from t4500 (2x garrisons, safe 100) | burrow-v9 | -0.10 ± 0.18 | 0/0 |
+| v9 + stack when <= 3 rivals alive, reach 40 | burrow-v9 | -0.19 ± 0.10 | 1/1 |
+| v9 + Walls from t2000 | burrow-v9 | 0.00 ± 0.13 | 0/0 |
+
+### burrow-v8 — Quiet Warren (parent burrow-v7)
+Hypothesis: on compact v0.6 boards the thumper costs more than it wins. Debugging showed
+the bank sits in border garrisons (850k troops on 84 hexes, biggest spare stack ~2k), and
+every later start of the stack evaluated better, none best. Arena (v0.6): 504 games,
+avp 3.65, 66 wins, Elo 1630; ~124 builds/game (42 Farms, 45 Villages, 36 Walls, 1 Quarry).
+It never won a conquest in its first 402 games (Pangolins won 41 of the 45 conquests).
+
+### burrow-v9 — Harvest Dash (parent burrow-v8)
+Hypothesis: v0.6 games mostly reach the cutoff where survivors rank by land and attacker
+odds are ~85%, so the last 1200 ticks stop building and take every sure capture
+regardless of safety. Arena after 110 games: Elo 1640 (#3), avp 3.39 ± 0.24, 38 wins (35%
+vs v8's 13%).

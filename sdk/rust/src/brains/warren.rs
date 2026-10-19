@@ -277,6 +277,8 @@ struct StrikeKnobs {
     /// Score per own neighbour of a thumper target, and per exposed one.
     hug: i64,
     open: i64,
+    /// The thumper is also raised whenever at most this many rivals are alive (0 = never).
+    alive: usize,
     /// From this tick the thumper hunts the rival with the least known land (0 = never)...
     hunt_from: u32,
     /// ...with this score bonus for its hexes.
@@ -297,6 +299,7 @@ impl StrikeKnobs {
             rally: k("rally", 0) > 0,
             hug: k("strike_hug", 0),
             open: k("strike_open", 0),
+            alive: k("strike_alive", 0) as usize,
             hunt_from: k("hunt_from", 0) as u32,
             hunt: k("hunt", 0),
         }
@@ -323,6 +326,8 @@ pub struct Warren {
     doom: Vec<u32>,
     /// Border hex the feed builds up until it can breach, while no thumper is out.
     rally: Option<usize>,
+    /// Rivals still alive.
+    rivals: usize,
 }
 
 fn kind_of(c: &VisibleHex) -> Option<Building> {
@@ -345,6 +350,7 @@ impl Warren {
             doom: vec![],
             prey: None,
             rally: None,
+            rivals: usize::MAX,
         }
     }
 
@@ -526,7 +532,10 @@ impl Warren {
     /// The thumper's move this tick: chain a sure capture into enemy ground, or march
     /// through our land to the launch pad facing the cheapest breach in reach.
     fn strike(&mut self, geo: &Geometry, me: PlayerId, mine: &[usize], tick: u32) -> Option<Action> {
-        if self.s.from == 0 || tick < self.s.from {
+        let by_tick = self.s.from > 0 && tick >= self.s.from;
+        let by_field = self.s.alive > 0 && self.rivals <= self.s.alive;
+        if !by_tick && !by_field {
+            self.army = None;
             return None;
         }
         if let Some(a) = self.army {
@@ -1345,6 +1354,7 @@ impl Bot for Warren {
             self.seen = vec![None; geo.passable.len()];
         }
         let me = view.you;
+        self.rivals = view.public_players.iter().filter(|p| p.alive && p.id != me).count();
         let mut mine = vec![];
         for c in &view.visible_hexes {
             let Some(i) = geo.slot(c.hex) else { continue };
