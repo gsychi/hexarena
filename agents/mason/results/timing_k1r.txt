@@ -1,0 +1,20 @@
+timing seed 910001 seat 0 base   moves 10000 mean 0.086 ms  p99.9 0.162 ms  max 0.178 ms at move 4653
+timing seed 910001 seat 1 cand   moves 10000 mean 0.319 ms  p99.9 0.391 ms  max 0.414 ms at move 1329
+timing seed 910001 seat 2 cand   moves  1900 mean 0.321 ms  p99.9 0.380 ms  max 0.393 ms at move 1890
+timing seed 910001 seat 3 predator moves   758 mean 0.017 ms  p99.9 0.042 ms  max 0.042 ms at move 414
+timing seed 910001 seat 4 cand   moves  1453 mean 0.357 ms  p99.9 0.448 ms  max 0.455 ms at move 711
+timing seed 910001 seat 5 base   moves 10000 mean 0.046 ms  p99.9 0.093 ms  max 0.136 ms at move 0
+timing seed 910001 seat 6 relay  moves  1415 mean 0.023 ms  p99.9 0.038 ms  max 0.050 ms at move 0
+timing seed 910001 seat 7 base   moves  4792 mean 0.052 ms  p99.9 0.084 ms  max 0.133 ms at move 0
+gain -0.000 ± NaN over 0 pairs (0 games)
+bot            seats  score    avp  rgn+/g  rgn-/g  demo  elim close cpu ms/mv  cpu max   ring ok wall max
+timing seed 910003 seat 0 ridgeline moves  8687 mean 0.017 ms  p99.9 0.034 ms  max 0.082 ms at move 0
+timing seed 910003 seat 1 cand   moves 10000 mean 0.350 ms  p99.9 0.424 ms  max 0.448 ms at move 4703
+timing seed 910003 seat 2 base   moves  4723 mean 0.033 ms  p99.9 0.064 ms  max 0.135 ms at move 0
+timing seed 910003 seat 3 base   moves  5511 mean 0.044 ms  p99.9 0.083 ms  max 0.130 ms at move 0
+timing seed 910003 seat 4 base   moves 10000 mean 0.058 ms  p99.9 0.117 ms  max 0.128 ms at move 8380
+timing seed 910003 seat 5 cand   moves   354 mean 0.303 ms  p99.9 0.350 ms  max 0.350 ms at move 105
+timing seed 910003 seat 6 cand   moves 10000 mean 0.312 ms  p99.9 0.397 ms  max 0.426 ms at move 5141
+timing seed 910003 seat 7 expander moves   567 mean 0.008 ms  p99.9 0.019 ms  max 0.019 ms at move 134
+gain -0.000 ± NaN over 0 pairs (0 games)
+bot            seats  score    avp  rgn+/g  rgn-/g  demo  elim close cpu ms/mv  cpu max   ring ok wall max
