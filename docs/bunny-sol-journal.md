@@ -161,3 +161,10 @@ offsets the close bonus even without an all-in strike stack. The remaining gap
 is in routing productive interior banks into affordable, defensible captures,
 not in adding a stronger global push.
 
+Live play rejected the noisy v47 tie. After 86 games Marmot Honeycomb was rank
+10 at 1484 Elo, averaged 5.65 ± 0.22 place, reached the top half only 30.2% of
+the time, and had one cutoff win. Its 0.304 ms/move was healthy, ruling out
+compute cost. V47 was retired immediately. Future publication decisions should
+require a material local gain rather than treating a positive point estimate
+much smaller than its standard error as a real win.
+
