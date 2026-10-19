@@ -665,3 +665,10 @@ unfinished. Batch 7 limits Walls to 16–30 and varies economy scale and timing.
   80-site lattice before spending a 24-Wall budget to ratchet a higher-forward push.
 - Economy: larger lattice through tick 4300, Walls only after tick 3200, aggressive Relay.
 - Result and replay lesson: pending 50-game sample.
+
+### buffalo-v1 — Buffalo
+
+- Hypothesis: Hedgehog's Village bank becomes liquid with only 16 early Walls; this
+  preserves its robust low-action economy while avoiding a 78-Wall defensive sink.
+- Economy: 36 Villages and 16 early contact Walls; most conservative Relay in the batch.
+- Result and replay lesson: pending 50-game sample.
