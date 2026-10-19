@@ -178,6 +178,8 @@ struct BuildKnobs {
     quarry_tick: u32,
     /// Builds may take a capture's tick when the capture scores below this.
     preempt_below: i64,
+    /// No Walls before this tick: early on troops and actions go to land.
+    wall_tick: u32,
 }
 
 impl BuildKnobs {
@@ -194,6 +196,34 @@ impl BuildKnobs {
             quarries: k("quarries", 2) as usize,
             quarry_tick: k("quarry_tick", 400) as u32,
             preempt_below: k("preempt_below", 0),
+            wall_tick: k("wall_tick", 0) as u32,
+        }
+    }
+}
+
+/// The thumper: one mobile strike stack that breaks stalemated borders.
+struct StrikeKnobs {
+    /// First tick a strike stack may be raised (0 = never).
+    from: u32,
+    /// Smallest spare stack worth raising as the thumper.
+    min: u64,
+    /// % of the thumper a trail hex keeps at most when the stack moves on.
+    leave_pct: u64,
+    /// Score per enemy neighbour of a target (deeper ground is cheaper next tick).
+    depth: i64,
+    /// Thumper marches to a launch pad at most this far through our land.
+    reach: u32,
+}
+
+impl StrikeKnobs {
+    fn read(style: &Style) -> StrikeKnobs {
+        let k = |n: &str, d: i64| style.params.knob(n, d).max(0);
+        StrikeKnobs {
+            from: k("strike_from", 0) as u32,
+            min: k("strike_min", 3000) as u64,
+            leave_pct: k("leave_pct", 15) as u64,
+            depth: k("depth", 30),
+            reach: k("reach", 8) as u32,
         }
     }
 }
@@ -203,9 +233,12 @@ pub struct Warren {
     rules: RulesConfig,
     k: Knobs,
     b: BuildKnobs,
+    s: StrikeKnobs,
     geo: Option<Geometry>,
     /// Last seen state of every slot.
     seen: Vec<Option<Cell>>,
+    /// Slot of the thumper stack, while one is on the move.
+    army: Option<usize>,
 }
 
 fn kind_of(c: &VisibleHex) -> Option<Building> {
@@ -219,9 +252,114 @@ impl Warren {
             rules: RulesConfig::default(),
             k: Knobs::read(&style),
             b: BuildKnobs::read(&style),
+            s: StrikeKnobs::read(&style),
             geo: None,
             seen: vec![],
+            army: None,
         }
+    }
+
+    /// The thumper's move this tick: chain a sure capture into enemy ground, or march
+    /// through our land to the launch pad facing the cheapest breach in reach.
+    fn strike(&mut self, geo: &Geometry, me: PlayerId, mine: &[usize], tick: u32) -> Option<Action> {
+        if self.s.from == 0 || tick < self.s.from {
+            return None;
+        }
+        let troops = |i: usize| self.seen[i].map_or(0, |c| c.troops as u64);
+        if let Some(a) = self.army {
+            if !self.owned(a, me) || troops(a) < self.s.min / 2 {
+                self.army = None;
+            }
+        }
+        if self.army.is_none() {
+            self.army = mine
+                .iter()
+                .copied()
+                .map(|i| (self.spare(geo, me, i), i))
+                .filter(|&(s, _)| s >= self.s.min)
+                .max()
+                .map(|(_, i)| i);
+        }
+        let a = self.army?;
+        let have = troops(a);
+        let mut best: Option<(i64, usize, u64)> = None;
+        for &t in &geo.nbrs[a] {
+            let Some(tc) = self.seen[t] else { continue };
+            if tc.owner == Some(me) {
+                continue;
+            }
+            let defense = self.defense(geo, a, t, tc.wall_milli) as u32;
+            let (mean, sd) = self.loss_stats(tc.troops, defense);
+            let need = (mean + sd * self.k.sure_x10 / 10).div_ceil(1000) + 1;
+            let leave = self
+                .want(geo, me, a, t)
+                .unwrap_or(1)
+                .clamp(1, have * self.s.leave_pct / 100)
+                .max(1);
+            if have < leave + need {
+                continue;
+            }
+            let send = have - leave;
+            let depth = geo.nbrs[t]
+                .iter()
+                .filter(|&&n| tc.owner.is_some() && self.seen[n].is_some_and(|c| c.owner == tc.owner))
+                .count() as i64;
+            let enemy = tc.owner.is_some() as i64;
+            let score = self.k.land
+                + enemy * (self.k.enemy + self.s.depth * depth + self.k.enclose * self.enclosure_gain(geo, t, me))
+                - (mean / 1000) as i64 * 100 / (have as i64 / 100).max(1);
+            if best.map_or(true, |b| (score, std::cmp::Reverse(t)) > (b.0, std::cmp::Reverse(b.1))) {
+                best = Some((score, t, send));
+            }
+        }
+        if let Some((_, t, send)) = best {
+            self.army = Some(t);
+            return Some(Action::Move { from: geo.hexes[a], to: geo.hexes[t], troops: send as u32 });
+        }
+        // Nothing to hit from here: march toward the own hex facing the cheapest breach.
+        let mut prev = vec![usize::MAX; geo.passable.len()];
+        let mut dist = vec![u32::MAX; geo.passable.len()];
+        prev[a] = a;
+        dist[a] = 0;
+        let mut queue = VecDeque::from([a]);
+        let mut pad: Option<(u64, usize)> = None;
+        while let Some(c) = queue.pop_front() {
+            if c != a {
+                for &t in &geo.nbrs[c] {
+                    let Some(tc) = self.seen[t].filter(|x| x.owner.is_some_and(|o| o != me)) else { continue };
+                    let defense = self.defense(geo, c, t, tc.wall_milli) as u32;
+                    let (mean, sd) = self.loss_stats(tc.troops, defense);
+                    let need = (mean + sd * self.k.sure_x10 / 10).div_ceil(1000) + 1;
+                    let cost = need + dist[c] as u64 * have / 50;
+                    if need * 2 < have && pad.map_or(true, |p| cost < p.0) {
+                        pad = Some((cost, c));
+                    }
+                }
+            }
+            if dist[c] >= self.s.reach {
+                continue;
+            }
+            for &n in &geo.nbrs[c] {
+                if prev[n] == usize::MAX && self.owned(n, me) {
+                    prev[n] = c;
+                    dist[n] = dist[c] + 1;
+                    queue.push_back(n);
+                }
+            }
+        }
+        let Some((_, mut step)) = pad else {
+            self.army = None;
+            return None;
+        };
+        while prev[step] != a {
+            step = prev[step];
+        }
+        let leave = self.want(geo, me, a, usize::MAX).unwrap_or(1).clamp(1, have * self.s.leave_pct / 100).max(1);
+        if have <= leave + 1 {
+            return None;
+        }
+        self.army = Some(step);
+        Some(Action::Move { from: geo.hexes[a], to: geo.hexes[step], troops: (have - leave) as u32 })
     }
 
     /// Free link commands: Farms adopt adjacent unsupported Villages, adjacent Walls pair up.
@@ -335,7 +473,7 @@ impl Warren {
                 return Some(Action::Build { at: c.hex, building: Building::Farm });
             }
         }
-        if count(Building::Wall) < self.b.walls {
+        if count(Building::Wall) < self.b.walls && tick >= self.b.wall_tick {
             let site = empty()
                 .filter_map(|c| heat(c.hex).map(|h| (h, c)))
                 .filter(|(h, c)| *h >= self.b.wall_heat && affordable(c, Building::Wall, self.b.wall_keep))
@@ -843,7 +981,9 @@ impl Bot for Warren {
         let build = (!sprinting && weak_capture && staging.is_none())
             .then(|| self.build(view, &geo))
             .flatten();
+        let strike = self.strike(&geo, me, &mine, view.tick);
         let action = match (supply, capture) {
+            _ if strike.is_some() => strike.unwrap(),
             (Some((gain, a)), _) if supply_tick && gain >= self.k.supply_min => a,
             _ if staging.is_some() => staging.unwrap(),
             _ if build.is_some() => build.unwrap(),
