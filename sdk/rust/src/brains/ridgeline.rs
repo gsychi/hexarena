@@ -11,7 +11,10 @@
 //! made at all, and troops get cheaper the more of them we bank per hex. Spare actions
 //! relay interior stacks toward short border hexes.
 
-use crate::{Action, Bot, Hex, PlayerCommand, PlayerId, RulesConfig, Style, View, MILLI};
+use crate::{
+    Action, Bot, Building, Hex, ManagementCommand, PlayerCommand, PlayerId, RulesConfig, Style,
+    View, VisibleHex, MILLI,
+};
 use std::collections::VecDeque;
 
 /// Map-static data, built from the first view.
@@ -40,7 +43,14 @@ impl Geometry {
                 height[i] = t.height;
             }
         }
-        let mut g = Geometry { radius, width, passable, height, nbrs: vec![], hexes };
+        let mut g = Geometry {
+            radius,
+            width,
+            passable,
+            height,
+            nbrs: vec![],
+            hexes,
+        };
         g.nbrs = (0..slots)
             .map(|i| {
                 g.hexes[i]
@@ -66,6 +76,7 @@ struct Cell {
     owner: Option<PlayerId>,
     troops: u32,
     wall_milli: u32,
+    building: Option<Building>,
 }
 
 /// One affordable capture under consideration.
@@ -129,6 +140,17 @@ struct Knobs {
     stage: i64,
     /// Score lost per troop the launch hex is short of a blocked capture.
     short_cost: i64,
+    /// Infrastructure plan: 0 off, 1 farm economy, 2 wall line, 3 quarry hub, 4 hybrid.
+    build_mode: u32,
+    build_cap: usize,
+    build_every: u32,
+    build_start: u32,
+    build_stop: u32,
+    build_reserve: u64,
+    max_farms: usize,
+    max_villages: usize,
+    max_quarries: usize,
+    max_walls: usize,
 }
 
 impl Knobs {
@@ -158,6 +180,16 @@ impl Knobs {
             gather_until: k("gather_until", 600) as u32,
             stage: k("stage", 0),
             short_cost: k("short_cost", 0),
+            build_mode: k("build_mode", 0) as u32,
+            build_cap: k("build_cap", 8) as usize,
+            build_every: k("build_every", 30) as u32,
+            build_start: k("build_start", 80) as u32,
+            build_stop: k("build_stop", 2600) as u32,
+            build_reserve: k("build_reserve", 20) as u64,
+            max_farms: k("max_farms", 2) as usize,
+            max_villages: k("max_villages", 5) as usize,
+            max_quarries: k("max_quarries", 1) as usize,
+            max_walls: k("max_walls", 5) as usize,
         }
     }
 }
@@ -169,6 +201,7 @@ pub struct Ridgeline {
     geo: Option<Geometry>,
     /// Last seen state of every slot.
     seen: Vec<Option<Cell>>,
+    last_build: u32,
 }
 
 impl Ridgeline {
@@ -179,6 +212,7 @@ impl Ridgeline {
             k: Knobs::read(&style),
             geo: None,
             seen: vec![],
+            last_build: 0,
         }
     }
 
@@ -203,7 +237,9 @@ impl Ridgeline {
     }
 
     fn defense(&self, geo: &Geometry, from: usize, to: usize, wall_milli: u32) -> u64 {
-        let h = self.rules.height_multiplier_milli(geo.height[from], geo.height[to]) as u64;
+        let h = self
+            .rules
+            .height_multiplier_milli(geo.height[from], geo.height[to]) as u64;
         (h * wall_milli as u64 / 1000).min(self.rules.maximum_total_defense_milli as u64)
     }
 
@@ -248,7 +284,9 @@ impl Ridgeline {
         let mut done: Vec<usize> = vec![];
         for nb in geo.hexes[to].neighbors() {
             let Some(n) = geo.slot(nb) else { continue };
-            let Some(owner) = self.seen[n].and_then(|c| c.owner) else { continue };
+            let Some(owner) = self.seen[n].and_then(|c| c.owner) else {
+                continue;
+            };
             if owner == me || done.contains(&n) {
                 continue;
             }
@@ -303,7 +341,9 @@ impl Ridgeline {
         let mut size = vec![1u32; slots];
         let mut parent = vec![usize::MAX; slots];
         let mut timer = 0u32;
-        let mut roots: Vec<usize> = (0..slots).filter(|&i| open(i) && self.enemy(i, me)).collect();
+        let mut roots: Vec<usize> = (0..slots)
+            .filter(|&i| open(i) && self.enemy(i, me))
+            .collect();
         roots.extend((0..slots).filter(|&i| open(i) && !self.enemy(i, me)));
         let mut stack: Vec<(usize, usize)> = vec![];
         let mut comp: Vec<usize> = vec![];
@@ -373,7 +413,10 @@ impl Ridgeline {
         // Best capture the pad can't afford yet; `send` holds the troops it is short.
         let mut blocked: Option<Capture> = None;
         // A troop is worth less the more of them we already hold per hex.
-        let bank: u64 = mine.iter().map(|&i| self.seen[i].unwrap().troops as u64).sum();
+        let bank: u64 = mine
+            .iter()
+            .map(|&i| self.seen[i].unwrap().troops as u64)
+            .sum();
         let per_hex = bank / mine.len().max(1) as u64;
         let full = self.k.cost_pct as u64 * 10;
         let cost_milli = match self.k.wealth {
@@ -406,8 +449,15 @@ impl Ridgeline {
                         let score = self.capture_gain(geo, me, t, tc, seal)
                             - loss as i64 * cost_milli / 1000
                             - short as i64 * self.k.short_cost;
-                        if blocked.map_or(true, |b| (score, std::cmp::Reverse(t)) > (b.score, std::cmp::Reverse(b.to))) {
-                            blocked = Some(Capture { score, from: s, to: t, send: short as u32 });
+                        if blocked.map_or(true, |b| {
+                            (score, std::cmp::Reverse(t)) > (b.score, std::cmp::Reverse(b.to))
+                        }) {
+                            blocked = Some(Capture {
+                                score,
+                                from: s,
+                                to: t,
+                                send: short as u32,
+                            });
                         }
                     }
                     continue;
@@ -445,7 +495,12 @@ impl Ridgeline {
                         > (b.score, std::cmp::Reverse(b.to), b.send as u64)
                 });
                 if better {
-                    best = Some(Capture { score, from: s, to: t, send: send as u32 });
+                    best = Some(Capture {
+                        score,
+                        from: s,
+                        to: t,
+                        send: send as u32,
+                    });
                 }
             }
         }
@@ -453,7 +508,14 @@ impl Ridgeline {
     }
 
     /// Score of holding `t` once taken, before troop costs.
-    fn capture_gain(&self, geo: &Geometry, me: PlayerId, t: usize, tc: Cell, seal: Option<&Seal>) -> i64 {
+    fn capture_gain(
+        &self,
+        geo: &Geometry,
+        me: PlayerId,
+        t: usize,
+        tc: Cell,
+        seal: Option<&Seal>,
+    ) -> i64 {
         let hugged = geo.nbrs[t].iter().filter(|&&n| self.owned(n, me)).count() as i64;
         let exposed = geo.nbrs[t].len() as i64 - hugged;
         let mut gain = self.k.land;
@@ -474,7 +536,9 @@ impl Ridgeline {
     /// nobody touches our land early on).
     fn stage_to(&self, geo: &Geometry, me: PlayerId, pad: usize, calm: bool) -> Option<Action> {
         if calm {
-            return Some(Action::Gather { target: geo.hexes[pad] });
+            return Some(Action::Gather {
+                target: geo.hexes[pad],
+            });
         }
         let mut prev = vec![usize::MAX; geo.passable.len()];
         prev[pad] = pad;
@@ -482,7 +546,11 @@ impl Ridgeline {
         while let Some(c) = queue.pop_front() {
             if c != pad && self.spare(geo, me, c) >= 2 {
                 let troops = self.spare(geo, me, c) as u32;
-                return Some(Action::Move { from: geo.hexes[c], to: geo.hexes[prev[c]], troops });
+                return Some(Action::Move {
+                    from: geo.hexes[c],
+                    to: geo.hexes[prev[c]],
+                    troops,
+                });
             }
             for &n in &geo.nbrs[c] {
                 if prev[n] == usize::MAX && self.owned(n, me) {
@@ -501,6 +569,234 @@ impl Ridgeline {
         t.saturating_sub(keep)
     }
 
+    /// Free link maintenance. Links are chosen only from the current View so stale fog
+    /// memory can never create an invalid management command.
+    fn management(&self, view: &View) -> Vec<ManagementCommand> {
+        let mine: Vec<&VisibleHex> = view
+            .visible_hexes
+            .iter()
+            .filter(|c| c.owner == Some(view.you))
+            .collect();
+        let mut out = vec![];
+        for farm in mine.iter().filter(|c| {
+            matches!(
+                &c.building,
+                Some(b)
+                    if b.kind == Building::Farm
+                        && b.link_cooldown == 0
+                        && b.links.len() < self.rules.farm.sockets as usize
+            )
+        }) {
+            let village = mine.iter().find(|v| {
+                v.hex.distance(farm.hex) == 1
+                    && matches!(
+                        &v.building,
+                        Some(b) if b.kind == Building::Village && b.links.is_empty()
+                    )
+            });
+            if let Some(village) = village {
+                out.push(ManagementCommand::SetFarmLink {
+                    farm: farm.hex,
+                    village: village.hex,
+                    enabled: true,
+                });
+                break;
+            }
+        }
+        let wall_open = |c: &&&VisibleHex| {
+            matches!(
+                &c.building,
+                Some(b)
+                    if b.kind == Building::Wall
+                        && b.link_cooldown == 0
+                        && b.links.len() < self.rules.wall.max_links as usize
+            )
+        };
+        'walls: for a in mine.iter().filter(wall_open) {
+            for b in mine.iter().filter(wall_open) {
+                let already_linked = a
+                    .building
+                    .as_ref()
+                    .is_some_and(|building| building.links.contains(&b.hex));
+                if a.hex.distance(b.hex) == 1 && !already_linked {
+                    out.push(ManagementCommand::SetWallLink {
+                        wall_a: a.hex,
+                        wall_b: b.hex,
+                        enabled: true,
+                    });
+                    break 'walls;
+                }
+            }
+        }
+        out
+    }
+
+    fn building_counts(&self, mine: &[usize]) -> [usize; 4] {
+        let mut counts = [0; 4];
+        for &i in mine {
+            match self.seen[i].and_then(|c| c.building) {
+                Some(Building::Farm) => counts[0] += 1,
+                Some(Building::Village) => counts[1] += 1,
+                Some(Building::Quarry) => counts[2] += 1,
+                Some(Building::Wall) => counts[3] += 1,
+                None => {}
+            }
+        }
+        counts
+    }
+
+    /// Picks an infrastructure investment without weakening an exposed garrison. The
+    /// modes deliberately share one planner so genomes can test radically different
+    /// build portfolios while preserving Ridgeline's proven capture policy.
+    fn build(
+        &mut self,
+        view: &View,
+        geo: &Geometry,
+        me: PlayerId,
+        mine: &[usize],
+    ) -> Option<Action> {
+        if self.k.build_mode == 0
+            || view.tick < self.k.build_start
+            || view.tick >= self.k.build_stop
+            || view.tick.saturating_sub(self.last_build) < self.k.build_every
+        {
+            return None;
+        }
+        let counts = self.building_counts(mine);
+        if counts.iter().sum::<usize>() >= self.k.build_cap {
+            return None;
+        }
+        let kinds = match self.k.build_mode {
+            1 => vec![Building::Village, Building::Farm],
+            2 => vec![Building::Wall, Building::Farm],
+            3 => vec![
+                Building::Quarry,
+                Building::Village,
+                Building::Farm,
+                Building::Wall,
+            ],
+            _ => vec![
+                Building::Village,
+                Building::Wall,
+                Building::Farm,
+                Building::Quarry,
+            ],
+        };
+        let mut staging: Option<(i64, usize)> = None;
+        for kind in kinds {
+            let under_kind_cap = match kind {
+                Building::Farm => counts[0] < self.k.max_farms,
+                Building::Village => counts[1] < self.k.max_villages,
+                Building::Quarry => counts[2] < self.k.max_quarries,
+                Building::Wall => counts[3] < self.k.max_walls,
+            };
+            if !under_kind_cap {
+                continue;
+            }
+            // A Village needs an existing Farm, while a wall-line strategy first bootstraps
+            // one Farm to earn the Resource its walls consume.
+            if kind == Building::Village && counts[0] == 0 {
+                continue;
+            }
+            if kind == Building::Wall && counts[0] == 0 && view.own_economy.resource == 0 {
+                continue;
+            }
+            let mut best: Option<(i64, usize)> = None;
+            for &i in mine {
+                let c = self.seen[i]?;
+                if c.building.is_some() || !self.rules.terrain_allowed(kind, geo.height[i]) {
+                    continue;
+                }
+                let near_quarry = geo.nbrs[i].iter().any(|&n| {
+                    self.seen[n].is_some_and(|c| {
+                        c.owner == Some(me) && c.building == Some(Building::Quarry)
+                    })
+                });
+                let cost = self.rules.build_cost(kind, near_quarry);
+                let keep = self
+                    .want(geo, me, i, usize::MAX)
+                    .unwrap_or(1)
+                    .max(self.k.build_reserve);
+                if view.own_economy.resource < cost.resource {
+                    continue;
+                }
+                let foreign = geo.nbrs[i]
+                    .iter()
+                    .filter(|&&n| self.seen[n].is_none_or(|c| c.owner != Some(me)))
+                    .count() as i64;
+                let enemy = geo.nbrs[i].iter().filter(|&&n| self.enemy(n, me)).count() as i64;
+                let adjacent_wall = geo.nbrs[i]
+                    .iter()
+                    .filter(|&&n| self.seen[n].is_some_and(|c| c.building == Some(Building::Wall)))
+                    .count() as i64;
+                let adjacent_farm = geo.nbrs[i]
+                    .iter()
+                    .filter(|&&n| {
+                        self.seen[n].is_some_and(|c| {
+                            c.owner == Some(me) && c.building == Some(Building::Farm)
+                        })
+                    })
+                    .count() as i64;
+                let valid_site = match kind {
+                    Building::Farm => true,
+                    Building::Village => adjacent_farm > 0,
+                    Building::Quarry => !mine.iter().any(|&q| {
+                        self.seen[q].is_some_and(|c| c.building == Some(Building::Quarry))
+                            && geo.hexes[q].distance(geo.hexes[i])
+                                < self.rules.quarry.min_friendly_distance
+                    }),
+                    Building::Wall => foreign > 0,
+                };
+                if !valid_site {
+                    continue;
+                }
+                let score = match kind {
+                    Building::Farm => c.troops as i64 - 80 * foreign + 20 * adjacent_farm,
+                    Building::Village => {
+                        c.troops as i64 + 200 * adjacent_farm - 100 * foreign
+                            + if near_quarry { 100 } else { 0 }
+                    }
+                    Building::Quarry => c.troops as i64 - 80 * foreign,
+                    Building::Wall => {
+                        c.troops as i64
+                            + 250 * enemy
+                            + 35 * foreign
+                            + 180 * adjacent_wall
+                            + 25 * geo.height[i] as i64
+                    }
+                };
+                if c.troops as u64 <= cost.troops as u64 + keep {
+                    if kind != Building::Wall
+                        && staging.map_or(true, |old| {
+                            (score, std::cmp::Reverse(i)) > (old.0, std::cmp::Reverse(old.1))
+                        })
+                    {
+                        staging = Some((score, i));
+                    }
+                    continue;
+                }
+                if best.map_or(true, |old| {
+                    (score, std::cmp::Reverse(i)) > (old.0, std::cmp::Reverse(old.1))
+                }) {
+                    best = Some((score, i));
+                }
+            }
+            if let Some((_, at)) = best {
+                self.last_build = view.tick;
+                return Some(Action::Build {
+                    at: geo.hexes[at],
+                    building: kind,
+                });
+            }
+        }
+        staging.filter(|_| mine.len() > 3).map(|(_, at)| {
+            self.last_build = view.tick;
+            Action::Gather {
+                target: geo.hexes[at],
+            }
+        })
+    }
+
     /// Relays the spare stack that buys the most border safety per step one hex toward
     /// the short border hex nearest to it. Returns the safety gain per step (milli).
     fn supply(&self, geo: &Geometry, me: PlayerId, mine: &[usize]) -> Option<(i64, Action)> {
@@ -512,7 +808,9 @@ impl Ridgeline {
         let mut short: Vec<(u64, u64)> = vec![(0, 0); slots];
         let mut queue = VecDeque::new();
         for &f in mine {
-            let Some(w) = self.want(geo, me, f, usize::MAX) else { continue };
+            let Some(w) = self.want(geo, me, f, usize::MAX) else {
+                continue;
+            };
             let have = self.seen[f].unwrap().troops as u64;
             if have >= w {
                 continue;
@@ -544,13 +842,22 @@ impl Ridgeline {
             let (have, w) = short[origin[i]];
             let gain = (Self::safety(have + spare, Some(w)) - Self::safety(have, Some(w)))
                 / dist[i] as i64;
-            if best.map_or(true, |b| (gain, std::cmp::Reverse(i)) > (b.0, std::cmp::Reverse(b.1))) {
+            if best.map_or(true, |b| {
+                (gain, std::cmp::Reverse(i)) > (b.0, std::cmp::Reverse(b.1))
+            }) {
                 best = Some((gain, i));
             }
         }
         let (gain, i) = best?;
         let troops = self.spare(geo, me, i) as u32;
-        Some((gain, Action::Move { from: geo.hexes[i], to: geo.hexes[toward[i]], troops }))
+        Some((
+            gain,
+            Action::Move {
+                from: geo.hexes[i],
+                to: geo.hexes[toward[i]],
+                troops,
+            },
+        ))
     }
 
     /// Nothing worth taking: pull troops toward the border hex facing the cheapest target.
@@ -562,7 +869,9 @@ impl Ridgeline {
         let mut contact = false;
         for &s in mine {
             for &t in &geo.nbrs[s] {
-                let Some(tc) = self.seen[t].filter(|c| c.owner != Some(me)) else { continue };
+                let Some(tc) = self.seen[t].filter(|c| c.owner != Some(me)) else {
+                    continue;
+                };
                 contact |= tc.owner.is_some();
                 let key = (tc.troops, s);
                 if cheapest.map_or(true, |c| key < c) {
@@ -598,6 +907,7 @@ impl Bot for Ridgeline {
 
     fn act(&mut self, view: &View) -> PlayerCommand {
         let geo = self.geo.take().unwrap_or_else(|| Geometry::new(view));
+        let management = self.management(view);
         if self.seen.is_empty() {
             self.seen = vec![None; geo.passable.len()];
         }
@@ -605,13 +915,19 @@ impl Bot for Ridgeline {
         let mut mine = vec![];
         for c in &view.visible_hexes {
             let Some(i) = geo.slot(c.hex) else { continue };
-            self.seen[i] = Some(Cell { owner: c.owner, troops: c.troops, wall_milli: c.wall_milli });
+            self.seen[i] = Some(Cell {
+                owner: c.owner,
+                troops: c.troops,
+                wall_milli: c.wall_milli,
+                building: c.building.as_ref().map(|b| b.kind),
+            });
             if c.owner == Some(me) {
                 mine.push(i);
             }
         }
         let sprinting = view.tick + self.k.sprint >= self.rules.max_ticks;
         let seal = (self.k.seal > 0 || self.k.backyard > 0).then(|| self.seal(&geo, me));
+        let build = self.build(view, &geo, me, &mine);
         let supply = self.supply(&geo, me, &mine);
         let (capture, blocked) = self.best_capture(&geo, me, &mine, sprinting, seal.as_ref());
         let capture = capture.filter(|c| sprinting || c.score >= self.k.min_score);
@@ -621,20 +937,33 @@ impl Bot for Ridgeline {
         let staging = blocked
             .filter(|b| !sprinting && mine.len() > 1 && b.score >= floor + self.k.stage)
             .and_then(|b| {
-                let contact =
-                    mine.iter().any(|&s| geo.nbrs[s].iter().any(|&n| self.enemy(n, me)));
-                self.stage_to(&geo, me, b.from, !contact && view.tick < self.k.gather_until)
+                let contact = mine
+                    .iter()
+                    .any(|&s| geo.nbrs[s].iter().any(|&n| self.enemy(n, me)));
+                self.stage_to(
+                    &geo,
+                    me,
+                    b.from,
+                    !contact && view.tick < self.k.gather_until,
+                )
             });
-        let action = match (supply, capture) {
-            (Some((gain, a)), _) if supply_tick && gain >= self.k.supply_min => a,
-            _ if staging.is_some() => staging.unwrap(),
-            (_, Some(c)) => {
-                Action::Move { from: geo.hexes[c.from], to: geo.hexes[c.to], troops: c.send }
-            }
-            (Some((gain, a)), None) if gain > 0 => a,
-            _ => self.regroup(&geo, me, &mine, view.tick).unwrap_or(Action::NoOp),
+        let action = match build {
+            Some(action) => action,
+            None => match (supply, capture) {
+                (Some((gain, a)), _) if supply_tick && gain >= self.k.supply_min => a,
+                _ if staging.is_some() => staging.unwrap(),
+                (_, Some(c)) => Action::Move {
+                    from: geo.hexes[c.from],
+                    to: geo.hexes[c.to],
+                    troops: c.send,
+                },
+                (Some((gain, a)), None) if gain > 0 => a,
+                _ => self
+                    .regroup(&geo, me, &mine, view.tick)
+                    .unwrap_or(Action::NoOp),
+            },
         };
         self.geo = Some(geo);
-        PlayerCommand::action(action)
+        PlayerCommand { management, action }
     }
 }
