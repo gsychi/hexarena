@@ -92,6 +92,8 @@ pub struct Ridgeline {
     gather_until: u32,
     keep_k: i64,
     keep_w: i64,
+    supply_every: i64,
+    supply_min: i64,
 }
 
 impl Ridgeline {
@@ -114,6 +116,8 @@ impl Ridgeline {
             gather_until: k("gather_until", 400) as u32,
             keep_k: k("keep_k", 40),
             keep_w: k("keep_w", 100),
+            supply_every: k("supply_every", 3),
+            supply_min: k("supply_min", 200),
         }
     }
 
@@ -304,6 +308,32 @@ impl Ridgeline {
         best
     }
 
+    /// The interior stack whose move onto a neighbouring enemy-facing border hex makes
+    /// that hex safest, with the keep gain (milli) it buys.
+    fn supply(&self, geo: &Geometry, me: PlayerId, mine: &[usize]) -> Option<(i64, Action)> {
+        let mut best: Option<(i64, u32, usize, usize)> = None;
+        for &f in mine {
+            let Some(m) = self.threat_mult(geo, me, f, usize::MAX) else { continue };
+            let ft = self.seen[f].unwrap().troops as u64;
+            let before = self.keep(ft, Some(m));
+            for &i in &geo.nbrs[f] {
+                let Some(ic) = self.seen[i].filter(|c| c.owner == Some(me) && c.troops >= 2) else {
+                    continue;
+                };
+                if geo.nbrs[i].iter().any(|&n| !self.owned(n, me)) {
+                    continue;
+                }
+                let gain = self.keep(ft + ic.troops as u64 - 1, Some(m)) - before;
+                let key = (gain, ic.troops, std::cmp::Reverse(i), std::cmp::Reverse(f));
+                if best.map_or(true, |b| key > (b.0, b.1, std::cmp::Reverse(b.2), std::cmp::Reverse(b.3))) {
+                    best = Some((gain, ic.troops, i, f));
+                }
+            }
+        }
+        let (gain, troops, i, f) = best?;
+        Some((gain, Action::Move { from: geo.hexes[i], to: geo.hexes[f], troops: troops - 1 }))
+    }
+
     /// Nothing affordable: pull troops toward the border hex facing the cheapest target.
     fn regroup(&self, geo: &Geometry, me: PlayerId, mine: &[usize], tick: u32) -> Option<Action> {
         if mine.len() < 2 {
@@ -372,9 +402,17 @@ impl Bot for Ridgeline {
                 mine.push(i);
             }
         }
-        let action = match self.best_capture(&geo, me, &mine) {
-            Some(c) => Action::Move { from: geo.hexes[c.from], to: geo.hexes[c.to], troops: c.send },
-            None => self.regroup(&geo, me, &mine, view.tick).unwrap_or(Action::NoOp),
+        let supply_tick = self.supply_every > 0 && view.tick % self.supply_every as u32 == 0;
+        let supply = supply_tick
+            .then(|| self.supply(&geo, me, &mine))
+            .flatten()
+            .filter(|(gain, _)| *gain >= self.supply_min);
+        let action = match (supply, self.best_capture(&geo, me, &mine)) {
+            (Some((_, a)), _) => a,
+            (None, Some(c)) => {
+                Action::Move { from: geo.hexes[c.from], to: geo.hexes[c.to], troops: c.send }
+            }
+            (None, None) => self.regroup(&geo, me, &mine, view.tick).unwrap_or(Action::NoOp),
         };
         self.geo = Some(geo);
         PlayerCommand::action(action)
