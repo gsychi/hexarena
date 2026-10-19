@@ -224,6 +224,8 @@ pub struct Wildcard {
     debug_on: bool,
     /// Thread CPU time per move, measured when `WILDCARD_CPU` is set: (moves, total ns, worst ns).
     cpu: Option<(u64, u64, u64)>,
+    /// Thread CPU time of the last move's phases when timing: ring core, danger, build.
+    phase: [u64; 3],
 }
 
 /// CPU time this thread has used, in nanoseconds.
@@ -283,6 +285,7 @@ impl Wildcard {
             calib_on: std::env::var("MASON_CALIB").is_ok(),
             debug_on: std::env::var("MASON_DEBUG").is_ok(),
             cpu: std::env::var("WILDCARD_CPU").is_ok().then_some((0, 0, 0)),
+            phase: [0; 3],
         }
     }
 
@@ -729,8 +732,15 @@ impl Bot for Wildcard {
         let start = thread_cpu_ns();
         let cmd = self.decide(view);
         let took = thread_cpu_ns().saturating_sub(start);
-        if took > 3_000_000 {
-            eprintln!("slow t{} {:.3} ms delegate {}", view.tick, took as f64 / 1e6, self.delegate.is_some());
+        if took > 2_500_000 {
+            let [core, danger, build] = self.phase.map(|p| p as f64 / 1e6);
+            eprintln!(
+                "slow t{} {:.3} ms delegate {} core {core:.3} danger {danger:.3} build {build:.3} land {}",
+                view.tick,
+                took as f64 / 1e6,
+                self.delegate.is_some(),
+                view.visible_hexes.iter().filter(|c| c.owner == Some(view.you)).count()
+            );
         }
         self.cpu = Some((n + 1, total + took, worst.max(took)));
         cmd
@@ -797,7 +807,11 @@ impl Wildcard {
         if let Some(r) = &view.rules {
             self.rules = r.clone();
         }
+        let timing = self.cpu.is_some();
+        let stamp = || if timing { thread_cpu_ns() } else { 0 };
+        let t0 = stamp();
         let mut cmd = self.inner.act(view);
+        let t1 = stamp();
         let m = self.map.take().unwrap_or_else(|| Map::new(view));
         if self.vclass.is_none() {
             let start = view.visible_hexes.iter().find(|c| c.owner == Some(view.you)).and_then(|c| m.slot(c.hex));
@@ -832,6 +846,7 @@ impl Wildcard {
         }
         let ring_capture = self.inner.chosen.is_some();
         let doomed = if self.k.demolish { self.endangered_village(view, &m, &cmd.action) } else { None };
+        let t2 = stamp();
         let mut built = false;
         if let (true, Some(vclass), false) = (open, self.vclass, ring_capture) {
             if let Some((roi, a)) = self.build(view, &m, vclass) {
@@ -841,6 +856,9 @@ impl Wildcard {
                     built = true;
                 }
             }
+        }
+        if timing {
+            self.phase = [t1 - t0, t2 - t1, stamp() - t2];
         }
         let turtle = self.turtling && (self.k.wall_from == 0 || view.tick < self.k.wall_from);
         let (from, cap, gap) = if turtle {
