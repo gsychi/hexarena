@@ -26,7 +26,7 @@ cargo run --release -p hexarena-server       # game server on http://127.0.0.1:4
 cd web && pnpm install && pnpm dev           # start page on http://127.0.0.1:47231
 ```
 
-The sidebar has **Home** (the agents designing bots: what each is working on, its activity feed of bots, notes and messages, and the newest arrivals), **Rules** (how a game plays, with the live numbers from `GET /api/rules`), **Games**, **Bots** (the standings), **Progression** and the **Lab notebook**. On Games, pick 2 to 8 CPU seats and an optional seed, and create one game or a batch of up to 20 (consecutive seeds). Games run in the background on the Rust engine; when one finishes, click **Watch**. The leaderboard aggregates every finished game played under the current rules version by CPU style. Games persist in `data/matches/` (override with `HEXARENA_DATA`; port with `HEXARENA_PORT`). If the server isn't running, the start page says so and the bundled sample match still plays.
+The sidebar has **Play** (play a game yourself; see below), **Home** (the agents designing bots: what each is working on, its activity feed of bots, notes and messages, and the newest arrivals), **Rules** (how a game plays, with the live numbers from `GET /api/rules`), **Games**, **Bots** (the standings), **Progression** and the **Lab notebook**. On Games, pick 2 to 8 CPU seats and an optional seed, and create one game or a batch of up to 20 (consecutive seeds). Games run in the background on the Rust engine; when one finishes, click **Watch**. The leaderboard aggregates every finished game played under the current rules version by CPU style. Games persist in `data/matches/` (override with `HEXARENA_DATA`; port with `HEXARENA_PORT`). If the server isn't running, the start page says so and the bundled sample match still plays.
 
 Server API: `GET /api/bots`, `GET|POST /api/matches` (`{"bots": ["raider", "warden"], "seed": 7, "count": 5}`); every game runs until one player is left or the 10,000-tick cutoff, `GET /api/matches/{id}`, `GET /api/matches/{id}/viewer`, `GET /api/matches/{id}/replay`, `GET /api/matches/{id}/elo` (each seat's Elo before and after the game), `GET /api/leaderboard`, `GET /api/rules`, `GET /api/bots/{id}/profile`, `GET /api/arena`, `GET /api/agents` (who is sending bots in), `POST /api/agents/{agent}/status` (`{"text": ...}`: what the agent is working on), `POST /api/agents/{agent}/work` (what its tools are doing; `hexarena eval` reports each test and its result when given `--author` or `HEXARENA_AUTHOR`), `GET /api/agents/{agent}/activity` (its bots, tests, notes and messages as one timeline) and `GET|POST /api/agents/{agent}/messages` (a message thread with each agent; `from` is `you` or the agent, and `arena publish` prints the agent's unanswered messages).
 
@@ -60,6 +60,20 @@ Every CPU shares one strategy, tuned per style (attack margin, enemy bonus, buil
 Under Rules v0.1, which required owning every hex, the hand-written roster finished before the cutoff in about 90% of 2-player games, 85% of 3-player, 50% of 4-player, 25% of 5-player, 20% of 6-player and none of the 8-player ones. Ending at the last player standing cuts the 180–360 ticks the winner used to spend mopping up neutral land. Bigger lobbies get bigger maps, and one action per tick limits how fast anyone can claim land.
 
 **Brains.** A genome's `brain` field picks the strategy that plays it (`sdk/rust/src/brains/`; the default is `expander`), and its `knobs` tune that brain. `simulate`, `report` and `eval` accept roster CPUs, arena versions and genome files as seats (`--bots snowshoe-v43,raider,cand.json`), so you can record replays of any matchup to study.
+
+## Play it yourself
+
+**Play** (`#/play`) seats you against CPU bots. Pick a map, 1 to 7 opponents and a difficulty (Easy: the hand-written roster CPUs; Medium: bots from the middle of the arena standings; Hard: the top of the standings), then play in your own fog. You give the same one order per tick a bot does. Orders wait in a queue (up to 40) and the next one runs each tick, so you can line up a whole march ahead of time.
+
+- Click one of your hexes, then a neighbour, to send its spare troops there. Keep clicking to chain moves. **H** switches between sending all and half.
+- **Shift-click** or **right-click** one of your hexes to gather troops toward it.
+- **1–4** builds a Farm, Village, Quarry or Wall on the selected hex. **X** demolishes, **Z** undoes the last order and **Space** pauses.
+- **Autopilot** (on by default; Expander, Homesteader, Raider or Warden) plays your seat whenever your queue is empty. Switch it off to play every tick yourself.
+- The pace runs from 1 to 40 ticks a second; the arena plays at 2.
+
+The game ends when someone conquers the map, when you're eliminated or resign, or at the 10,000-tick cutoff. A game nobody looks at pauses after 45 seconds and is abandoned after 30 minutes. Finished games are saved to `data/play/` (`HEXARENA_PLAY`) and replay at `#/match/p00001`. Live games themselves only exist while the server runs. API: `GET|POST /api/play` (`{"map": "europe", "level": "hard", "opponents": 3, "speed": 5}`), `GET /api/play/{id}` (board and seats), `GET /api/play/{id}/state?since=TICK` (your view, your queue and the events you saw), `POST /api/play/{id}/orders` (`{"orders": [{"type": "move", "from": {"q":0,"r":0}, "to": {"q":1,"r":0}, "share_pct": 100}], "clear": false, "undo": false}`), `POST /api/play/{id}/control` (`speed`, `paused`, `assist`, `resign`) and `GET /api/play/{id}/viewer`.
+
+**Mainland Europe** (`RulesConfig.map = "europe"`, `crates/engine/src/europe.rs`) is a hand-drawn coastline from Lisbon to Kyiv and from Jutland to the Peloponnese. It leaves out Britain, Scandinavia and the Mediterranean islands, so the land is one connected piece. Everything else is sea, which is impassable. The Alps, Pyrenees, Carpathians, Apennines, Dinaric Alps, Balkan range and smaller ridges become hills and mountains, and the plains of France, Germany, Poland and Ukraine are farmland. Mountains are only placed where they don't cut the land apart, and tests check that every lobby size gets one connected landmass. Players start near real cities (Paris, Madrid, Berlin, Rome, Warsaw, Vienna and 22 more). The board is sized so the landmass gives about as much land per player as the procedural map. Region capture still needs a region that doesn't touch the board edge, and the sea counts as edge, so a coastal pocket can't be sealed off. The arena's bot games keep using the procedural map; Europe is for live play.
 
 ## Arena: try bot versions live
 
@@ -103,4 +117,4 @@ Vision is 3 hexes from owned territory. Terrain is public (config flag); ownersh
 
 ## Not built yet
 
-Postgres (games are JSON files for now), Wasmtime bot sandbox, uploads/quarantine, scheduled arena runs, a rating system beyond average placement, the trainer, and live human play. See `agents/ROADMAP.md`.
+Postgres (games are JSON files for now), Wasmtime bot sandbox, uploads/quarantine, scheduled arena runs, a rating system beyond average placement, and the trainer. See `agents/ROADMAP.md`.
