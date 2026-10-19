@@ -489,6 +489,7 @@ async fn leaderboard(State(app): State<Shared>, Query(q): Query<BoardQuery>) -> 
         "top": ACTIVE_TOP,
         "retired": catalog.retired_reasons(),
         "bots": board.rows,
+        "retired_bots": board.retired_rows,
     }))
 }
 
@@ -496,7 +497,10 @@ struct Board {
     games: usize,
     arena_games: usize,
     league_games: usize,
+    /// Active bots, ranked among themselves.
     rows: Vec<standings::BotStanding>,
+    /// Retired bots, kept out of the standings. Ratings still count every game.
+    retired_rows: Vec<standings::BotStanding>,
 }
 
 fn board(app: &AppState, catalog: &Catalog, source: Source) -> Board {
@@ -555,8 +559,13 @@ fn board(app: &AppState, catalog: &Catalog, source: Source) -> Board {
     }
     games.sort_by_key(|(at, _)| *at);
     let games: Vec<Vec<SeatResult>> = games.into_iter().map(|(_, g)| g).collect();
-    let rows = standings(&games, |id| catalog.display_name(id));
-    Board { games: games.len(), arena_games, league_games, rows }
+    let (mut rows, retired_rows): (Vec<_>, Vec<_>) = standings(&games, |id| catalog.display_name(id))
+        .into_iter()
+        .partition(|r| !catalog.retired.contains(&r.bot));
+    for (i, r) in rows.iter_mut().enumerate() {
+        r.rank = i as u32 + 1;
+    }
+    Board { games: games.len(), arena_games, league_games, rows, retired_rows }
 }
 
 /// Retires every bot that has had a fair trial and sits outside the top [`ACTIVE_TOP`]
@@ -570,7 +579,7 @@ fn retire_outside_top(app: &AppState, catalog: &Catalog) {
         if row.games < TRIAL_GAMES || row.rank as usize <= ACTIVE_TOP {
             continue;
         }
-        if Some(&row.bot) == champion.as_ref() || catalog.retired.contains(&row.bot) {
+        if Some(&row.bot) == champion.as_ref() {
             continue;
         }
         let reason = format!(

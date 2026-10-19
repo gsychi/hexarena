@@ -27,8 +27,9 @@ function clock(ms: number, spanMs: number) {
  * rated on the shared standings, rejected league challengers on league games only. The
  * step line is the frontier, the best rating reached by anything published so far.
  */
-export function EloScatter({ league, rows, arena, top }: { league: League; rows: LeaderboardRow[]; arena: ArenaInfo | null; top: number }) {
-  const rated = new Map(rows.map((r) => [r.bot, r]))
+export function EloScatter({ league, rows, retiredRows, arena, top }: { league: League; rows: LeaderboardRow[]; retiredRows: LeaderboardRow[]; arena: ArenaInfo | null; top: number }) {
+  const everyone = [...rows, ...retiredRows]
+  const rated = new Map(everyone.map((r) => [r.bot, r]))
   const points: Point[] = []
   for (const g of league.generations) {
     const r = rated.get(g.id)
@@ -64,7 +65,7 @@ export function EloScatter({ league, rows, arena, top }: { league: League; rows:
     }
   }
   const placed = new Set(points.map((p) => p.key))
-  const roster = rows.filter((r) => !placed.has(r.bot) && !(arena?.entrants ?? []).some((e) => e.id === r.bot))
+  const roster = everyone.filter((r) => !placed.has(r.bot) && !(arena?.entrants ?? []).some((e) => e.id === r.bot))
   const cut = rows.length >= top ? rows[top - 1].elo : null
 
   const t0 = Math.min(...points.map((p) => p.t)), t1 = Math.max(now, t0 + 60_000)

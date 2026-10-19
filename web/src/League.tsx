@@ -267,7 +267,7 @@ export function LeaguePage({ onBack, onOpen }: { onBack: () => void; onOpen: (id
                 </CardDescription>
               </CardHeader>
               <CardContent className="flex flex-col gap-3">
-                {board ? <EloScatter league={league} rows={board.bots} arena={arena} top={arena?.top ?? board.top ?? 20} /> : <div className="flex items-center gap-2 text-sm text-muted-foreground"><Loader2 className="size-4 animate-spin" />Loading ratings…</div>}
+                {board ? <EloScatter league={league} rows={board.bots} retiredRows={board.retired_bots ?? []} arena={arena} top={arena?.top ?? board.top ?? 20} /> : <div className="flex items-center gap-2 text-sm text-muted-foreground"><Loader2 className="size-4 animate-spin" />Loading ratings…</div>}
                 <Legend items={[['#fbbf24', 'League generation'], ['#a78bfa', 'Arena version'], ['#64748b', 'Rejected challenger'], ['#4ade80', 'Frontier (best so far)']]} />
               </CardContent>
             </Card>

@@ -61,7 +61,7 @@ export interface LeaderboardRow {
   avg_normalized: number
   history: number[]
 }
-export interface Leaderboard { games: number; rules_version: string; start_elo: number; k: number; top?: number; retired?: Record<string, string>; bots: LeaderboardRow[] }
+export interface Leaderboard { games: number; rules_version: string; start_elo: number; k: number; top?: number; retired?: Record<string, string>; bots: LeaderboardRow[]; retired_bots?: LeaderboardRow[] }
 
 export interface ArenaEntrant {
   id: string
