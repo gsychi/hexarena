@@ -81,6 +81,9 @@ struct Knobs {
     quarry: bool,
     /// Lattice sites (x10 troops saved per troop paid) a Quarry must discount to be built.
     quarry_min_x10: u64,
+    /// Troops a tick a Quarry adds to each adjacent Village (the frozen binary can't read
+    /// it from newer live rules, so it is a knob).
+    quarry_village: u64,
 }
 
 impl Knobs {
@@ -96,6 +99,7 @@ impl Knobs {
             rush_roi: k("rush_roi", 60) as u64,
             quarry: k("quarry", 0) > 0,
             quarry_min_x10: k("quarry_min_x10", 20) as u64,
+            quarry_village: k("quarry_village", 0) as u64,
         }
     }
 }
@@ -203,7 +207,8 @@ impl Pangolin {
                 let partners =
                     m.nbrs[i].iter().filter(|&&n| site[n] == Site::Empty && self.farmable(m, n)).count() as u64;
                 let rate = 1000 * (self.rules.village.bonus as u64
-                    + self.rules.village.farm_bonus as u64 * count(Building::Farm))
+                    + self.rules.village.farm_bonus as u64 * count(Building::Farm)
+                    + self.k.quarry_village * count(Building::Quarry))
                     + fut * partners;
                 options.push((Building::Village, rate));
             } else if self.farmable(m, i) {
@@ -230,7 +235,16 @@ impl Pangolin {
                         })
                         .sum();
                     let c = cost(Building::Quarry, i) as u64;
-                    if saved * 10 >= c * self.k.quarry_min_x10 {
+                    let qv = self.k.quarry_village;
+                    if qv > 0 {
+                        let vsites = m.nbrs[i]
+                            .iter()
+                            .filter(|&&n| site[n] == Site::Empty && m.colour(n) == vclass)
+                            .count() as u64;
+                        // A troop saved on a later build counts like a troop a tick for 100 ticks.
+                        let rate = 1000 * qv * count(Building::Village) + fut * qv * vsites + saved * 10;
+                        options.push((Building::Quarry, rate));
+                    } else if saved * 10 >= c * self.k.quarry_min_x10 {
                         options.push((Building::Quarry, self.k.rush_roi * c));
                     }
                 }
