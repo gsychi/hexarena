@@ -25,6 +25,9 @@ const GENES: &[Gene] = &[
     Gene { name: "kill_value_pct", min: 0, max: 200, get: |p| p.kill_value_pct, set: |p, v| p.kill_value_pct = v },
     Gene { name: "grab_every", min: 0, max: 10, get: |p| p.grab_every as i64, set: |p, v| p.grab_every = v as u32 },
     Gene { name: "settle_every", min: 0, max: 6, get: |p| p.settle_every as i64, set: |p, v| p.settle_every = v as u32 },
+    Gene { name: "endgame_ticks", min: 0, max: 3000, get: |p| p.endgame_ticks as i64, set: |p, v| p.endgame_ticks = v as u32 },
+    Gene { name: "endgame_margin_pct", min: 100, max: 400, get: |p| p.endgame_margin_pct as i64, set: |p, v| p.endgame_margin_pct = v as u64 },
+    Gene { name: "endgame_enemy_bonus", min: -40, max: 160, get: |p| p.endgame_enemy_bonus, set: |p, v| p.endgame_enemy_bonus = v },
 ];
 
 const KINDS: [Building; 4] = [Building::Farm, Building::Village, Building::Quarry, Building::Wall];
