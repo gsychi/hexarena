@@ -1,8 +1,8 @@
 //! Every bot a seat can name: the hand-written roster CPUs and the arena versions that
-//! people and agents publish.
+//! people and agents publish. Roster CPUs are never retired: they are the benchmarks
+//! every published version is rated against.
 
 use hexarena_arena::entrants::{author_models, load_all, retired_others, with_model, Entrant, Retirement};
-use crate::standings::ANCHORS;
 use hexarena_sdk::{roster, style, Style};
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
@@ -23,8 +23,8 @@ impl Catalog {
             e.name = with_model(&e.name, models.get(&e.author).map(String::as_str));
         }
         let mut others_retired = retired_others(arena_dir);
-        for a in ANCHORS {
-            others_retired.remove(a);
+        for s in roster() {
+            others_retired.remove(&s.id);
         }
         let mut retired: BTreeSet<String> = others_retired.keys().cloned().collect();
         retired.extend(entrants.iter().filter(|e| e.retired).map(|e| e.id.clone()));

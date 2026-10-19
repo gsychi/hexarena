@@ -2,41 +2,43 @@
 //!
 //! Each finished free-for-all is scored as every pair of seats played a head-to-head
 //! game: the better place wins, an equal place is a draw. Seats with the same CPU
-//! style are not compared with each other. A seat's rating change is
-//! `K / (N - 1) * sum(actual - expected)` over its opponents, and a style with
-//! several seats in one game takes the average of their changes. A style's first
-//! [`PROVISIONAL_GAMES`] games use [`PROVISIONAL_K`] times K, and every game is weighted
-//! by [`game_weight`]: one ended before the cutoff counts N times a cutoff game. Ratings
-//! move only after the whole game is scored, and games are applied oldest first.
+//! style are not compared with each other. Every pairwise result is weighted by
+//! [`game_weight`] (one ended before the cutoff counts N times a cutoff game) and the
+//! ratings are the maximum-likelihood Elo of all of them at once (a Bradley-Terry fit),
+//! so a rating says how often a bot really finishes ahead of each opponent, however
+//! many games ago they met. After each game, oldest first, the bots in it take one
+//! Newton step on everything played so far, which is the curve a profile shows; the
+//! final ratings are the fit run to convergence.
 
 use serde::Serialize;
 use std::collections::BTreeMap;
 
 pub const START_ELO: f64 = 1500.0;
-/// Reference bots whose rating never moves: the original hand-written Ridgeline and
-/// Relay. One plays in every self-play game, so ratings measure strength against a
-/// fixed yardstick and rise as bots get better, instead of only ranking the current
-/// field against itself.
-pub const ANCHORS: [&str; 2] = ["ridgeline", "relay"];
+/// The first CPUs ever written, the yardstick every rating is measured against. Their
+/// average is pinned at [`START_ELO`] and every other rating is relative to them. One
+/// plays in every self-play game, so ratings rise as bots get better instead of only
+/// ranking the field against itself.
+pub const ANCHORS: [&str; 4] = ["expander", "homesteader", "raider", "warden"];
 
 pub fn is_anchor(bot: &str) -> bool {
     ANCHORS.contains(&bot)
 }
-pub const K: f64 = 32.0;
-/// A bot's first games move its rating this many times as far, so a new version reaches
-/// its real level before it can be retired for its ranking.
-pub const PROVISIONAL_K: f64 = 3.0;
-pub const PROVISIONAL_GAMES: u32 = 20;
+/// Weight of the imaginary draws every bot is given against a [`START_ELO`] player, so a
+/// bot with a handful of games gets a sensible rating rather than an infinite one. One
+/// cutoff game against seven bots weighs 1.75.
+const PRIOR: f64 = 2.0;
+/// Most one game's step can move a rating.
+const MAX_STEP: f64 = 200.0;
+const FINAL_ITERATIONS: usize = 200;
 /// Games before a rating counts as settled. One 8-player place varies by about 2.2
 /// places, so 50 games pin the average to about +-0.3 places (one standard error),
 /// enough to tell apart bots half a place to a place apart.
 pub const RATED_GAMES: u32 = 50;
 const HISTORY: usize = 60;
 
-/// How far a finished game moves ratings, as a multiple of K. A game someone ended
-/// before the cutoff counts as many times as a cutoff game as there were players, so
-/// closing out an 8-player lobby is worth 8 times coasting to the cutoff in one. The
-/// ended weight stays at 2, so ratings are as steady as before when most games end.
+/// How much each pairwise result of a game counts. A game someone ended before the
+/// cutoff counts as many times as a cutoff game as there were players, so closing out an
+/// 8-player lobby is worth 8 times coasting to the cutoff in one.
 pub fn game_weight(ended: bool, players: usize) -> f64 {
     const ENDED: f64 = 2.0;
     if ended { ENDED } else { ENDED / players.max(1) as f64 }
@@ -121,14 +123,76 @@ fn expected(r: f64, opp: f64) -> f64 {
     1.0 / (1.0 + 10f64.powf((opp - r) / 400.0))
 }
 
+/// Every pairwise result so far and the ratings fitted to them, by bot index.
+#[derive(Default)]
+struct Fit {
+    ids: BTreeMap<String, usize>,
+    elo: Vec<f64>,
+    /// Opponent index to (weighted score, weight) against it.
+    vs: Vec<BTreeMap<usize, (f64, f64)>>,
+}
+
+impl Fit {
+    fn id(&mut self, bot: &str) -> usize {
+        if let Some(&i) = self.ids.get(bot) {
+            return i;
+        }
+        let i = self.elo.len();
+        self.ids.insert(bot.to_string(), i);
+        self.elo.push(START_ELO);
+        self.vs.push(BTreeMap::new());
+        i
+    }
+
+    /// The Newton step for one rating, every other rating held fixed.
+    fn step(&self, i: usize) -> f64 {
+        let s = std::f64::consts::LN_10 / 400.0;
+        let e0 = expected(self.elo[i], START_ELO);
+        let (mut g, mut h) = (PRIOR * (0.5 - e0), PRIOR * e0 * (1.0 - e0));
+        for (&j, &(score, w)) in &self.vs[i] {
+            let e = expected(self.elo[i], self.elo[j]);
+            g += score - w * e;
+            h += w * e * (1.0 - e);
+        }
+        (g / (s * h)).clamp(-MAX_STEP, MAX_STEP)
+    }
+
+    /// Shifts every rating so the anchors that have played average [`START_ELO`].
+    fn pin(&mut self) {
+        let a: Vec<f64> = ANCHORS.iter().filter_map(|b| self.ids.get(*b)).map(|&i| self.elo[i]).collect();
+        if a.is_empty() {
+            return;
+        }
+        let off = START_ELO - a.iter().sum::<f64>() / a.len() as f64;
+        self.elo.iter_mut().for_each(|r| *r += off);
+    }
+
+    fn converge(&mut self) {
+        for _ in 0..FINAL_ITERATIONS {
+            let mut most: f64 = 0.0;
+            for i in 0..self.elo.len() {
+                let d = self.step(i);
+                self.elo[i] += d;
+                most = most.max(d.abs());
+            }
+            self.pin();
+            if most < 1e-4 {
+                break;
+            }
+        }
+    }
+}
+
 /// `games` must be in chronological order. `name` maps a style id to its display name.
 pub fn standings(games: &[Vec<SeatResult>], name: impl Fn(&str) -> String) -> Vec<BotStanding> {
     let mut rows: BTreeMap<String, BotStanding> = BTreeMap::new();
+    let mut fit = Fit::default();
     for (gi, game) in games.iter().enumerate() {
         let n = game.len();
         if n < 2 {
             continue;
         }
+        let idx: Vec<usize> = game.iter().map(|s| fit.id(s.bot)).collect();
         for s in game {
             rows.entry(s.bot.to_string())
                 .or_insert_with(|| BotStanding {
@@ -140,10 +204,8 @@ pub fn standings(games: &[Vec<SeatResult>], name: impl Fn(&str) -> String) -> Ve
                     ..Default::default()
                 });
         }
-        let rating: Vec<f64> = game.iter().map(|s| rows[s.bot].elo).collect();
-        let mut delta: BTreeMap<&str, (f64, u32)> = BTreeMap::new();
         for (i, a) in game.iter().enumerate() {
-            let mut d = 0.0;
+            let w = game_weight(a.ended, n);
             for (j, b) in game.iter().enumerate() {
                 if i == j || a.bot == b.bot {
                     continue;
@@ -155,18 +217,24 @@ pub fn standings(games: &[Vec<SeatResult>], name: impl Fn(&str) -> String) -> Ve
                 } else {
                     0.0
                 };
-                d += actual - expected(rating[i], rating[j]);
+                let e = fit.vs[idx[i]].entry(idx[j]).or_insert((0.0, 0.0));
+                e.0 += w * actual;
+                e.1 += w;
             }
-            let k = if rows[a.bot].games < PROVISIONAL_GAMES { K * PROVISIONAL_K } else { K };
-            let k = k * game_weight(a.ended, n);
-            let e = delta.entry(a.bot).or_insert((0.0, 0));
-            e.0 += k / (n - 1) as f64 * d;
-            e.1 += 1;
         }
-        for (bot, (sum, seats)) in delta {
+        let mut seated: Vec<usize> = idx.clone();
+        seated.sort_unstable();
+        seated.dedup();
+        let before: Vec<f64> = seated.iter().map(|&i| fit.elo[i]).collect();
+        for &i in &seated {
+            fit.elo[i] += fit.step(i);
+        }
+        fit.pin();
+        for (k, &i) in seated.iter().enumerate() {
+            let bot = game[idx.iter().position(|&x| x == i).unwrap()].bot;
             let r = rows.get_mut(bot).unwrap();
-            r.elo_change = if is_anchor(bot) { 0.0 } else { sum / seats as f64 };
-            r.elo += r.elo_change;
+            r.elo = fit.elo[i];
+            r.elo_change = r.elo - before[k];
             r.peak_elo = r.peak_elo.max(r.elo);
             r.games += 1;
             r.history.push(r.elo);
@@ -193,6 +261,18 @@ pub fn standings(games: &[Vec<SeatResult>], name: impl Fn(&str) -> String) -> Ve
             if let Some(ms) = s.slowest_ms {
                 r.slowest_ms = Some(r.slowest_ms.unwrap_or(0.0).max(ms));
             }
+        }
+    }
+    fit.converge();
+    for (bot, &i) in &fit.ids {
+        let Some(r) = rows.get_mut(bot) else { continue };
+        r.elo = fit.elo[i];
+        r.peak_elo = r.peak_elo.max(r.elo);
+        if let Some(h) = r.history.last_mut() {
+            *h = r.elo;
+        }
+        if let Some(t) = r.timeline.last_mut() {
+            t.1 = r.elo;
         }
     }
     let mut out: Vec<BotStanding> = rows
@@ -249,20 +329,29 @@ mod tests {
         let t = standings(&games, |s| s.to_string());
         let by = |b: &str| t.iter().find(|r| r.bot == b).unwrap();
         assert!(by("a").elo > START_ELO && by("c").elo < START_ELO);
-        assert!((by("b").elo - START_ELO).abs() < 1e-9);
+        assert!((by("b").elo - START_ELO).abs() < 1e-3);
         let total: f64 = t.iter().map(|r| r.elo).sum();
-        assert!((total - 3.0 * START_ELO).abs() < 1e-9);
+        assert!((total - 3.0 * START_ELO).abs() < 1e-3);
         assert_eq!(t[0].rank, 1);
         assert_eq!(t[0].bot, "a");
     }
 
     #[test]
-    fn anchors_never_move_so_beating_them_raises_the_scale() {
-        let games: Vec<_> = (0..30).map(|_| vec![seat("a", 1.0), seat("b", 2.0), seat("ridgeline", 3.0)]).collect();
+    fn anchors_average_stays_put_so_beating_them_raises_the_scale() {
+        let games: Vec<_> = (0..30)
+            .flat_map(|_| {
+                [
+                    vec![seat("a", 1.0), seat("b", 2.0), seat("warden", 3.0)],
+                    vec![seat("a", 1.0), seat("b", 2.0), seat("expander", 3.0)],
+                    vec![seat("expander", 1.0), seat("warden", 2.0)],
+                ]
+            })
+            .collect();
         let t = standings(&games, |s| s.to_string());
-        let by = |b: &str| t.iter().find(|r| r.bot == b).unwrap();
-        assert_eq!(by("ridgeline").elo, START_ELO);
-        assert!(by("a").elo > START_ELO && by("b").elo > START_ELO);
+        let by = |b: &str| t.iter().find(|r| r.bot == b).unwrap().elo;
+        assert!(((by("warden") + by("expander")) / 2.0 - START_ELO).abs() < 1e-9);
+        assert!(by("expander") > by("warden"));
+        assert!(by("a") > START_ELO && by("b") > START_ELO);
     }
 
     #[test]
@@ -300,7 +389,7 @@ mod tests {
     }
 
     #[test]
-    fn closing_a_game_out_moves_ratings_lobby_size_times_as_far() {
+    fn closing_a_game_out_counts_lobby_size_cutoff_games() {
         let lobby = |ended: bool| -> Vec<SeatResult<'static>> {
             ["a", "b", "c", "d", "e", "f", "g", "h"]
                 .iter()
@@ -308,12 +397,26 @@ mod tests {
                 .map(|(i, b)| SeatResult { players: 8, ended, ..seat(b, i as f64 + 1.0) })
                 .collect()
         };
-        let gain = |ended: bool| {
-            let t = standings(&[lobby(ended)], |s| s.to_string());
+        let gain = |games: Vec<Vec<SeatResult<'static>>>| {
+            let t = standings(&games, |s| s.to_string());
             t.iter().find(|r| r.bot == "a").unwrap().elo - START_ELO
         };
-        assert!(gain(false) > 0.0);
-        assert!((gain(true) / gain(false) - 8.0).abs() < 1e-9);
+        let ended = gain(vec![lobby(true)]);
+        assert!(ended > gain(vec![lobby(false)]) && gain(vec![lobby(false)]) > 0.0);
+        assert!((ended - gain((0..8).map(|_| lobby(false)).collect())).abs() < 1e-3);
+    }
+
+    #[test]
+    fn rating_matches_how_often_a_bot_beats_the_anchors() {
+        let games: Vec<_> = (0..50)
+            .flat_map(|_| (0..10).map(|i| if i < 9 { vec![seat("a", 1.0), seat("expander", 2.0)] } else { vec![seat("expander", 1.0), seat("a", 2.0)] }))
+            .map(|g| g.into_iter().map(|s| SeatResult { players: 2, ..s }).collect::<Vec<_>>())
+            .collect();
+        let t = standings(&games, |s| s.to_string());
+        let by = |b: &str| t.iter().find(|r| r.bot == b).unwrap().elo;
+        assert!((by("expander") - START_ELO).abs() < 1e-6);
+        let nine_in_ten = START_ELO + 400.0 * 9f64.log10();
+        assert!((by("a") - nine_in_ten).abs() < 15.0, "{}", by("a"));
     }
 
     #[test]
@@ -339,7 +442,7 @@ mod tests {
             .collect();
         let t = standings(&games, |s| s.to_string());
         let h = &t.iter().find(|r| r.bot == "a").unwrap().history;
-        assert!(h[1] - h[0] > h[5] - h[4]);
+        assert!(h[1] - h[0] > h[4] - h[3]);
         assert_eq!(h.len(), 6);
     }
 }

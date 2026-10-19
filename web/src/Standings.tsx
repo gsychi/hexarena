@@ -47,7 +47,7 @@ function Row({ r, start, retired, anchor, need, onBot }: { r: LeaderboardRow; st
           <span className="inline-flex items-center gap-2"><BotAvatar id={r.bot} name={r.name} size={24} className="shrink-0" />{r.name}</span>
         </button>
         {retired && <span className="ml-1.5 text-[10px] uppercase tracking-wide text-red-300" title={retired}>retired</span>}
-        {anchor && <span className="ml-1.5 text-[10px] uppercase tracking-wide text-sky-300" title={`Fixed at ${Math.round(r.elo)}: the yardstick every rating is measured against`}>anchor</span>}
+        {anchor && <span className="ml-1.5 text-[10px] uppercase tracking-wide text-sky-300" title="One of the first four CPUs ever written. Their average is pinned at 1500: the yardstick every rating is measured against">anchor</span>}
         {!r.rated && !anchor && <span className="ml-1.5 text-[10px] uppercase tracking-wide text-amber-300" title={`Rating still settling: ${r.games} of ${need} games`}>provisional</span>}
       </TableCell>
       <TableCell className="text-right">
@@ -83,10 +83,11 @@ export function Standings({ board, onBot }: { board: Leaderboard | null; onBot: 
         <CardTitle className="flex items-center gap-2"><Trophy className="size-4 text-amber-300" />Standings</CardTitle>
         <CardDescription>
           Elo rating for each CPU style across {board?.games ?? 0} finished game{board?.games === 1 ? '' : 's'} under rules {board?.rules_version ?? 'v0.6'}. Everyone starts at {board?.start_elo ?? 1500}.
-          The original hand-written {board?.anchors?.map((a) => a.charAt(0).toUpperCase() + a.slice(1)).join(' and ') ?? 'Ridgeline and Relay'} are <span className="text-sky-300">anchors</span>: fixed at {board?.anchor_elo ?? 1500} and seated in every self-play game, so ratings measure strength against a fixed yardstick and climb as bots get better. 1900 means beating an anchor about 9 times in 10.
-          Each free-for-all counts as a head-to-head result between every pair of players, where the better place wins, and ratings update after every game (K = {board?.k ?? 32}). Win % and top half % are per seat; top half means finishing in the top half of the lobby (1st–2nd of 4, 1st–3rd of 6).
-          A rating is <span className="text-amber-300">provisional</span> until the bot has played {board?.rated_games ?? 50} games: one 8-player result swings by about two places, so it takes about 50 to pin the average place down to ±0.3. The arena schedules the bots with the fewest games first, and a bot's first 20 games move its Elo three times as far.
-          Any rated bot outside the top {board?.top ?? 20} is retired from the self-playing arena and leaves this table{board?.retired_bots?.length ? ` (${board.retired_bots.length} retired so far)` : ''}. Retired bots stay playable from the lineup picker.
+          The first four CPUs ever written, {(board?.anchors ?? ['expander', 'homesteader', 'raider', 'warden']).map((a) => a.charAt(0).toUpperCase() + a.slice(1)).join(', ')}, are the <span className="text-sky-300">anchors</span>: their average is pinned at {board?.anchor_elo ?? 1500} and one of them plays in every self-play game, so every rating says how far a bot has come since the very first bots. 1900 means finishing ahead of a typical anchor about 9 times in 10.
+          Every hand-written CPU, from the originals to Ridgeline and Relay, keeps playing and is never retired, so the whole lineage stays on one scale.
+          Each free-for-all counts as a head-to-head result between every pair of players, where the better place wins, and the ratings are fitted to all of those results at once (maximum-likelihood Elo), so a rating says how often a bot really finishes ahead of each opponent. A game someone ends before the cutoff counts as much as eight that reach it. Win % and top half % are per seat; top half means finishing in the top half of the lobby (1st–2nd of 4, 1st–3rd of 6).
+          A rating is <span className="text-amber-300">provisional</span> until the bot has played {board?.rated_games ?? 50} games: one 8-player result swings by about two places, so it takes about 50 to pin the average place down to ±0.3. The arena schedules the bots with the fewest games first.
+          Any rated arena version outside the top {board?.top ?? 20} is retired from the self-playing arena and leaves this table{board?.retired_bots?.length ? ` (${board.retired_bots.length} retired so far)` : ''}. Retired bots stay playable from the lineup picker.
         </CardDescription>
       </CardHeader>
       <CardContent>
