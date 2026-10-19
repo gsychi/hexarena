@@ -175,7 +175,7 @@ fn main() {
                         accs[p].gather += 1;
                         last_gather[p] = Some(tick);
                     }
-                    Action::Build { .. } => accs[p].build += 1,
+                    Action::Build { .. } | Action::Demolish { .. } => accs[p].build += 1,
                     Action::Move { from, to, troops } => {
                         if pre.cell(*to).unwrap().owner == Some(p as PlayerId) {
                             accs[p].move_own += 1;

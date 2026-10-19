@@ -91,7 +91,7 @@ impl Bot for Settler {
         }
         let busy = match &cmd.action {
             Action::Move { from, .. } => Some(*from),
-            Action::Gather { .. } | Action::Build { .. } => return cmd,
+            Action::Gather { .. } | Action::Build { .. } | Action::Demolish { .. } => return cmd,
             Action::NoOp => None,
         };
         if let Some(at) = self.site(view, busy) {

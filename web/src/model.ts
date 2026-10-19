@@ -8,6 +8,7 @@ export type GameEvent =
   | { type: 'repelled'; attacker: number; at: Hex; attackers_lost: number }
   | { type: 'surrendered'; capturer: number; from: number; hexes: Hex[] }
   | { type: 'built'; player: number; at: Hex; building: string }
+  | { type: 'demolished'; player: number; at: Hex; building: string }
   | { type: 'link_changed'; player: number; at: Hex }
   | { type: 'links_broken'; at: Hex }
   | { type: 'eliminated'; player: number }
@@ -38,6 +39,8 @@ export interface Rules {
   village: { troop_cost: number; resource_cost: number; bonus: number; farm_bonus: number }
   quarry: { troop_cost: number; resource_cost: number; allowed_heights: number[]; min_friendly_distance: number; discount_radius: number; troop_discount_pct: number; resource_discount: number; village_bonus?: number }
   wall: { troop_cost: number; resource_cost: number; max_links: number; defense_milli_by_links: number[]; relink_cooldown: number }
+  /** v0.7+: Go-style capture of any region sealed off by one player's land. */
+  region_capture?: boolean
 }
 
 export interface KindReport {
