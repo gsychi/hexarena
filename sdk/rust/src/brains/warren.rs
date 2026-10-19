@@ -216,6 +216,9 @@ struct BuildKnobs {
     /// Lattice builds need every hex within this distance - 1 to be interior (1 = the
     /// hex itself is interior, 2 = its neighbours are too).
     econ_depth: u32,
+    /// Lattice Quarries: one per this many Villages (0 = only the `quarries` count, built
+    /// outside the lattice), ranked with the lattice by income per troop.
+    quarry_per: usize,
 }
 
 impl BuildKnobs {
@@ -247,6 +250,7 @@ impl BuildKnobs {
             econ: k("econ", 0) > 0,
             econ_pot: k("econ_pot", 5),
             econ_depth: k("econ_depth", 1) as u32,
+            quarry_per: k("quarry_per", 0) as usize,
         }
     }
 }
@@ -756,6 +760,8 @@ impl Warren {
             let own_kind = |h: Hex| mine.iter().find(|m| m.hex == h).map(|m| kind_of(m));
             let farm_ok = |h: Hex| self.rules.terrain_allowed(Building::Farm, height(h));
             let village_site = |h: Hex| (h.q - h.r).rem_euclid(3) == 0 || !farm_ok(h);
+            let quarries_built = count(Building::Quarry);
+            let quarry_cap = if self.b.quarry_per > 0 { count(Building::Village) / self.b.quarry_per + 1 } else { 0 };
             let deep = |h: Hex| interior(h) && (self.b.econ_depth < 2 || h.neighbors().iter().all(|&n| interior(n)));
             let site = empty()
                 .filter(|c| deep(c.hex))
@@ -763,11 +769,34 @@ impl Warren {
                     let nb = c.hex.neighbors();
                     let (kind, value) = if village_site(c.hex) {
                         let farms = nb.iter().filter(|&&n| own_kind(n) == Some(Some(Building::Farm))).count();
+                        let quarries =
+                            nb.iter().filter(|&&n| own_kind(n) == Some(Some(Building::Quarry))).count();
                         let open = nb
                             .iter()
                             .filter(|&&n| own_kind(n) == Some(None) && !village_site(n))
                             .count();
-                        (Building::Village, 10 * (1 + farms as i64) + self.b.econ_pot * open as i64)
+                        let village = 10 * (1 + farms as i64 + (quarries as u32 * self.rules.quarry.village_bonus) as i64)
+                            + self.b.econ_pot * open as i64;
+                        let villages_near = nb
+                            .iter()
+                            .filter(|&&n| own_kind(n) == Some(Some(Building::Village)))
+                            .count() as i64;
+                        let sites = nb.iter().filter(|&&n| own_kind(n) == Some(None) && village_site(n)).count() as i64;
+                        let quarry = 10 * self.rules.quarry.village_bonus as i64 * villages_near
+                            + self.b.econ_pot * sites;
+                        let quarry_ok = quarry_cap > quarries_built
+                            && self.rules.terrain_allowed(Building::Quarry, height(c.hex))
+                            && !mine.iter().any(|q| {
+                                kind_of(q) == Some(Building::Quarry)
+                                    && q.hex.distance(c.hex) < self.rules.quarry.min_friendly_distance
+                            });
+                        let q_cost = self.rules.build_cost(Building::Quarry, false).troops.max(1) as i64;
+                        let v_cost = self.rules.build_cost(Building::Village, near_quarry(c.hex)).troops.max(1) as i64;
+                        if quarry_ok && quarry * v_cost > village * q_cost {
+                            (Building::Quarry, quarry)
+                        } else {
+                            (Building::Village, village)
+                        }
                     } else {
                         let villages =
                             nb.iter().filter(|&&n| own_kind(n) == Some(Some(Building::Village))).count();
