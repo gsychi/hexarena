@@ -1,0 +1,20 @@
+{
+  "brain": "mosaic",
+  "knobs": {
+    "doctrine": 1,
+    "opening_land": 6,
+    "margin_pct": 128,
+    "endgame_margin_pct": 104,
+    "guard": 6,
+    "hold_pct": 16,
+    "neutral": 115,
+    "enemy": 55,
+    "prey": 190,
+    "wave_cycle": 40,
+    "wave_charge": 4,
+    "logistics_min": 40,
+    "space": 5,
+    "hug": 18,
+    "cost": 22
+  }
+}
