@@ -3,7 +3,7 @@
 
 use hexarena_engine::{build_replay, State};
 use hexarena_protocol::*;
-use hexarena_sdk::{Bot, Expander, Style};
+use hexarena_sdk::{brains, Bot, Style};
 use std::collections::BTreeMap;
 
 /// Derives the three independent seeds from one match seed.
@@ -68,8 +68,8 @@ fn run(seed: u64, styles: &[Style], max_ticks: u32, record: bool) -> Result<Play
     let mut st = State::new(s, seat_names(styles))?;
     let mut bots: Vec<Box<dyn Bot>> = styles
         .iter()
-        .map(|s| Box::new(Expander::new(s.clone())) as Box<dyn Bot>)
-        .collect();
+        .map(|s| brains::build(s.clone()))
+        .collect::<Result<_, _>>()?;
     let (mut commands, mut events) = (vec![], vec![]);
     while !st.is_over() && st.tick < max_ticks {
         let cmds: TickCommands = (0..styles.len() as PlayerId)

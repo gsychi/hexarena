@@ -1,9 +1,11 @@
 //! Hexarena bot SDK. A bot sees only a fog-filtered `View` and returns a `PlayerCommand`
 //! (free management commands plus at most one main action) each tick.
 
+pub mod brains;
+
 pub use hexarena_protocol::*;
 use serde::{Deserialize, Serialize};
-use std::collections::{HashMap, VecDeque};
+use std::collections::{BTreeMap, HashMap, VecDeque};
 
 pub trait Bot {
     fn name(&self) -> &str;
@@ -69,6 +71,25 @@ pub struct BotParams {
     pub endgame_margin_pct: u64,
     /// Endgame score bonus for taking a rival's hex, which also lowers their land.
     pub endgame_enemy_bonus: i64,
+    /// Which strategy plays these params; see [`brains`]. Every brain reads the shared
+    /// fields it understands and its own [`BotParams::knobs`].
+    #[serde(skip_serializing_if = "is_default_brain")]
+    pub brain: String,
+    /// Brain-specific non-negative integer settings, by name. The league mutates them
+    /// like any other gene, so a new brain is tunable without touching the league.
+    #[serde(skip_serializing_if = "BTreeMap::is_empty")]
+    pub knobs: BTreeMap<String, i64>,
+}
+
+fn is_default_brain(b: &str) -> bool {
+    b == brains::DEFAULT
+}
+
+impl BotParams {
+    /// A brain-specific knob, or `default` when this genome doesn't set it.
+    pub fn knob(&self, name: &str, default: i64) -> i64 {
+        self.knobs.get(name).copied().unwrap_or(default)
+    }
 }
 
 impl Default for BotParams {
@@ -94,6 +115,8 @@ impl Default for BotParams {
             endgame_ticks: 0,
             endgame_margin_pct: 200,
             endgame_enemy_bonus: 20,
+            brain: brains::DEFAULT.into(),
+            knobs: BTreeMap::new(),
         }
     }
 }

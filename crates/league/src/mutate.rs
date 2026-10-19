@@ -3,6 +3,7 @@
 use crate::rng::Rng;
 use hexarena_protocol::Building;
 use hexarena_sdk::BotParams;
+use std::collections::{BTreeMap, BTreeSet};
 
 /// A numeric gene: name, legal range, and accessors.
 struct Gene {
@@ -66,6 +67,17 @@ pub fn diff(from: &BotParams, to: &BotParams) -> Vec<String> {
     if from.kinds != to.kinds {
         out.push(format!("kinds {}→{}", kinds_label(&from.kinds), kinds_label(&to.kinds)));
     }
+    if from.brain != to.brain {
+        out.push(format!("brain {}→{}", from.brain, to.brain));
+    }
+    let keys: BTreeSet<&String> = from.knobs.keys().chain(to.knobs.keys()).collect();
+    for k in keys {
+        let (a, b) = (from.knobs.get(k), to.knobs.get(k));
+        if a != b {
+            let show = |v: Option<&i64>| v.map_or("unset".to_string(), |v| v.to_string());
+            out.push(format!("{k} {}→{}", show(a), show(b)));
+        }
+    }
     out
 }
 
@@ -83,8 +95,11 @@ fn mutate_once(p: &BotParams, rng: &mut Rng) -> BotParams {
     let mut out = p.clone();
     let changes = 1 + rng.below(3);
     for _ in 0..changes {
-        let slot = rng.below(GENES.len() + 2);
-        if slot < GENES.len() {
+        let knob_slots = if out.knobs.is_empty() { 0 } else { KNOB_WEIGHT };
+        let slot = rng.below(GENES.len() + 2 + knob_slots);
+        if slot >= GENES.len() + 2 {
+            mutate_knob(&mut out.knobs, rng);
+        } else if slot < GENES.len() {
             let g = &GENES[slot];
             let step = ((g.max - g.min) / 8).max(1);
             let delta = 1 + rng.below(step as usize) as i64;
@@ -100,6 +115,20 @@ fn mutate_once(p: &BotParams, rng: &mut Rng) -> BotParams {
         }
     }
     out
+}
+
+/// Brain knobs are drawn this many times as often as one shared gene, since a new
+/// brain usually reads few of the shared genes.
+const KNOB_WEIGHT: usize = 8;
+
+/// Nudges one knob by up to a quarter of its size (at least 1), staying non-negative.
+fn mutate_knob(knobs: &mut BTreeMap<String, i64>, rng: &mut Rng) {
+    let key = knobs.keys().nth(rng.below(knobs.len())).cloned().unwrap();
+    let v = knobs[&key];
+    let step = (v.abs() / 4).max(1);
+    let delta = 1 + rng.below(step as usize) as i64;
+    let delta = if rng.chance(0.5) { delta } else { -delta };
+    knobs.insert(key, (v + delta).max(0));
 }
 
 fn mutate_kinds(kinds: &mut Vec<Building>, rng: &mut Rng) {
@@ -133,6 +162,13 @@ pub fn crossover(a: &BotParams, b: &BotParams, rng: &mut Rng) -> BotParams {
     if rng.chance(0.5) {
         out.kinds = b.kinds.clone();
     }
+    if a.brain == b.brain {
+        for (k, v) in &b.knobs {
+            if out.knobs.contains_key(k) && rng.chance(0.5) {
+                out.knobs.insert(k.clone(), *v);
+            }
+        }
+    }
     out
 }
 
@@ -163,5 +199,18 @@ mod tests {
         let a = BotParams::default();
         let b = BotParams { land_value: 52, march: false, ..a.clone() };
         assert_eq!(diff(&a, &b), ["land_value 40→52", "march true→false"]);
+    }
+
+    #[test]
+    fn knobs_mutate_and_diff() {
+        let mut a = BotParams::default();
+        a.knobs.insert("reach".into(), 6);
+        let mut rng = Rng::new(3);
+        let touched = (0..200).filter(|_| mutate(&a, &mut rng).knobs != a.knobs).count();
+        assert!(touched > 50);
+        let mut b = a.clone();
+        b.knobs.insert("reach".into(), 8);
+        b.brain = "other".into();
+        assert_eq!(diff(&a, &b), ["brain expander→other", "reach 6→8"]);
     }
 }

@@ -20,7 +20,7 @@ fn dir(f: &HashMap<String, String>) -> PathBuf {
 }
 
 /// Reads either bare `BotParams` or a `{ "params": ... }` wrapper.
-fn read_params(path: &str) -> Result<BotParams, String> {
+pub(crate) fn read_params(path: &str) -> Result<BotParams, String> {
     let v: serde_json::Value =
         serde_json::from_slice(&std::fs::read(path).map_err(|e| format!("{path}: {e}"))?)
             .map_err(|e| format!("{path}: {e}"))?;
