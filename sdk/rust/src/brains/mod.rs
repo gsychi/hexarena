@@ -6,18 +6,21 @@
 //!
 //! [`BotParams::knob`]: crate::BotParams::knob
 
+pub mod ridgeline;
+
 use crate::{Bot, Expander, Style};
 
 /// The brain genomes play when they don't name one.
 pub const DEFAULT: &str = "expander";
 
 /// Every brain id [`build`] accepts.
-pub const BRAINS: &[&str] = &[DEFAULT];
+pub const BRAINS: &[&str] = &[DEFAULT, "ridgeline"];
 
 /// The bot that plays `style`, or an error naming an unknown brain.
 pub fn build(style: Style) -> Result<Box<dyn Bot>, String> {
     match style.params.brain.as_str() {
         DEFAULT => Ok(Box::new(Expander::new(style))),
+        "ridgeline" => Ok(Box::new(ridgeline::Ridgeline::new(style))),
         other => Err(format!(
             "unknown brain '{other}' (known: {})",
             BRAINS.join(", ")
