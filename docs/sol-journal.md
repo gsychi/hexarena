@@ -773,3 +773,24 @@ or Predator as the tactical executor.
   should compound a depth-three 140-site lattice rather than fortify.
 - Economy: maximum deep Farm/Village lattice, no Walls, Predator executor.
 - Result and replay lesson: pending 50-game sample.
+
+## Rated outcomes after nine batches
+
+- Batch 6 at 50+ games: Hedgehog led at Elo 1619, AVP8 5.00 ± 0.25; Armadillo
+  1608, 5.47 ± 0.27; wall-only Tortoise 1542, 5.42 ± 0.24; Rhino was retired.
+  Dense contact Walls improved conquest-lobby survival enough for high Elo, but did not
+  produce a close.
+- Batch 7 at 50+ games: bounded-wall Wombat led at Elo 1601, AVP8 5.20 ± 0.27.
+  Mongoose and Eagle each won two cutoff games, but no version closed.
+- Batch 8 at 50+ games: Weasel led at Elo 1560, AVP8 5.49 ± 0.27; Eagle had
+  Elo 1553, AVP8 5.29 ± 0.28 and two cutoff wins. The survivor lock increased
+  surrender events in selected replays but weakened the rated result; Falcon retired.
+- Batch 9 at 59–60 games: Ridgeline executors gave the best raw placement of the Sol
+  line—Yak Elo 1543, AVP8 4.70 ± 0.25 and Capybara 1538, 4.72 ± 0.25.
+  Predator executors hoarded million-troop banks while making only tens of enemy captures;
+  Tiger and Shark retired. No Batch 9 bot closed a game.
+
+Overall, Hedgehog is the best Elo version and Yak the best AVP version. Neither combines
+top-tier placement with top-tier Elo, and none beats the Pangolin leaders (AVP8 about
+3.3, Elo above 1700). The live evidence rejects weakest-contact focus and Predator as
+finishers; early linked Walls improve survival, while Ridgeline improves placement.
