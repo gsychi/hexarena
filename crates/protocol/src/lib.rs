@@ -273,6 +273,29 @@ pub struct RulesConfig {
     #[serde(default, skip_serializing_if = "is_false")]
     pub region_capture: bool,
     pub spawn_min_distance: i32,
+    /// A hand-drawn landmass instead of the procedural map; `None` is procedural.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub map: Option<MapPreset>,
+}
+
+/// Real-world maps. Bots never see which one they are on: it is stripped from their view.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum MapPreset {
+    /// Mainland Europe from Lisbon to Kyiv, without the islands.
+    Europe,
+    /// The lands around the Mediterranean and Black Sea.
+    Mediterranean,
+    /// Honshu, Kyushu, Shikoku and Hokkaido, joined by their bridges and tunnels.
+    Japan,
+    /// Mainland China.
+    China,
+    /// The 48 contiguous states.
+    UnitedStates,
+    /// Canada, the United States, Mexico and Central America.
+    NorthAmerica,
+    /// Mainland Africa.
+    Africa,
 }
 
 fn is_false(b: &bool) -> bool {
@@ -359,6 +382,7 @@ impl Default for RulesConfig {
             impassable_breaks_encirclement: true,
             region_capture: true,
             spawn_min_distance: 8,
+            map: None,
         }
     }
 }

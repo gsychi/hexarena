@@ -1,4 +1,4 @@
-import { BookOpen, BookText, House, Swords, TrendingUp, Trophy } from 'lucide-react'
+import { BookOpen, BookText, Gamepad2, House, Swords, TrendingUp, Trophy } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import { StrictMode, useEffect, useRef, useState } from 'react'
 import { createRoot } from 'react-dom/client'
@@ -13,13 +13,15 @@ import { BotAvatar } from './BotAvatar.tsx'
 import { BotPage } from './BotPage.tsx'
 import { NotebookPage } from './Notebook.tsx'
 import { BotsPage, GamesPage, HomePage, ProgressPage } from './Pages.tsx'
+import { LiveGame, PlayPage } from './Play.tsx'
 import { RulesPage } from './Rules.tsx'
 
-type Section = 'home' | 'rules' | 'games' | 'bots' | 'progress' | 'notes'
-type Route = { page: Section } | { page: 'match'; id: string } | { page: 'bot'; id: string }
+type Section = 'home' | 'play' | 'rules' | 'games' | 'bots' | 'progress' | 'notes'
+type Route = { page: Section } | { page: 'match'; id: string } | { page: 'bot'; id: string } | { page: 'live'; id: string }
 
 const NAV: { page: Section; label: string; icon: LucideIcon; hash: string }[] = [
   { page: 'home', label: 'Home', icon: House, hash: '/' },
+  { page: 'play', label: 'Play', icon: Gamepad2, hash: '/play' },
   { page: 'rules', label: 'Rules', icon: BookText, hash: '/rules' },
   { page: 'games', label: 'Games', icon: Swords, hash: '/games' },
   { page: 'bots', label: 'Bots', icon: Trophy, hash: '/bots' },
@@ -28,6 +30,8 @@ const NAV: { page: Section; label: string; icon: LucideIcon; hash: string }[] = 
 ]
 
 function parse(hash: string): Route {
+  const live = hash.match(/^#\/play\/(p\d+)/)
+  if (live) return { page: 'live', id: live[1] }
   for (const n of NAV) if (n.hash !== '/' && new RegExp(`^#${n.hash}\\b`).test(hash)) return { page: n.page }
   const bot = hash.match(/^#\/bot\/([^/?#]+)/)
   if (bot) return { page: 'bot', id: decodeURIComponent(bot[1]) }
@@ -38,8 +42,9 @@ function parse(hash: string): Route {
 function hashOf(r: Route): string {
   switch (r.page) {
     case 'match': return `/match/${r.id}`
+    case 'live': return `/play/${r.id}`
     case 'bot': return `/bot/${encodeURIComponent(r.id)}`
-    case 'home': case 'rules': case 'games': case 'bots': case 'progress': case 'notes': return NAV.find((n) => n.page === r.page)!.hash
+    case 'home': case 'play': case 'rules': case 'games': case 'bots': case 'progress': case 'notes': return NAV.find((n) => n.page === r.page)!.hash
     default: { const never: never = r; return never }
   }
 }
@@ -47,9 +52,10 @@ function hashOf(r: Route): string {
 /** The sidebar entry a route belongs to: a bot's profile sits under Bots, a replay under Games. */
 function sectionOf(r: Route): Section {
   switch (r.page) {
-    case 'match': return 'games'
+    case 'match': return isLiveId(r.id) ? 'play' : 'games'
+    case 'live': return 'play'
     case 'bot': return 'bots'
-    case 'home': case 'rules': case 'games': case 'bots': case 'progress': case 'notes': return r.page
+    case 'home': case 'play': case 'rules': case 'games': case 'bots': case 'progress': case 'notes': return r.page
     default: { const never: never = r; return never }
   }
 }
@@ -58,12 +64,16 @@ function sectionOf(r: Route): Section {
 const BOTS_MS = 60_000
 
 const go = (hash: string) => { location.hash = hash }
+/** Games a person played live have ids like `p00001` and are served from `/api/play`. */
+const isLiveId = (id: string) => /^p\d+$/.test(id)
 const openMatch = (id: string) => go(`/match/${id}`)
 const openBot = (id: string) => go(`/bot/${encodeURIComponent(id)}`)
 
 function Content({ route, backTo }: { route: Route; backTo: string }) {
   switch (route.page) {
     case 'home': return <div className="h-full overflow-y-auto"><HomePage onBot={openBot} /></div>
+    case 'play': return <div className="h-full overflow-y-auto"><PlayPage /></div>
+    case 'live': return <LiveGame key={route.id} id={route.id} />
     case 'rules': return <div className="h-full overflow-y-auto"><RulesPage /></div>
     case 'games': return <div className="h-full overflow-y-auto"><GamesPage onOpen={openMatch} /></div>
     case 'bots': return <div className="h-full overflow-y-auto"><BotsPage onBot={openBot} /></div>
@@ -71,6 +81,7 @@ function Content({ route, backTo }: { route: Route; backTo: string }) {
     case 'notes': return <NotebookPage onOpen={openMatch} />
     case 'bot': return <BotPage key={route.id} id={route.id} onBack={() => go('/bots')} onOpen={openMatch} onBot={openBot} />
     case 'match': {
+      if (isLiveId(route.id)) return <Viewer key={route.id} src={`/api/play/${route.id}/viewer`} label={`Your game ${route.id}`} onBack={() => go(backTo)} />
       const src = route.id === 'sample' ? '/sample-replay.json' : `/api/matches/${route.id}/viewer`
       return <Viewer key={route.id} src={src} match={route.id === 'sample' ? undefined : route.id} label={route.id === 'sample' ? 'Sample match' : `Game ${route.id}`} onBack={() => go(backTo)} />
     }
@@ -80,7 +91,7 @@ function Content({ route, backTo }: { route: Route; backTo: string }) {
 
 function Root() {
   const [route, setRoute] = useState(() => parse(location.hash))
-  const [open, setOpen] = useState(() => parse(location.hash).page !== 'match')
+  const [open, setOpen] = useState(() => !['match', 'live'].includes(parse(location.hash).page))
   useEffect(() => {
     const load = () => { api.bots().catch(() => {}) }
     load()
@@ -92,7 +103,8 @@ function Root() {
   useEffect(() => {
     const on = () => {
       const next = parse(location.hash)
-      if (next.page === 'match' && current.current.page !== 'match') {
+      const full = (r: Route) => r.page === 'match' || r.page === 'live'
+      if (full(next) && !full(current.current)) {
         setBackTo(hashOf(current.current))
         setOpen(false)
       }
@@ -147,7 +159,7 @@ function Root() {
           <SidebarTrigger className="-ml-1" />
           <span className="flex items-center gap-1.5 text-sm text-muted-foreground"><here.icon className="size-3.5" />{here.label}</span>
           {route.page === 'bot' && <span className="truncate text-sm text-muted-foreground">/ <span className="font-mono text-xs">{route.id}</span></span>}
-          {route.page === 'match' && <span className="truncate text-sm text-muted-foreground">/ <span className="font-mono text-xs">{route.id}</span></span>}
+          {(route.page === 'match' || route.page === 'live') && <span className="truncate text-sm text-muted-foreground">/ <span className="font-mono text-xs">{route.id}</span></span>}
         </header>
         <div className="min-h-0 flex-1 overflow-hidden"><Content route={route} backTo={backTo} /></div>
       </SidebarInset>

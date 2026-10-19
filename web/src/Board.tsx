@@ -3,7 +3,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { BUILDING_KEYS, HEIGHT_STYLE, HEX_DIRS, PLAYER_COLORS, PLAYER_MARKS, addHex, hexAt, hexDist, hexIndex, onBoard, stormFloor, stormRadius } from './model'
-import type { Cell, Hex, Rules, ViewerReplay } from './model'
+import type { BoardRep, Cell, Hex, Rules } from './model'
 import { BUILDING_STYLE, drawBuilding, drawHeightMark, drawPlot } from './icons'
 import type { Pips } from './icons'
 import type { PlayerAction } from './Plan'
@@ -51,7 +51,7 @@ function hexPoly(ctx: CanvasRenderingContext2D | Path2D, x: number, y: number, s
 interface Geometry { x: Float32Array; y: Float32Array; nb: Int32Array }
 
 /** Pixel centers and neighbor indices (-1 off board) of every hex, computed once per match. */
-function geometry(rep: ViewerReplay, all: number[]): Geometry {
+function geometry(rep: BoardRep, all: number[]): Geometry {
   const n = (2 * rep.radius + 1) ** 2
   const g = { x: new Float32Array(n), y: new Float32Array(n), nb: new Int32Array(n * 6).fill(-1) }
   for (const idx of all) {
@@ -66,13 +66,17 @@ function geometry(rep: ViewerReplay, all: number[]): Geometry {
   return g
 }
 
-function drawTerrain(ctx: CanvasRenderingContext2D, rep: ViewerReplay, geo: Geometry, s: number, detail: number, heightMode: boolean) {
+function drawTerrain(ctx: CanvasRenderingContext2D, rep: BoardRep, geo: Geometry, s: number, detail: number, heightMode: boolean, calmSea: boolean) {
   const n = (2 * rep.radius + 1) ** 2
   for (let idx = 0; idx < n; idx++) {
     const t = rep.terrain[idx]
     if (!t) continue
     const x = geo.x[idx], y = geo.y[idx]
     hexPath(ctx, x, y, s)
+    if (t.kind === 'water' && calmSea) {
+      hexPoly(ctx, x, y, s + 1.8); ctx.fillStyle = '#0b1a2c'; ctx.fill()
+      continue
+    }
     if (t.kind !== 'open') {
       const water = t.kind === 'water'
       ctx.fillStyle = water ? '#0b1626' : '#14161b'
@@ -111,7 +115,7 @@ export function buildingPips(c: Cell, rules: Rules): Pips | undefined {
 export interface Relationship { hexes: Set<number>; alternatives: Set<number>; discounted: Set<number> }
 
 /** Everything the selected building is related to, for highlighting. */
-export function relationshipOf(rep: ViewerReplay, cells: Map<number, Cell>, sel: number | null, canSee: (i: number) => boolean): Relationship {
+export function relationshipOf(rep: BoardRep, cells: Map<number, Cell>, sel: number | null, canSee: (i: number) => boolean): Relationship {
   const out: Relationship = { hexes: new Set(), alternatives: new Set(), discounted: new Set() }
   const c = sel !== null ? cells.get(sel) : undefined
   if (sel === null || !c || c.building === 0 || !canSee(sel)) return out
@@ -143,7 +147,7 @@ export function relationshipOf(rep: ViewerReplay, cells: Map<number, Cell>, sel:
 }
 
 /** The next action: an arrow for a move, a dashed ring for a gather target, a ring for a build. */
-function drawPlan(ctx: CanvasRenderingContext2D, rep: ViewerReplay, geo: Geometry, a: PlayerAction, color: string, s: number) {
+function drawPlan(ctx: CanvasRenderingContext2D, rep: BoardRep, geo: Geometry, a: PlayerAction, color: string, s: number, label?: string) {
   const pos = (h: Hex) => { const i = hexIndex(rep.radius, h); return { x: geo.x[i], y: geo.y[i] } }
   ctx.lineCap = 'round'; ctx.lineJoin = 'round'
   switch (a.kind) {
@@ -165,7 +169,7 @@ function drawPlan(ctx: CanvasRenderingContext2D, rep: ViewerReplay, geo: Geometr
         if (width === 8) ctx.stroke()
       }
       ctx.font = '700 10px Geist Variable, ui-sans-serif, sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'
-      outlinedText(ctx, String(a.troops), (p.x + q.x) / 2, (p.y + q.y) / 2 - 9, '#ffffff')
+      outlinedText(ctx, label ?? String(a.troops), (p.x + q.x) / 2, (p.y + q.y) / 2 - 9, '#ffffff')
       return
     }
     case 'gather': {
@@ -195,7 +199,7 @@ function drawPlan(ctx: CanvasRenderingContext2D, rep: ViewerReplay, geo: Geometr
 }
 
 interface Props {
-  rep: ViewerReplay
+  rep: BoardRep
   cells: Map<number, Cell>
   perspective: number
   visible: Set<number> | null
@@ -204,13 +208,22 @@ interface Props {
   tick: number
   /** The followed player's next action, drawn as an arrow or a ring. */
   plan?: { player: number; action: PlayerAction } | null
-  onSelect: (idx: number | null) => void
+  /** Several upcoming actions, the first drawn boldest. */
+  plans?: { player: number; action: PlayerAction; label?: string }[]
+  /** Place names drawn over the map. */
+  labels?: { idx: number; name: string }[]
+  /** Draw water as open sea rather than hatched impassable hexes. */
+  calmSea?: boolean
+  /** Centre the camera on this hex at zoom `k`; a new object re-centres. */
+  focus?: { idx: number; k: number } | null
+  /** `alt` is a right-click or a shift-click. */
+  onSelect: (idx: number | null, mods?: { alt: boolean }) => void
 }
 
 /** How long a newly built hex keeps its highlight ring. */
 const NEW_BUILD_TICKS = 40
 
-export function Board({ rep, cells, perspective, visible, selected, heightMode, tick, plan, onSelect }: Props) {
+export function Board({ rep, cells, perspective, visible, selected, heightMode, tick, plan, plans, labels, calmSea = false, focus, onSelect }: Props) {
   const wrap = useRef<HTMLDivElement>(null)
   const canvas = useRef<HTMLCanvasElement>(null)
   const mini = useRef<HTMLCanvasElement>(null)
@@ -246,6 +259,10 @@ export function Board({ rep, cells, perspective, visible, selected, heightMode, 
     [rep, cells, selected, visible])
 
   const geo = useMemo(() => geometry(rep, all), [rep, all])
+  useEffect(() => {
+    if (focus) setCam({ x: -geo.x[focus.idx] * focus.k, y: -geo.y[focus.idx] * focus.k, k: focus.k })
+  }, [focus, geo])
+
   const floor = useMemo(() => stormFloor(rep), [rep])
   const storm = stormRadius(rep.rules, tick, rep.radius, floor)
   const terrainLayer = useRef<{ key: string; canvas: HTMLCanvasElement } | null>(null)
@@ -261,13 +278,13 @@ export function Board({ rep, cells, perspective, visible, selected, heightMode, 
     const world = () => { ctx.setTransform(dpr, 0, 0, dpr, 0, 0); ctx.translate(dims.w / 2 + cam.x, dims.h / 2 + cam.y); ctx.scale(cam.k, cam.k) }
 
     // Terrain never changes during a match, so it is drawn once per camera position.
-    const key = `${dims.w}x${dims.h}@${dpr}:${cam.x},${cam.y},${cam.k}:${heightMode}`
+    const key = `${dims.w}x${dims.h}@${dpr}:${cam.x},${cam.y},${cam.k}:${heightMode}:${calmSea}`
     if (terrainLayer.current?.key !== key) {
       const layer = terrainLayer.current?.canvas ?? document.createElement('canvas')
       layer.width = c.width; layer.height = c.height
       const t = layer.getContext('2d')!
       t.setTransform(dpr, 0, 0, dpr, 0, 0); t.translate(dims.w / 2 + cam.x, dims.h / 2 + cam.y); t.scale(cam.k, cam.k)
-      drawTerrain(t, rep, geo, s, detail, heightMode)
+      drawTerrain(t, rep, geo, s, detail, heightMode, calmSea)
       terrainLayer.current = { key, canvas: layer }
     }
     ctx.setTransform(1, 0, 0, 1, 0, 0)
@@ -446,7 +463,24 @@ export function Board({ rep, cells, perspective, visible, selected, heightMode, 
       hexPath(ctx, geo.x[selected], geo.y[selected], s + 1); ctx.strokeStyle = '#fff'; ctx.lineWidth = 3; ctx.stroke()
     }
     if (plan) drawPlan(ctx, rep, geo, plan.action, PLAYER_COLORS[plan.player % 8], s)
-  }, [rep, cells, visible, cam, dims, selected, all, perspective, heightMode, rel, recentBuilds, geo, storm, plan])
+    if (plans) {
+      for (let k = plans.length - 1; k >= 0; k--) {
+        ctx.globalAlpha = k === 0 ? 1 : Math.max(0.3, 0.75 - k * 0.07)
+        drawPlan(ctx, rep, geo, plans[k].action, PLAYER_COLORS[plans[k].player % 8], s, plans[k].label)
+      }
+      ctx.globalAlpha = 1
+    }
+    if (labels) {
+      ctx.font = `600 ${Math.max(9, Math.min(13, 11 / Math.sqrt(cam.k)))}px Geist Variable, ui-sans-serif, sans-serif`
+      ctx.textAlign = 'center'; ctx.textBaseline = 'bottom'
+      for (const l of labels) {
+        if (!onScreen(l.idx)) continue
+        ctx.globalAlpha = 0.85
+        outlinedText(ctx, l.name, geo.x[l.idx], geo.y[l.idx] - SIZE * 0.62, '#f3efe3')
+      }
+      ctx.globalAlpha = 1
+    }
+  }, [rep, cells, visible, cam, dims, selected, all, perspective, heightMode, rel, recentBuilds, geo, storm, plan, plans, labels, calmSea])
 
   useEffect(() => {
     const c = mini.current!
@@ -470,6 +504,7 @@ export function Board({ rep, cells, perspective, visible, selected, heightMode, 
   }, [rep, cells, visible, cam, dims, all])
 
   const pick = (ev: React.PointerEvent) => {
+    const mods = { alt: ev.shiftKey || ev.button === 2 }
     const r = canvas.current!.getBoundingClientRect()
     const wx = (ev.clientX - r.left - dims.w / 2 - cam.x) / cam.k
     const wy = (ev.clientY - r.top - dims.h / 2 - cam.y) / cam.k
@@ -480,7 +515,7 @@ export function Board({ rep, cells, perspective, visible, selected, heightMode, 
     const dq = Math.abs(q - qf), dr = Math.abs(rr - rf), ds = Math.abs(s + qf + rf)
     if (dq > dr && dq > ds) q = -rr - s; else if (dr > ds) rr = -q - s
     const h = { q, r: rr }
-    onSelect(onBoard(rep.radius, h) && rep.terrain[hexIndex(rep.radius, h)] ? hexIndex(rep.radius, h) : null)
+    onSelect(onBoard(rep.radius, h) && rep.terrain[hexIndex(rep.radius, h)] ? hexIndex(rep.radius, h) : null, mods)
   }
 
   return (
@@ -499,6 +534,7 @@ export function Board({ rep, cells, perspective, visible, selected, heightMode, 
           setCam((c) => ({ ...c, x: c.x + dx, y: c.y + dy }))
         }}
         onPointerUp={(e) => { if (drag.current && !drag.current.moved) pick(e); drag.current = null }}
+        onContextMenu={(e) => e.preventDefault()}
       />
       <div className="pointer-events-none absolute left-4 top-3.5 text-[11px] font-semibold tracking-[0.3em] text-muted-foreground">HEXARENA</div>
       <Badge variant="outline" className="absolute right-3 top-3 gap-1.5 bg-background/80 backdrop-blur">
