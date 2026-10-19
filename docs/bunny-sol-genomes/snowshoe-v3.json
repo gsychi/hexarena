@@ -1,0 +1,15 @@
+{
+  "brain": "snowshoe",
+  "knobs": {
+    "build_mode": 4,
+    "build_cap": 8,
+    "build_every": 40,
+    "build_start": 100,
+    "build_stop": 2550,
+    "build_reserve": 20,
+    "max_farms": 1,
+    "max_villages": 2,
+    "max_quarries": 0,
+    "max_walls": 5
+  }
+}
