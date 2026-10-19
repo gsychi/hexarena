@@ -1,0 +1,14 @@
+{
+  "brain": "mosaic",
+  "knobs": {
+    "doctrine": 1,
+    "margin_pct": 138,
+    "hold_pct": 22,
+    "enemy": 55,
+    "prey": 190,
+    "peace_until": 0,
+    "space": 5,
+    "hug": 20,
+    "cost": 28
+  }
+}
