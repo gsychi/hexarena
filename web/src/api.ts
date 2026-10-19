@@ -76,8 +76,15 @@ export interface LeaderboardRow {
   /** Slowest single move in any timed game. */
   slowest_ms?: number | null
   timed_games?: number
+  /** On the overall board: the bot's rating from 1v1 games only, null before its first. */
+  duel?: FormatRating | null
+  /** On the overall board: the bot's rating from free-for-alls (3+ players) only. */
+  ffa?: FormatRating | null
 }
-export interface Leaderboard { games: number; rules_version: string; start_elo: number; top?: number; rated_games?: number; retired?: Record<string, string>; anchors?: string[]; anchor_elo?: number; bots: LeaderboardRow[]; retired_bots?: LeaderboardRow[] }
+export interface FormatRating { elo: number; games: number; rank: number }
+/** Which games a board rates on: every game, 1v1s only, or free-for-alls (3+ players) only. */
+export type BoardFormat = 'all' | 'duel' | 'ffa'
+export interface Leaderboard { format?: BoardFormat; duel_games?: number; ffa_games?: number; games: number; rules_version: string; start_elo: number; top?: number; rated_games?: number; retired?: Record<string, string>; anchors?: string[]; anchor_elo?: number; bots: LeaderboardRow[]; retired_bots?: LeaderboardRow[] }
 
 export interface ProfileGame {
   id: string
@@ -200,7 +207,7 @@ export const api = {
     fetch(`/api/matches?limit=${limit}`).then(async (r) => ({ games: await json<MatchSummary[]>(r), total: Number(r.headers.get('x-total-count') ?? 0) })),
   match: (id: string) => fetch(`/api/matches/${id}`).then((r) => json<MatchSummary>(r)),
   rules: () => fetch('/api/rules').then((r) => json<LiveRules>(r)),
-  leaderboard: () => fetch('/api/leaderboard').then((r) => json<Leaderboard>(r)),
+  leaderboard: (format: BoardFormat = 'all') => fetch(format === 'all' ? '/api/leaderboard' : `/api/leaderboard?format=${format}`).then((r) => json<Leaderboard>(r)),
   matchElo: (id: string) => fetch(`/api/matches/${id}/elo`).then((r) => json<MatchElo>(r)),
   arena: () => fetch('/api/arena').then((r) => json<ArenaInfo>(r)),
   agents: () => fetch('/api/agents').then((r) => json<Agent[]>(r)),

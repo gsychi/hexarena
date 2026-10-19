@@ -1,8 +1,9 @@
 import { ArrowDownRight, ArrowUpRight, Minus, Trophy } from 'lucide-react'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
+import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
-import type { Leaderboard, LeaderboardRow } from './api'
+import type { BoardFormat, FormatRating, Leaderboard, LeaderboardRow } from './api'
 import { BotAvatar } from './BotAvatar'
 
 function Sparkline({ values, start }: { values: number[]; start: number }) {
@@ -32,11 +33,28 @@ function Change({ d }: { d: number }) {
 
 const medal = ['text-amber-300', 'text-zinc-300', 'text-orange-400']
 
+const FORMATS: { id: BoardFormat; label: string }[] = [
+  { id: 'all', label: 'All games' },
+  { id: 'duel', label: '1v1' },
+  { id: 'ffa', label: '8-player' },
+]
+
+/** A bot's rating in one format, next to its overall one. */
+function FormatElo({ f, need }: { f: FormatRating | null | undefined; need: number }) {
+  if (!f) return <span className="text-muted-foreground">—</span>
+  return (
+    <Tooltip>
+      <TooltipTrigger render={<span className={`cursor-default tabular-nums ${f.games >= need ? '' : 'text-muted-foreground'}`} />}>{Math.round(f.elo)}</TooltipTrigger>
+      <TooltipContent>#{f.rank} · {f.games} game{f.games === 1 ? '' : 's'}{f.games < need ? ', still settling' : ''}</TooltipContent>
+    </Tooltip>
+  )
+}
+
 function speed(ms: number) {
   return ms.toFixed(ms < 1 ? 3 : 2)
 }
 
-function Row({ r, start, retired, anchor, need, onBot }: { r: LeaderboardRow; start: number; retired?: string; anchor?: boolean; need: number; onBot: (id: string) => void }) {
+function Row({ r, start, retired, anchor, need, split, onBot }: { r: LeaderboardRow; start: number; retired?: string; anchor?: boolean; need: number; split: boolean; onBot: (id: string) => void }) {
   return (
     <TableRow className={`hover:bg-muted/30 ${anchor ? 'bg-sky-500/5' : ''}`}>
       <TableCell className="w-10 text-center font-semibold tabular-nums">
@@ -57,6 +75,8 @@ function Row({ r, start, retired, anchor, need, onBot }: { r: LeaderboardRow; st
         </Tooltip>
       </TableCell>
       <TableCell className="w-14"><Change d={r.elo_change} /></TableCell>
+      {split && <TableCell className="hidden text-right sm:table-cell"><FormatElo f={r.duel} need={need} /></TableCell>}
+      {split && <TableCell className="hidden text-right sm:table-cell"><FormatElo f={r.ffa} need={need} /></TableCell>}
       <TableCell className="hidden md:table-cell"><Sparkline values={r.history} start={start} /></TableCell>
       <TableCell className="text-right tabular-nums">{r.rated ? r.games : <span className="text-muted-foreground">{r.games}/{need}</span>}</TableCell>
       <TableCell className="text-right tabular-nums">{r.wins}</TableCell>
@@ -76,13 +96,34 @@ function Row({ r, start, retired, anchor, need, onBot }: { r: LeaderboardRow; st
   )
 }
 
-export function Standings({ board, onBot }: { board: Leaderboard | null; onBot: (id: string) => void }) {
+function formatLine(format: BoardFormat, board: Leaderboard | null) {
+  const duels = board?.duel_games ?? 0, ffas = board?.ffa_games ?? 0
+  switch (format) {
+    case 'all': return `Rated on every game: ${ffas} free-for-all${ffas === 1 ? '' : 's'} and ${duels} 1v1${duels === 1 ? '' : 's'}. The 1v1 and 8-player columns rate each bot on one kind of game alone, so a bot that is strong in one and weak in the other shows it.`
+    case 'duel': return `Rated on 1v1 games only (${duels} so far). Every other self-play game is a 1v1 between the bot with the fewest 1v1s and a random opponent, on the smaller 2-player board.`
+    case 'ffa': return `Rated on free-for-alls only (${ffas} so far): the 8-player self-play games, plus any 3 to 7 player games created by hand.`
+    default: { const never: never = format; return never }
+  }
+}
+
+export function Standings({ board, format = 'all', onFormat, onBot }: { board: Leaderboard | null; format?: BoardFormat; onFormat?: (f: BoardFormat) => void; onBot: (id: string) => void }) {
+  const split = format === 'all' && !!board?.bots.some((r) => r.duel !== undefined)
   return (
     <Card>
       <CardHeader>
-        <CardTitle className="flex items-center gap-2"><Trophy className="size-4 text-amber-300" />Standings</CardTitle>
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <CardTitle className="flex items-center gap-2"><Trophy className="size-4 text-amber-300" />Standings</CardTitle>
+          {onFormat && (
+            <Tabs value={format} onValueChange={(v) => onFormat(v as BoardFormat)}>
+              <TabsList>
+                {FORMATS.map((f) => <TabsTrigger key={f.id} value={f.id}>{f.label}</TabsTrigger>)}
+              </TabsList>
+            </Tabs>
+          )}
+        </div>
         <CardDescription>
-          Elo rating for each CPU style across {board?.games ?? 0} finished game{board?.games === 1 ? '' : 's'} under rules {board?.rules_version ?? 'v0.6'}. Everyone starts at {board?.start_elo ?? 1500}.
+          <span className="mb-2 block text-foreground/80">{formatLine(format, board)}</span>
+          Elo rating for each CPU style across {board?.games ?? 0} finished game{board?.games === 1 ? '' : 's'} under rules {board?.rules_version ?? 'v0.7'}. Everyone starts at {board?.start_elo ?? 1500}.
           The first four CPUs ever written, {(board?.anchors ?? ['expander', 'homesteader', 'raider', 'warden']).map((a) => a.charAt(0).toUpperCase() + a.slice(1)).join(', ')}, are the <span className="text-sky-300">anchors</span>: their average is pinned at {board?.anchor_elo ?? 1500} and one of them plays in every self-play game, so every rating says how far a bot has come since the very first bots. 1900 means finishing ahead of a typical anchor about 9 times in 10.
           Every hand-written CPU, from the originals to Ridgeline and Relay, keeps playing and is never retired, so the whole lineage stays on one scale.
           Each free-for-all counts as a head-to-head result between every pair of players, where the better place wins, and the ratings are fitted to all of those results at once (maximum-likelihood Elo), so a rating says how often a bot really finishes ahead of each opponent. A game someone ends before the cutoff counts as much as eight that reach it. Win % and top half % are per seat; top half means finishing in the top half of the lobby (1st–2nd of 4, 1st–3rd of 6).
@@ -91,8 +132,10 @@ export function Standings({ board, onBot }: { board: Leaderboard | null; onBot: 
         </CardDescription>
       </CardHeader>
       <CardContent>
-        {!board || board.bots.length === 0 ? (
-          <p className="rounded-lg border border-dashed p-6 text-center text-sm text-muted-foreground">No finished games yet. Create a few below and the table fills in.</p>
+        {!board ? (
+          <p className="rounded-lg border border-dashed p-6 text-center text-sm text-muted-foreground">Loading standings…</p>
+        ) : board.bots.length === 0 ? (
+          <p className="rounded-lg border border-dashed p-6 text-center text-sm text-muted-foreground">{format === 'duel' ? 'No 1v1 games have finished yet. The arena plays one in every two self-play games, so the first appear within a few minutes.' : 'No finished games yet. Create a few below and the table fills in.'}</p>
         ) : (
           <Table>
             <TableHeader>
@@ -101,6 +144,8 @@ export function Standings({ board, onBot }: { board: Leaderboard | null; onBot: 
                 <TableHead>CPU</TableHead>
                 <TableHead className="text-right">Elo</TableHead>
                 <TableHead>Last</TableHead>
+                {split && <TableHead className="hidden text-right sm:table-cell">1v1</TableHead>}
+                {split && <TableHead className="hidden text-right sm:table-cell">8-player</TableHead>}
                 <TableHead className="hidden md:table-cell">Trend</TableHead>
                 <TableHead className="text-right">Games</TableHead>
                 <TableHead className="text-right">Wins</TableHead>
@@ -122,7 +167,7 @@ export function Standings({ board, onBot }: { board: Leaderboard | null; onBot: 
               </TableRow>
             </TableHeader>
             <TableBody>
-              {board.bots.map((r) => <Row key={r.bot} r={r} start={board.start_elo} retired={board.retired?.[r.bot]} anchor={board.anchors?.includes(r.bot)} need={board.rated_games ?? 50} onBot={onBot} />)}
+              {board.bots.map((r) => <Row key={r.bot} r={r} start={board.start_elo} retired={board.retired?.[r.bot]} anchor={board.anchors?.includes(r.bot)} need={board.rated_games ?? 50} split={split} onBot={onBot} />)}
             </TableBody>
           </Table>
         )}
