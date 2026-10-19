@@ -1,0 +1,29 @@
+{
+  "brain": "snowshoe",
+  "knobs": {
+    "enemy": 90,
+    "hug": 90,
+    "open": 45,
+    "enclose": 180,
+    "build_mode": 5,
+    "build_cap": 24,
+    "build_every": 10,
+    "build_start": 70,
+    "build_stop": 6500,
+    "build_reserve": 10,
+    "max_farms": 16,
+    "max_villages": 8,
+    "max_quarries": 0,
+    "max_walls": 0,
+    "lifetime_build_cap": 24,
+    "farm_required": 1,
+    "farm_per_village": 2,
+    "villages_per_farm": 1,
+    "farm_village_bonus": 460,
+    "village_farm_bonus": 540,
+    "farm_future_bonus": 80,
+    "finish_start": 7000,
+    "finish_bonus": 700,
+    "rush_start": 8200
+  }
+}

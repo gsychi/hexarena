@@ -39,3 +39,20 @@ The server switched to rules v0.5 while v17–v25 were waiting. Their displayed 
 gate statuses subsequently restarted under v0.5; the measurements above are filtered to
 `Replay.rules_version == "v0.4"` and must not be mixed with the restarted results.
 
+## Rules v0.5 honeycomb league
+
+Farm links and the storm are disabled. Snowshoe now adopts `View.rules`, scores reciprocal
+Farm/Village adjacency, and can focus the weakest rival remembered through ordinary fogged
+views. Every batch below uses `migrate_start = 0`.
+
+### Loop 1: portfolio and conversion sweep
+
+| Version | Hypothesis |
+|---|---|
+| snowshoe-v26 — Pika Honeycomb | A medium 2:1 Farm/Village lattice compounds safely, then focuses the weakest survivor at tick 6500. |
+| snowshoe-v27 — Beaver Discount Hive | One Quarry repays itself by forcing an alternating 8-Farm/8-Village hive onto discounted neighboring sites. |
+| snowshoe-v28 — Mongoose Foundry | A lean 6-Farm/3-Village engine can stop investing early and begin a focused kill campaign at tick 4500. |
+| snowshoe-v29 — Hyena Harvest | A larger 16-Farm/8-Village bank can convert at tick 7000 and liquidate safety at tick 8200. |
+| snowshoe-v30 — Marmot Lattice | A maximal 18-Farm/9-Village lattice with no finisher isolates pure economic value. |
+| snowshoe-v31 — Porcupine Hive | Quarry-discounted honeycomb plus six enemy-facing Walls trades some income for durable borders. |
+
