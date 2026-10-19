@@ -336,3 +336,48 @@ the only verdict. All prior Mosaic versions had negative gate gain; v22 was leas
 - Published params: `docs/arena-genomes/bastion-v1.json`.
 - Gate result: pending.
 - Lesson: pending.
+
+# Rules v0.5 — troop economies and overtime
+
+Mosaic now adopts `View.rules` at tick 0, uses `attacker_win_milli(tick)` for every combat
+estimate, never sends obsolete Farm-link commands, and plans buildings with live costs and
+Quarry discounts. Ratings below 50 games are treated as provisional.
+
+## Batch 1
+
+### badger-v1 — Badger
+
+- Hypothesis: an economy-free control using the v20 liquid noose can exploit rising attack
+  odds immediately at tick 3000, converting every troop into prey cleanup rather than
+  buildings.
+- Economy: none.
+- Result and replay lesson: pending 50-game sample.
+
+### beaver-v1 — Beaver
+
+- Hypothesis: build one interior Village before its Farms, then fill adjacent legal
+  valley/plain sites; two complete rings should compound enough troops to dominate overtime
+  without paying for dead standalone Farms.
+- Economy: Village-first Farm rings, 14 lifetime builds.
+- Result and replay lesson: pending 50-game sample.
+
+### marmot-v1 — Marmot
+
+- Hypothesis: a 50-troop hill Quarry repays through a discounted 72-troop Village and
+  18-troop Farms around it; two compact hubs should beat direct rings on troop efficiency.
+- Economy: Quarry-first discounted Village/Farm clusters, two Quarries maximum.
+- Result and replay lesson: pending 50-game sample.
+
+### bison-v1 — Bison
+
+- Hypothesis: standalone Villages avoid Farm setup risk and each permanently doubles its
+  own hex income; a slower twelve-Village carpet may be more robust than fragile rings.
+- Economy: standalone interior Villages only, then aggression from tick 4500.
+- Result and replay lesson: pending 50-game sample.
+
+### hyena-v1 — Hyena
+
+- Hypothesis: no economy can match the doubled Elo reward if it starts leader suppression
+  at overtime and uses 85%-odds late attacks to force the only surviving rival off the map.
+- Economy: none; aggressive leader and reachable-survivor pursuit.
+- Result and replay lesson: pending 50-game sample.

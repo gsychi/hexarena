@@ -55,8 +55,12 @@ struct Knobs {
     momentum_weight: i64,
     peace_until: u32,
     build_mode: i64,
+    build_start: u32,
+    build_stop: u32,
     build_every: u32,
     build_cap: usize,
+    quarry_cap: usize,
+    aggression_tick: u32,
     logistics_min: u32,
     wave_cycle: u32,
     wave_charge: u32,
@@ -99,8 +103,12 @@ impl Knobs {
             momentum_weight: k("momentum_weight", 0),
             peace_until: k("peace_until", 500).max(0) as u32,
             build_mode: k("build_mode", 0),
+            build_start: k("build_start", 0).max(0) as u32,
+            build_stop: k("build_stop", 10_000).max(0) as u32,
             build_every: k("build_every", 11).max(1) as u32,
             build_cap: k("build_cap", 8).max(0) as usize,
+            quarry_cap: k("quarry_cap", 2).max(0) as usize,
+            aggression_tick: k("aggression_tick", 3000).max(0) as u32,
             logistics_min: k("logistics_min", 80).max(2) as u32,
             wave_cycle: k("wave_cycle", 0).max(0) as u32,
             wave_charge: k("wave_charge", 0).max(0) as u32,
@@ -141,6 +149,7 @@ pub struct Mosaic {
     rival_momentum: Vec<i64>,
     last_land: Vec<i64>,
     last_model_tick: u32,
+    tick: u32,
 }
 
 impl Mosaic {
@@ -169,6 +178,7 @@ impl Mosaic {
             rival_momentum: vec![],
             last_land: vec![],
             last_model_tick: 0,
+            tick: 0,
         }
     }
 
@@ -214,6 +224,10 @@ impl Mosaic {
     }
 
     fn remember(&mut self, view: &View) {
+        if let Some(rules) = &view.rules {
+            self.rules = rules.clone();
+        }
+        self.tick = view.tick;
         if self.radius != view.radius {
             self.init(view);
         }
@@ -334,7 +348,7 @@ impl Mosaic {
                 .height_multiplier_milli(self.height(from), self.height(to)) as u64;
         let defense = (terrain * target.wall as u64 / MILLI as u64)
             .min(self.rules.maximum_total_defense_milli as u64);
-        let win = self.rules.attacker_exchange_win_milli as u64;
+        let win = self.rules.attacker_win_milli(self.tick) as u64;
         target.troops as u64 * defense * (MILLI as u64 - win) / win / MILLI as u64
     }
 
@@ -484,7 +498,7 @@ impl Mosaic {
         let p = owner as usize;
         let their_land = land.get(p).copied().unwrap_or(0);
         let living = view.public_players.iter().filter(|p| p.alive).count();
-        let endgame = living <= 3 || view.tick >= 1900;
+        let endgame = living <= 3 || view.tick >= self.k.aggression_tick;
         let doctrine = if self.k.doctrine == 7 {
             [1, 4, 5][self.active_policy]
         } else {
@@ -674,7 +688,7 @@ impl Mosaic {
             .iter()
             .filter(|player| player.alive)
             .count();
-        let endgame = living <= 3 || view.tick >= 2200;
+        let endgame = living <= 3 || view.tick >= self.k.aggression_tick;
         let target_hold = if opening {
             0
         } else {
@@ -811,8 +825,7 @@ impl Mosaic {
     }
 
     fn management(&self) -> Vec<ManagementCommand> {
-        // Link one productive pair per tick. A single command avoids invalidating a second
-        // command through the same building's cooldown.
+        // Farm adjacency is automatic in v0.5; only Wall links remain meaningful.
         for (i, cell) in self.seen.iter().enumerate() {
             let Some(cell) = cell.as_ref().filter(|_| self.own[i]) else {
                 continue;
@@ -822,23 +835,6 @@ impl Mosaic {
             };
             if building.link_cooldown > 0 {
                 continue;
-            }
-            if building.kind == Building::Farm
-                && building.links.len() < self.rules.farm.sockets as usize
-            {
-                for &n in &self.neighbors[i] {
-                    let Some(other) = self.seen[n].as_ref().and_then(|c| c.building.as_ref())
-                    else {
-                        continue;
-                    };
-                    if self.own[n] && other.kind == Building::Village && other.links.is_empty() {
-                        return vec![ManagementCommand::SetFarmLink {
-                            farm: self.hexes[i],
-                            village: self.hexes[n],
-                            enabled: true,
-                        }];
-                    }
-                }
             }
             if building.kind == Building::Wall
                 && building.links.len() < self.rules.wall.max_links as usize
@@ -869,12 +865,26 @@ impl Mosaic {
     fn build(&self, view: &View) -> Option<Action> {
         if self.k.build_mode == 0
             || self.build_actions >= self.k.build_cap
+            || view.tick < self.k.build_start
+            || view.tick >= self.k.build_stop
             || view.tick < self.last_build + self.k.build_every
         {
             return None;
         }
-        let resource = view.own_economy.resource;
         let mode = self.k.build_mode;
+        let quarries = self
+            .seen
+            .iter()
+            .enumerate()
+            .filter(|(i, cell)| {
+                self.own[*i]
+                    && cell.as_ref().is_some_and(|cell| {
+                        cell.building
+                            .as_ref()
+                            .is_some_and(|building| building.kind == Building::Quarry)
+                    })
+            })
+            .count();
         let mut best: Option<(i64, usize, Building)> = None;
         for i in 0..self.own.len() {
             let Some(cell) = self.seen[i]
@@ -886,28 +896,69 @@ impl Mosaic {
             let exposed = self.neighbors[i]
                 .iter()
                 .any(|&n| self.enemy(n, view.you).is_some());
+            let own_neighbors = self.neighbors[i].iter().filter(|&&n| self.own[n]).count() as i64;
+            let adjacent_kind = |kind: Building| {
+                self.neighbors[i]
+                    .iter()
+                    .filter(|&&n| {
+                        self.own[n]
+                            && self.seen[n].as_ref().is_some_and(|cell| {
+                                cell.building
+                                    .as_ref()
+                                    .is_some_and(|building| building.kind == kind)
+                            })
+                    })
+                    .count() as i64
+            };
+            let adjacent_farms = adjacent_kind(Building::Farm);
+            let adjacent_villages = adjacent_kind(Building::Village);
+            let adjacent_quarries = adjacent_kind(Building::Quarry);
+            let potential_farms = self.neighbors[i]
+                .iter()
+                .filter(|&&n| {
+                    self.own[n]
+                        && self.seen[n]
+                            .as_ref()
+                            .is_some_and(|cell| cell.building.is_none())
+                        && self.rules.terrain_allowed(Building::Farm, self.height(n))
+                })
+                .count() as i64;
             let choices: &[Building] = match mode {
                 1 => &[Building::Farm, Building::Village],
-                2 => &[Building::Wall],
-                _ => &[Building::Farm, Building::Village, Building::Quarry],
+                2 => &[Building::Farm, Building::Village, Building::Quarry],
+                3 => &[Building::Village],
+                4 => &[Building::Farm, Building::Village, Building::Wall],
+                _ => &[
+                    Building::Farm,
+                    Building::Village,
+                    Building::Quarry,
+                    Building::Wall,
+                ],
             };
             for &kind in choices {
                 if !self.rules.terrain_allowed(kind, self.height(i)) {
                     continue;
                 }
-                let cost = self.rules.build_cost(kind, false);
-                if cell.troops <= cost.troops || resource < cost.resource {
+                if kind == Building::Quarry {
+                    let too_close = self.seen.iter().enumerate().any(|(q, cell)| {
+                        self.own[q]
+                            && cell.as_ref().is_some_and(|cell| {
+                                cell.building
+                                    .as_ref()
+                                    .is_some_and(|building| building.kind == Building::Quarry)
+                            })
+                            && self.hexes[i].distance(self.hexes[q])
+                                < self.rules.quarry.min_friendly_distance
+                    });
+                    if quarries >= self.k.quarry_cap || too_close {
+                        continue;
+                    }
+                }
+                let discounted = adjacent_quarries > 0;
+                let cost = self.rules.build_cost(kind, discounted);
+                if cell.troops <= cost.troops {
                     continue;
                 }
-                let adjacent_farm = self.neighbors[i].iter().any(|&n| {
-                    self.own[n]
-                        && self.seen[n].as_ref().is_some_and(|c| {
-                            c.building.as_ref().is_some_and(|b| {
-                                b.kind == Building::Farm
-                                    && b.links.len() < self.rules.farm.sockets as usize
-                            })
-                        })
-                });
                 let adjacent_wall = self.neighbors[i].iter().any(|&n| {
                     self.own[n]
                         && self.seen[n].as_ref().is_some_and(|c| {
@@ -918,16 +969,29 @@ impl Mosaic {
                 });
                 let score = match kind {
                     Building::Farm => {
-                        100 + self.neighbors[i].iter().filter(|&&n| self.own[n]).count() as i64 * 8
-                            - if exposed { 80 } else { 0 }
+                        if adjacent_villages == 0 {
+                            continue;
+                        }
+                        800 * adjacent_villages + if discounted { 80 } else { 0 }
+                            - if exposed { 120 } else { 0 }
                     }
                     Building::Village => {
-                        (if adjacent_farm { 180 } else { 20 }) + if exposed { -60 } else { 0 }
+                        let economy = match mode {
+                            3 => 320,
+                            2 if discounted => 650,
+                            2 => 120,
+                            _ => 500,
+                        };
+                        economy + adjacent_farms * 120 + potential_farms * 35 + own_neighbors * 8
+                            - if exposed { 160 } else { 0 }
                     }
                     Building::Wall => {
-                        (if exposed { 150 } else { 10 }) + if adjacent_wall { 80 } else { 0 }
+                        (if exposed { 260 } else { 20 }) + if adjacent_wall { 100 } else { 0 }
                     }
-                    Building::Quarry => 70 + self.height(i) as i64 * 20,
+                    Building::Quarry => {
+                        600 + own_neighbors * 25 + self.height(i) as i64 * 20
+                            - if exposed { 180 } else { 0 }
+                    }
                 };
                 if best.is_none_or(|current| score > current.0) {
                     best = Some((score, i, kind));
