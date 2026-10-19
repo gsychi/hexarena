@@ -6,6 +6,7 @@ import { BUILDING_KEYS, HEIGHT_STYLE, HEX_DIRS, PLAYER_COLORS, PLAYER_MARKS, add
 import type { Cell, Hex, Rules, ViewerReplay } from './model'
 import { BUILDING_STYLE, drawBuilding, drawHeightMark, drawPlot } from './icons'
 import type { Pips } from './icons'
+import type { PlayerAction } from './Plan'
 
 const SIZE = 22
 const toPx = (h: Hex) => ({ x: SIZE * Math.sqrt(3) * (h.q + h.r / 2), y: SIZE * 1.5 * h.r })
@@ -141,6 +142,50 @@ export function relationshipOf(rep: ViewerReplay, cells: Map<number, Cell>, sel:
   return out
 }
 
+/** The next action: an arrow for a move, a dashed ring for a gather target, a ring for a build. */
+function drawPlan(ctx: CanvasRenderingContext2D, rep: ViewerReplay, geo: Geometry, a: PlayerAction, color: string, s: number) {
+  const pos = (h: Hex) => { const i = hexIndex(rep.radius, h); return { x: geo.x[i], y: geo.y[i] } }
+  ctx.lineCap = 'round'; ctx.lineJoin = 'round'
+  switch (a.kind) {
+    case 'move': {
+      const p = pos(a.from), q = pos(a.to)
+      const ang = Math.atan2(q.y - p.y, q.x - p.x)
+      const tip = { x: q.x - Math.cos(ang) * s * 0.35, y: q.y - Math.sin(ang) * s * 0.35 }
+      const head = (w: number) => {
+        ctx.beginPath()
+        ctx.moveTo(tip.x, tip.y)
+        ctx.lineTo(tip.x - Math.cos(ang - 0.5) * w, tip.y - Math.sin(ang - 0.5) * w)
+        ctx.lineTo(tip.x - Math.cos(ang + 0.5) * w, tip.y - Math.sin(ang + 0.5) * w)
+        ctx.closePath()
+      }
+      for (const [stroke, width] of [['rgba(6,7,10,0.9)', 8], [color, 4.5]] as const) {
+        ctx.strokeStyle = stroke; ctx.lineWidth = width
+        ctx.beginPath(); ctx.moveTo(p.x, p.y); ctx.lineTo(tip.x, tip.y); ctx.stroke()
+        head(width === 8 ? 13 : 10.5); ctx.fillStyle = stroke; ctx.fill()
+        if (width === 8) ctx.stroke()
+      }
+      ctx.font = '700 10px Geist Variable, ui-sans-serif, sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'
+      outlinedText(ctx, String(a.troops), (p.x + q.x) / 2, (p.y + q.y) / 2 - 9, '#ffffff')
+      return
+    }
+    case 'gather': {
+      const p = pos(a.target)
+      hexPath(ctx, p.x, p.y, s + 3); ctx.setLineDash([5, 3]); ctx.strokeStyle = color; ctx.lineWidth = 3; ctx.stroke(); ctx.setLineDash([])
+      return
+    }
+    case 'build': {
+      const p = pos(a.at)
+      hexPath(ctx, p.x, p.y, s + 3); ctx.strokeStyle = 'rgba(6,7,10,0.9)'; ctx.lineWidth = 6; ctx.stroke()
+      ctx.strokeStyle = color; ctx.lineWidth = 3; ctx.stroke()
+      return
+    }
+    case 'rejected':
+    case 'pass':
+      return
+    default: { const never: never = a; return never }
+  }
+}
+
 interface Props {
   rep: ViewerReplay
   cells: Map<number, Cell>
@@ -149,13 +194,15 @@ interface Props {
   selected: number | null
   heightMode: boolean
   tick: number
+  /** The followed player's next action, drawn as an arrow or a ring. */
+  plan?: { player: number; action: PlayerAction } | null
   onSelect: (idx: number | null) => void
 }
 
 /** How long a newly built hex keeps its highlight ring. */
 const NEW_BUILD_TICKS = 40
 
-export function Board({ rep, cells, perspective, visible, selected, heightMode, tick, onSelect }: Props) {
+export function Board({ rep, cells, perspective, visible, selected, heightMode, tick, plan, onSelect }: Props) {
   const wrap = useRef<HTMLDivElement>(null)
   const canvas = useRef<HTMLCanvasElement>(null)
   const mini = useRef<HTMLCanvasElement>(null)
@@ -390,7 +437,8 @@ export function Board({ rep, cells, perspective, visible, selected, heightMode, 
     if (selected !== null && !rel.hexes.has(selected)) {
       hexPath(ctx, geo.x[selected], geo.y[selected], s + 1); ctx.strokeStyle = '#fff'; ctx.lineWidth = 3; ctx.stroke()
     }
-  }, [rep, cells, visible, cam, dims, selected, all, perspective, heightMode, rel, recentBuilds, geo, storm])
+    if (plan) drawPlan(ctx, rep, geo, plan.action, PLAYER_COLORS[plan.player % 8], s)
+  }, [rep, cells, visible, cam, dims, selected, all, perspective, heightMode, rel, recentBuilds, geo, storm, plan])
 
   useEffect(() => {
     const c = mini.current!
