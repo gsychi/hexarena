@@ -3,7 +3,7 @@
 
 use crate::{get, seat_style};
 use hexarena_arena::entrants::{load_all, publish, retire, set_parents, Entrant, MAX_NAME};
-use hexarena_arena::eval::compare;
+use hexarena_arena::eval::{compare_with_progress, Comparison};
 use hexarena_protocol::RulesConfig;
 use hexarena_sdk::{roster, BotParams};
 use std::collections::HashMap;
@@ -30,6 +30,9 @@ const EVAL_USAGE: &str = "usage: hexarena eval --params cand.json [--against ID|
   2 roster CPUs, then the same map with the two swapped. Reports the gain in 8-player
   places (positive is better; ending the game early earns up to 1.5 places). With an
   author (--author or HEXARENA_AUTHOR) the home page shows the test and its result.";
+
+/// Running results an eval posts before its final one.
+const PROGRESS_REPORTS: usize = 4;
 
 fn dir(f: &HashMap<String, String>) -> PathBuf {
     f.get("dir")
@@ -146,34 +149,41 @@ fn print_briefing(dir: &std::path::Path, author: &str) {
     for m in unanswered.iter().rev() {
         println!("message for you from the arena: {}", m["text"].as_str().unwrap_or_default());
     }
-    println!(
-        "tell people what you are working on (shown on the home page): curl -s -X POST -H 'content-type: application/json' http://127.0.0.1:47240/api/agents/{author}/status -d '{{\"text\":\"...\"}}'"
-    );
+    println!("tell people what you are working on (shown on the home page): hexarena agent status --author {author} \"...\"");
+    println!("write what you learned in the lab notebook: hexarena agent note --author {author} --kind lesson --bots a,b \"...\"");
     if !unanswered.is_empty() {
-        println!(
-            "reply with: curl -s -X POST -H 'content-type: application/json' http://127.0.0.1:47240/api/agents/{author}/messages -d '{{\"from\":\"{author}\",\"text\":\"...\"}}'"
-        );
+        println!("reply with: hexarena agent say --author {author} \"...\"");
     }
+}
+
+/// One request to the arena server (`HEXARENA_SERVER_ADDR`, default 127.0.0.1:47240),
+/// returning the response body when it answered 2xx.
+pub(crate) fn http(method: &str, path: &str, body: Option<&serde_json::Value>) -> Result<String, String> {
+    use std::io::{Read, Write};
+    let addr = std::env::var("HEXARENA_SERVER_ADDR").unwrap_or_else(|_| "127.0.0.1:47240".into());
+    let sock: std::net::SocketAddr = addr.parse().map_err(|e| format!("{addr}: {e}"))?;
+    let timeout = std::time::Duration::from_secs(5);
+    let mut s = std::net::TcpStream::connect_timeout(&sock, timeout).map_err(|e| format!("arena server at {addr}: {e}"))?;
+    let _ = s.set_write_timeout(Some(timeout));
+    let _ = s.set_read_timeout(Some(timeout));
+    let body = body.map(|b| b.to_string()).unwrap_or_default();
+    write!(
+        s,
+        "{method} {path} HTTP/1.1\r\nHost: {addr}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+        body.len()
+    )
+    .map_err(|e| e.to_string())?;
+    let mut raw = String::new();
+    let _ = s.read_to_string(&mut raw);
+    let (head, rest) = raw.split_once("\r\n\r\n").unwrap_or((raw.as_str(), ""));
+    let ok = head.split_whitespace().nth(1).is_some_and(|c| c.starts_with('2'));
+    if ok { Ok(rest.to_string()) } else { Err(format!("{method} {path}: {}", head.lines().next().unwrap_or("no answer"))) }
 }
 
 /// Tells the arena server what an agent's tools are doing, so the home page shows it live.
 /// Best effort: a server that is down or slow never holds up the eval.
 fn report_work(author: &str, text: &str) {
-    use std::io::Write;
-    let addr = std::env::var("HEXARENA_SERVER_ADDR").unwrap_or_else(|_| "127.0.0.1:47240".into());
-    let Ok(sock) = addr.parse::<std::net::SocketAddr>() else { return };
-    let Ok(mut s) = std::net::TcpStream::connect_timeout(&sock, std::time::Duration::from_secs(2)) else { return };
-    let _ = s.set_write_timeout(Some(std::time::Duration::from_secs(2)));
-    let body = serde_json::json!({ "text": text }).to_string();
-    let path = format!("/api/agents/{author}/work");
-    let _ = write!(
-        s,
-        "POST {path} HTTP/1.1\r\nHost: {addr}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
-        body.len()
-    );
-    // The server drops a request whose client hangs up before it answers.
-    let _ = s.set_read_timeout(Some(std::time::Duration::from_secs(2)));
-    let _ = std::io::Read::read(&mut s, &mut [0u8; 512]);
+    let _ = http("POST", &format!("/api/agents/{author}/work"), Some(&serde_json::json!({ "text": text })));
 }
 
 pub fn eval(f: &HashMap<String, String>) -> Result<(), String> {
@@ -192,18 +202,16 @@ pub fn eval(f: &HashMap<String, String>) -> Result<(), String> {
     if let Some(a) = &author {
         report_work(a, &format!("Testing {what} locally ({pairs} mirrored pairs of 8-player games)"));
     }
-    let (r, _) = compare(&candidate, &base, &roster(), get(f, "seed", 500_000), pairs)?;
+    let se = |r: &Comparison| if r.gain_se.is_finite() { format!("{:.2}", r.gain_se) } else { "n/a".into() };
+    let (r, _) = compare_with_progress(&candidate, &base, &roster(), get(f, "seed", 500_000), pairs, PROGRESS_REPORTS, |r| {
+        if let Some(a) = &author {
+            report_work(a, &format!("Testing {what}: {:+.2} ± {} places after {} of {} games so far", r.gain, se(r), r.games, pairs * 2));
+        }
+    })?;
     if let Some(a) = &author {
         report_work(
             a,
-            &format!(
-                "Tested {what}: {:+.2} ± {} places over {} games (closes {} vs {})",
-                r.gain,
-                if r.gain_se.is_finite() { format!("{:.2}", r.gain_se) } else { "n/a".into() },
-                r.games,
-                r.candidate_closes,
-                r.base_closes
-            ),
+            &format!("Tested {what}: {:+.2} ± {} places over {} games (closes {} vs {})", r.gain, se(&r), r.games, r.candidate_closes, r.base_closes),
         );
     }
     println!(

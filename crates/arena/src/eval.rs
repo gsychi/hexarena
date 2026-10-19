@@ -119,6 +119,21 @@ pub struct Comparison {
 /// plus 2 drawn from `pool`, then the same seed again with the two swapped, so spawn
 /// luck cancels out.
 pub fn compare(candidate: &Style, base: &Style, pool: &[Style], seed_base: u64, pairs: usize) -> Result<(Comparison, Vec<Lobby>), String> {
+    compare_with_progress(candidate, base, pool, seed_base, pairs, 1, |_| {})
+}
+
+/// [`compare`] played in `chunks` batches of pairs, calling `progress` with the running
+/// result after each batch but the last. The lobbies and the result are the same as
+/// [`compare`]'s.
+pub fn compare_with_progress(
+    candidate: &Style,
+    base: &Style,
+    pool: &[Style],
+    seed_base: u64,
+    pairs: usize,
+    chunks: usize,
+    mut progress: impl FnMut(&Comparison),
+) -> Result<(Comparison, Vec<Lobby>), String> {
     let start = Instant::now();
     let cand = Style { id: "candidate".into(), ..candidate.clone() };
     let base = Style { id: "base".into(), ..base.clone() };
@@ -143,7 +158,18 @@ pub fn compare(candidate: &Style, base: &Style, pool: &[Style], seed_base: u64, 
         lobbies.push((seed, seats));
         lobbies.push((seed, mirrored));
     }
-    let played = play_all(&lobbies)?;
+    let per = pairs.div_ceil(chunks.max(1)).max(1) * 2;
+    let mut played = Vec::with_capacity(lobbies.len());
+    for batch in lobbies.chunks(per) {
+        played.extend(play_all(batch)?);
+        if played.len() < lobbies.len() {
+            progress(&summarize(&played, start));
+        }
+    }
+    Ok((summarize(&played, start), played))
+}
+
+fn summarize(played: &[Lobby], start: Instant) -> Comparison {
     let gains: Vec<f64> = played
         .chunks(2)
         .map(|p| {
@@ -155,19 +181,16 @@ pub fn compare(candidate: &Style, base: &Style, pool: &[Style], seed_base: u64, 
     let closes = |id: &str| played.iter().filter(|l| l.closer.is_some_and(|s| l.ids[s] == id)).count();
     let mean = |id: &str| played.iter().map(|l| mean_score(l, id)).sum::<f64>() / played.len().max(1) as f64;
     let (gain, gain_se) = mean_se(&gains);
-    Ok((
-        Comparison {
-            games: played.len(),
-            candidate_score: mean("candidate"),
-            base_score: mean("base"),
-            gain,
-            gain_se,
-            candidate_closes: closes("candidate"),
-            base_closes: closes("base"),
-            secs: start.elapsed().as_secs_f64(),
-        },
-        played,
-    ))
+    Comparison {
+        games: played.len(),
+        candidate_score: mean("candidate"),
+        base_score: mean("base"),
+        gain,
+        gain_se,
+        candidate_closes: closes("candidate"),
+        base_closes: closes("base"),
+        secs: start.elapsed().as_secs_f64(),
+    }
 }
 
 fn mean_se(v: &[f64]) -> (f64, f64) {

@@ -12,6 +12,7 @@ import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
 import { api } from './api'
 import { Board, buildingPips } from './Board'
 import { BuildingIcon, Legend } from './Legend'
+import { NextAction, actionAt } from './Plan'
 import type { Cell, GameEvent, Placement, ViewerReplay } from './model'
 import {
   BUILDING_KEYS, BUILDING_NAMES, HEIGHT_STYLE, PLAYER_COLORS, PLAYER_MARKS, adjacentQuarries, buildPreview, defenseMilli, frameCells, hexAt, hexIndex, loadViewer, usesResource, visibleSet,
@@ -29,6 +30,7 @@ function describe(e: GameEvent, names: string[]): { player: number; text: string
     case 'repelled': return { player: e.attacker, text: `${names[e.attacker]} was repelled (${e.attackers_lost} lost)` }
     case 'built': return { player: e.player, text: `${names[e.player]} built a ${BUILDING_NAMES[kindOf(e.building) - 1]}`, kind: kindOf(e.building) }
     case 'eliminated': return { player: e.player, text: `${names[e.player]} was eliminated` }
+    case 'demolished': return { player: e.player, text: `${names[e.player]} demolished a ${BUILDING_NAMES[kindOf(e.building) - 1]}`, kind: kindOf(e.building) }
     case 'surrendered': return { player: e.capturer, text: `${names[e.capturer]} encircled ${e.hexes.length} hex(es) of ${names[e.from]}` }
     case 'gathered': return { player: e.player, text: `${names[e.player]} gathered troops from ${e.sources} hexes` }
     case 'links_broken': return null
@@ -98,7 +100,10 @@ export function Viewer({ src, match, label, onBack }: { src: string; match?: str
             }))
           }
         }
-        const want = new URLSearchParams(location.search).get('tick')
+        const query = new URLSearchParams(location.search)
+        const pov = Number(query.get('pov'))
+        if (query.get('pov') !== null && Number.isInteger(pov) && pov >= 0 && pov < loaded.names.length) setPerspective(pov)
+        const want = query.get('tick')
         const lastTick = loaded.store.last
         if (want) setTick(want === 'end' ? lastTick : Math.min(lastTick, Math.max(0, Number(want) || 0)))
         setRep(loaded)
@@ -116,6 +121,7 @@ export function Viewer({ src, match, label, onBack }: { src: string; match?: str
 
   const cells = useMemo(() => (rep ? frameCells(rep, tick) : new Map<number, Cell>()), [rep, tick])
   const visible = useMemo(() => (rep && perspective >= 0 ? visibleSet(rep, cells, perspective) : null), [rep, cells, perspective])
+  const plan = useMemo(() => (rep && perspective >= 0 && tick < rep.store.last ? { player: perspective, action: actionAt(rep, tick + 1, perspective) } : null), [rep, tick, perspective])
   const builtBy = useMemo(() => {
     if (!rep) return []
     const acc = [0, 0, 0, 0]
@@ -175,6 +181,8 @@ export function Viewer({ src, match, label, onBack }: { src: string; match?: str
           </Button>
         ))}
       </div>
+
+      {perspective >= 0 && <NextAction rep={rep} tick={tick} player={perspective} onJump={(t) => { setPlaying(false); setTick(Math.max(0, t)) }} />}
 
       <Card size="sm" className="gap-0 py-2">
         <CardContent className="px-2">
@@ -264,7 +272,7 @@ export function Viewer({ src, match, label, onBack }: { src: string; match?: str
     <div className="flex h-full flex-col gap-3 bg-background p-3 text-foreground lg:flex-row">
       <div className="flex min-h-0 flex-1 flex-col gap-3">
         <div className="relative min-h-0 flex-1">
-          <Board rep={rep} cells={cells} perspective={perspective} visible={visible} selected={selected} heightMode={heightMode} tick={tick}
+          <Board rep={rep} cells={cells} perspective={perspective} visible={visible} selected={selected} heightMode={heightMode} tick={tick} plan={plan}
             onSelect={(i) => { setSelected(i); if (i !== null) setTab('hex') }} />
           {tick === last && !hideEnd && <MatchOver rep={rep} elo={elo} onReplay={() => { setTick(0); setPlaying(true) }} onClose={() => setHideEnd(true)} />}
         </div>
