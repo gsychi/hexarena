@@ -1,7 +1,7 @@
 //! Villages for brains that only fight. Plays the inner brain every tick; at most once
 //! every `village_every` ticks it spends the tick on a Village instead, on the safe
-//! interior hex with the most troops, if one can pay for it. A Village repays its 75
-//! troops in 75 ticks and keeps paying, so the tick it costs is usually worth it.
+//! interior hex with the most troops, if one can pay for it. A Village's extra troop a
+//! tick repays its cost and keeps paying, so the tick it costs is usually worth it.
 //!
 //! Knobs: `village_every` (minimum ticks between Villages, 0 = never), `village_keep`
 //! (troops left on the hex beyond the one that must stay), `village_cap` (most Villages).

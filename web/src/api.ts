@@ -58,10 +58,14 @@ export interface LeaderboardRow {
   top_half_rate: number
   avg_place: number
   avp8: number
+  /** Standard error of avp8. */
+  avp8_se: number
+  /** Played enough games (rated_games) for the rating to be trusted. */
+  rated: boolean
   avg_normalized: number
   history: number[]
 }
-export interface Leaderboard { games: number; rules_version: string; start_elo: number; k: number; top?: number; retired?: Record<string, string>; bots: LeaderboardRow[]; retired_bots?: LeaderboardRow[] }
+export interface Leaderboard { games: number; rules_version: string; start_elo: number; k: number; top?: number; rated_games?: number; retired?: Record<string, string>; bots: LeaderboardRow[]; retired_bots?: LeaderboardRow[] }
 
 export interface ArenaEntrant {
   id: string

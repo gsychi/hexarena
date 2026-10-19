@@ -12,7 +12,7 @@ use hexarena_sdk::Style;
 use serde::{Deserialize, Serialize};
 use hexarena_arena::entrants::with_model;
 use league::Catalog;
-use standings::{standings, SeatResult, K, START_ELO};
+use standings::{standings, SeatResult, K, RATED_GAMES, START_ELO};
 use std::collections::BTreeMap;
 use std::net::IpAddr;
 use std::path::PathBuf;
@@ -30,11 +30,9 @@ const MAX_BATCH: u32 = 20;
 /// Refuse new games while this many are still queued or running.
 const MAX_RUNNING: usize = 100;
 /// Entrant seats in each self-play game; the rest are the champion and roster CPUs.
-const AUTOPLAY_ENTRANTS: usize = 4;
+const AUTOPLAY_ENTRANTS: usize = 6;
 /// Arena entrants stay scheduled while they rank in this many places of the standings.
 const ACTIVE_TOP: usize = 20;
-/// Games an entrant plays before it can be retired for its ranking.
-const TRIAL_GAMES: u32 = 20;
 /// Self-play games kept running at once.
 const AUTOPLAY_PARALLEL: usize = 2;
 
@@ -355,9 +353,10 @@ fn launch(app: &Shared, styles: &[Style], seed: u64, auto: bool) -> Summary {
 /// (up to [`AUTOPLAY_ENTRANTS`]), the league champion, then bots drawn from the rest of
 /// the active field (roster CPUs and league generations that aren't retired), in seed order.
 fn autoplay_lineup(app: &AppState, catalog: &Catalog, seed: u64) -> Vec<Style> {
+    let rules = RulesConfig::default().version;
     let mut played: BTreeMap<String, usize> = BTreeMap::new();
     for m in app.matches.lock().unwrap().values() {
-        if m.status != Status::Failed {
+        if m.status != Status::Failed && m.rules_version == rules {
             for seat in &m.seats {
                 *played.entry(seat.bot.clone()).or_default() += 1;
             }
@@ -544,7 +543,7 @@ async fn arena_info(State(app): State<Shared>) -> Json<serde_json::Value> {
     Json(serde_json::json!({
         "autoplay": app.autoplay,
         "top": ACTIVE_TOP,
-        "trial_games": TRIAL_GAMES,
+        "trial_games": RATED_GAMES,
         "entrants": entrants,
         "retired": catalog.retired_reasons(),
     }))
@@ -617,6 +616,7 @@ async fn leaderboard(State(app): State<Shared>, Query(q): Query<BoardQuery>) -> 
         "start_elo": START_ELO,
         "k": K,
         "top": ACTIVE_TOP,
+        "rated_games": RATED_GAMES,
         "retired": catalog.retired_reasons(),
         "bots": board.rows,
         "retired_bots": board.retired_rows,
@@ -708,7 +708,7 @@ fn retire_outside_top(app: &AppState, catalog: &Catalog) {
     let cut = rows.get(ACTIVE_TOP - 1).map(|r| r.elo);
     let champion = catalog.league.as_ref().map(|l| l.champion().id.clone());
     for row in &rows {
-        if row.games < TRIAL_GAMES || row.rank as usize <= ACTIVE_TOP {
+        if !row.rated || row.rank as usize <= ACTIVE_TOP {
             continue;
         }
         if Some(&row.bot) == champion.as_ref() {

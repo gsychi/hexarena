@@ -218,22 +218,45 @@ impl State {
             .is_some_and(|c| c.owner == Some(p) && c.building == Some(b))
     }
 
-    /// The friendly Farm currently supporting this Village, if any.
-    pub fn supporting_farm(&self, village: Hex) -> Option<Hex> {
-        let c = self.cell(village)?;
-        let owner = c.owner?;
+    /// The friendly Farms boosting this Village: every adjacent one under
+    /// `farm.adjacent_boost`, otherwise the one Farm linked to it, if any.
+    pub fn supporting_farms(&self, village: Hex) -> Vec<Hex> {
+        let Some(c) = self.cell(village) else { return vec![] };
+        let Some(owner) = c.owner else { return vec![] };
         if c.building != Some(Building::Village) {
-            return None;
+            return vec![];
         }
-        village.neighbors().into_iter().find(|&f| {
-            self.is_building(f, owner, Building::Farm)
-                && self
-                    .cell(f)
-                    .unwrap()
-                    .links
-                    .iter()
-                    .any(|l| *l == Some(village))
-        })
+        let adjacent = self.rules().farm.adjacent_boost;
+        village
+            .neighbors()
+            .into_iter()
+            .filter(|&f| {
+                self.is_building(f, owner, Building::Farm)
+                    && (adjacent || self.cell(f).unwrap().links.contains(&Some(village)))
+            })
+            .collect()
+    }
+
+    pub fn supporting_farm(&self, village: Hex) -> Option<Hex> {
+        self.supporting_farms(village).first().copied()
+    }
+
+    /// Hexes a building is connected to, as views show them: a Village's supporting
+    /// Farms, a Farm's boosted Villages, a Wall's linked Walls.
+    pub fn building_links(&self, h: Hex) -> Vec<Hex> {
+        let Some(c) = self.cell(h) else { return vec![] };
+        match c.building {
+            Some(Building::Village) => self.supporting_farms(h),
+            Some(Building::Farm) if self.rules().farm.adjacent_boost => match c.owner {
+                Some(o) => h
+                    .neighbors()
+                    .into_iter()
+                    .filter(|&v| self.is_building(v, o, Building::Village))
+                    .collect(),
+                None => vec![],
+            },
+            _ => c.links.iter().flatten().copied().collect(),
+        }
     }
 
     pub fn wall_links(&self, h: Hex) -> usize {
@@ -260,10 +283,7 @@ impl State {
         let r = self.rules();
         let mut v = r.base_income;
         if c.building == Some(Building::Village) && c.built_tick < self.tick {
-            v += r.village.bonus;
-            if self.supporting_farm(h).is_some() {
-                v += r.village.farm_bonus;
-            }
+            v += r.village.bonus + r.village.farm_bonus * self.supporting_farms(h).len() as u32;
         }
         v
     }
@@ -350,6 +370,9 @@ impl State {
                 village,
                 enabled,
             } => {
+                if self.rules().farm.adjacent_boost {
+                    return Err("Farms boost every adjacent Village; there are no links");
+                }
                 if !self.is_building(*farm, p, Building::Farm) {
                     return Err("not your Farm");
                 }
@@ -968,10 +991,7 @@ impl State {
         let c = self.cell(h).unwrap();
         let r = self.rules();
         let building = c.building.map(|kind| {
-            let links: Vec<Hex> = match kind {
-                Building::Village => self.supporting_farm(h).into_iter().collect(),
-                _ => c.links.iter().flatten().copied().collect(),
-            };
+            let links = self.building_links(h);
             let production_remaining = match kind {
                 Building::Farm | Building::Quarry if r.extractor_output > 0 => {
                     r.extractor_period.saturating_sub(c.progress)

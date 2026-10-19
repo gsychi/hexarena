@@ -98,8 +98,10 @@ function drawTerrain(ctx: CanvasRenderingContext2D, rep: ViewerReplay, geo: Geom
 export function buildingPips(c: Cell, rules: Rules): Pips | undefined {
   const linked = c.links.filter((l) => l >= 0).length
   switch (c.building) {
-    case 1: return { filled: linked, total: rules.farm.sockets, color: BUILDING_STYLE[0].color }
-    case 2: return { filled: c.links[0] >= 0 ? 1 : 0, total: 1, color: BUILDING_STYLE[0].color }
+    case 1: return rules.farm.adjacent_boost ? undefined : { filled: linked, total: rules.farm.sockets, color: BUILDING_STYLE[0].color }
+    case 2: return rules.farm.adjacent_boost
+      ? (linked > 0 ? { filled: linked, total: linked, color: BUILDING_STYLE[0].color } : undefined)
+      : { filled: c.links[0] >= 0 ? 1 : 0, total: 1, color: BUILDING_STYLE[0].color }
     case 4: return { filled: linked, total: rules.wall.max_links, color: BUILDING_STYLE[3].color }
     default: return undefined
   }
@@ -377,7 +379,7 @@ export function Board({ rep, cells, perspective, visible, selected, heightMode, 
       const x = geo.x[i], y = geo.y[i]
       hexPath(ctx, x, y, s); ctx.fillStyle = 'rgba(111,214,255,0.22)'; ctx.fill()
       ctx.setLineDash([3, 2]); ctx.strokeStyle = '#6fd6ff'; ctx.lineWidth = 1.6; ctx.stroke(); ctx.setLineDash([])
-      if (detail >= 1) { ctx.font = '700 7px sans-serif'; ctx.textAlign = 'center'; outlinedText(ctx, '-25%', x, y - SIZE * 0.5, '#9fe6ff') }
+      if (detail >= 1) { ctx.font = '700 7px sans-serif'; ctx.textAlign = 'center'; outlinedText(ctx, `-${rep.rules.quarry.troop_discount_pct}%`, x, y - SIZE * 0.5, '#9fe6ff') }
     }
     for (const i of rel.alternatives) {
       hexPath(ctx, geo.x[i], geo.y[i], s - 0.5); ctx.setLineDash([4, 3]); ctx.strokeStyle = '#ffd36b'; ctx.lineWidth = 2; ctx.stroke(); ctx.setLineDash([])

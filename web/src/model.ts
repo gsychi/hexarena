@@ -33,7 +33,8 @@ export interface Rules {
   storm_decay_pct?: number
   height_factor_milli: number
   maximum_total_defense_milli: number
-  farm: { troop_cost: number; resource_cost: number; allowed_heights: number[]; sockets: number; relink_cooldown: number }
+  /** `adjacent_boost` (v0.5+): every adjacent Farm boosts a Village, no links or sockets. */
+  farm: { troop_cost: number; resource_cost: number; allowed_heights: number[]; sockets: number; relink_cooldown: number; adjacent_boost?: boolean }
   village: { troop_cost: number; resource_cost: number; bonus: number; farm_bonus: number }
   quarry: { troop_cost: number; resource_cost: number; allowed_heights: number[]; min_friendly_distance: number; discount_radius: number; troop_discount_pct: number; resource_discount: number }
   wall: { troop_cost: number; resource_cost: number; max_links: number; defense_milli_by_links: number[]; relink_cooldown: number }
