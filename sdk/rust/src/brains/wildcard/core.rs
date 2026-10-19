@@ -18,6 +18,7 @@
 //! made at all, and troops get cheaper the more of them we bank per hex. Spare actions
 //! relay interior stacks toward short border hexes.
 
+use super::hold::HOLD;
 use super::net::{Closure, Net};
 use super::rings::{Board, Loot, Tarjan};
 use crate::{Action, Bot, Building, Event, Hex, PlayerCommand, PlayerId, RulesConfig, Style, View, MILLI};
@@ -233,6 +234,9 @@ struct Knobs {
     /// `net_price` against the ring value it helps seal, within `net_reach` of our land,
     /// in at most `net_rounds` flow phases.
     net_mode: u32,
+    /// Land value scaled by the learned chance the hex is still ours 50 ticks on
+    /// ([`super::hold`]), replacing the `hug`/`open` terms (0 = off).
+    learn: i64,
     net_price: i64,
     net_reach: u8,
     net_rounds: u32,
@@ -318,6 +322,7 @@ impl Knobs {
             net_far_k: k("net_far_k", 10) as u32,
             net_cap: k("net_cap", 5000),
             net_mode: k("net_mode", 0) as u32,
+            learn: k("learn", 0),
             net_price: k("net_price", 250),
             net_reach: k("net_reach", 3).clamp(1, 8) as u8,
             net_rounds: k("net_rounds", 40) as u32,
@@ -384,6 +389,8 @@ pub struct Core {
     pub chosen: Option<(Hex, i64)>,
     net: Net,
     closure: Closure,
+    tick: u32,
+    duel: bool,
     /// Credit for taking each hex as a step of a net.
     net_bonus: Vec<i64>,
     /// Decayed hexes each rival was seen losing to third parties, and capturing from anyone.
@@ -431,6 +438,8 @@ impl Core {
             chosen: None,
             net: Net::default(),
             closure: Closure::default(),
+            tick: 0,
+            duel: false,
             net_bonus: vec![],
             lost: vec![0; 16],
             fights: vec![0; 16],
@@ -1156,6 +1165,12 @@ impl Core {
         let hugged = geo.nbrs[t].iter().filter(|&&n| self.owned(n, me)).count() as i64;
         let exposed = geo.nbrs[t].len() as i64 - hugged;
         let mut gain = self.k.land;
+        if self.k.learn > 0 {
+            let hostile = geo.nbrs[t].iter().filter(|&&n| self.enemy(n, me)).count().min(6);
+            let late = (self.tick >= 4000) as usize;
+            let p = HOLD[(!self.duel) as usize][late][hugged.min(6) as usize][hostile] as i64;
+            gain += self.k.learn * p / 1000 - self.k.hug * hugged + self.k.open * exposed;
+        }
         if self.k.ring {
             gain += self.ring_value(&self.ring[t]) + self.setup[t] + self.k.neck_take * self.neck[t] as i64;
         } else if self.k.region {
@@ -1334,6 +1349,8 @@ impl Bot for Core {
         if self.k.late_from > 0 && view.tick >= self.k.late_from {
             self.k.go_late();
         }
+        self.tick = view.tick;
+        self.duel = view.public_players.len() == 2;
         if self.k.vulture > 0 {
             self.watch(view);
         }

@@ -27,6 +27,7 @@
 //! or when the build pays back faster than `rush_roi`.
 
 pub mod core;
+pub mod hold;
 pub mod net;
 pub mod rings;
 
