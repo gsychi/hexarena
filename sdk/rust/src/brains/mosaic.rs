@@ -46,6 +46,7 @@ struct Knobs {
     finish_bonus: i64,
     hunt_value: i64,
     lookahead_value: i64,
+    enclose_value: i64,
     relay_floor: u64,
     relay_patience: i64,
     allow_gather: bool,
@@ -88,6 +89,7 @@ impl Knobs {
             finish_bonus: k("finish_bonus", 0),
             hunt_value: k("hunt_value", 0),
             lookahead_value: k("lookahead_value", 0),
+            enclose_value: k("enclose_value", 0),
             relay_floor: k("relay_floor", 1).max(1) as u64,
             relay_patience: k("relay_patience", 1000).max(0),
             allow_gather: k("allow_gather", 1) != 0,
@@ -571,6 +573,61 @@ impl Mosaic {
         }
     }
 
+    /// Rival land that would surrender if `to` became ours. Unknown land and any contact
+    /// with impassable terrain make a component open, matching the engine's encirclement
+    /// rule. Searches are bounded so a huge empire cannot consume an action's time budget.
+    fn enclosure_gain(&self, to: usize, me: PlayerId) -> i64 {
+        const LIMIT: usize = 64;
+        let mut total = 0;
+        let mut done: Vec<usize> = vec![];
+        for &seed in &self.neighbors[to] {
+            if done.contains(&seed) {
+                continue;
+            }
+            let Some(owner) = self.enemy(seed, me) else {
+                continue;
+            };
+            let mut component = vec![seed];
+            let mut cursor = 0;
+            let mut enclosed = true;
+            while cursor < component.len() && enclosed {
+                let current = component[cursor];
+                cursor += 1;
+                for neighbor_hex in self.hexes[current].neighbors() {
+                    let Some(n) = self
+                        .index(neighbor_hex)
+                        .filter(|&i| self.terrain[i].is_some_and(|terrain| terrain.passable()))
+                    else {
+                        enclosed = false;
+                        break;
+                    };
+                    if n == to || self.own[n] {
+                        continue;
+                    }
+                    match self.seen[n].as_ref().and_then(|cell| cell.owner) {
+                        Some(other) if other == owner => {
+                            if !component.contains(&n) {
+                                component.push(n);
+                            }
+                        }
+                        _ => {
+                            enclosed = false;
+                            break;
+                        }
+                    }
+                }
+                if component.len() > LIMIT {
+                    enclosed = false;
+                }
+            }
+            done.extend(&component);
+            if enclosed {
+                total += component.len() as i64;
+            }
+        }
+        total
+    }
+
     fn bid(
         &self,
         view: &View,
@@ -646,6 +703,9 @@ impl Mosaic {
         }
         if self.exposed_until[to] >= view.tick {
             score += self.k.counter_bonus;
+        }
+        if owner.is_some() && self.k.enclose_value != 0 {
+            score += self.k.enclose_value * self.enclosure_gain(to, me);
         }
         // A source sealed into the interior after this capture is especially efficient.
         if self.neighbors[from]

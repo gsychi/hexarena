@@ -230,8 +230,11 @@ losses gather 800–2,100 times after a front becomes unaffordable.
   exploration of every arm, and rolling exploitation; tactical execution remains the
   liquid v14 rollout/relay core.
 - Published params: `docs/arena-genomes/mosaic-v16.json`.
-- Result: pending live arena trial.
-- Replay lesson: pending.
+- Result after 22 games: Elo 1569, AVP8 5.50, win rate 13.6%, top-half 27.3%.
+- Replay lesson: three wins hid a very poor floor. Net land gain is delayed and heavily
+  confounded by spawn and neighbours, so 220-tick policy rewards often credited whichever
+  policy inherited an already-winning front and locked into it. Online selection needs
+  state-normalized credit, not raw land delta.
 
 ## mosaic-v17 — Momentum Futures
 
@@ -242,5 +245,41 @@ losses gather 800–2,100 times after a front becomes unaffordable.
   smoothed into momentum and directly prices enemy capture bids, while the v14 finisher
   takes over once we are largest.
 - Published params: `docs/arena-genomes/mosaic-v17.json`.
+- Result after 20 games: Elo 1435, AVP8 6.40, win rate 0.0%, top-half 15.0%.
+- Replay lesson: attacking growth was worse than attacking weakness. Remembered land is
+  stale under fog, and positive momentum usually identifies the opponent currently strong
+  enough to punish contact. v2's cleanup target remains the sounder FFA asymmetry.
+
+## mosaic-v18 — Encirclement Noose
+
+- Hypothesis: survivor routing alone still ends at the cutoff because it values one hex at
+  a time. Explicitly modeling surrender components and paying heavily for a closing gap can
+  remove dozens of rival actions with one capture and make actual elimination reachable.
+- Change: added a bounded fog-safe enclosure rollout matching the engine's impassable-breaks-
+  encirclement rule. The v14 pursuit core now prices every predicted surrendered hex at 220
+  points and starts hunting at tick 1500.
+- Published params: `docs/arena-genomes/mosaic-v18.json`.
+- Result: pending live arena trial.
+- Replay lesson: pending.
+
+## mosaic-v19 — Ambush Noose
+
+- Hypothesis: the best closing gap often appears immediately after a rival moves its main
+  stack. Combining remembered vacated sources, enclosure value, and portfolio targeting can
+  strike that temporary cut before the defender repairs it.
+- Change: a 320-point eight-tick counterattack window on observed departures of 45+ troops,
+  plus enclosure rollout and moderately liquid capture splits.
+- Published params: `docs/arena-genomes/mosaic-v19.json`.
+- Result: pending live arena trial.
+- Replay lesson: pending.
+
+## mosaic-v20 — Lean Noose
+
+- Hypothesis: v14's remaining NoOps come from over-reserving. A lean 42% threat reserve,
+  78% surplus forwarding, and modest enclosure premium should retain its continuation
+  quality while keeping relays liquid throughout pursuit.
+- Change: early largest-player switch, low closeout margin, aggressive forwarding, and
+  enclosure scoring on the proven smallest-rival rollout policy.
+- Published params: `docs/arena-genomes/mosaic-v20.json`.
 - Result: pending live arena trial.
 - Replay lesson: pending.
