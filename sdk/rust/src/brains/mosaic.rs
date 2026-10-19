@@ -38,11 +38,14 @@ struct Knobs {
     leader: i64,
     prey: i64,
     revenge: i64,
+    counter_bonus: i64,
     peace_until: u32,
     build_mode: i64,
     build_every: u32,
     build_cap: usize,
     logistics_min: u32,
+    wave_cycle: u32,
+    wave_charge: u32,
 }
 
 impl Knobs {
@@ -65,11 +68,14 @@ impl Knobs {
             leader: k("leader", 80),
             prey: k("prey", 90),
             revenge: k("revenge", 18),
+            counter_bonus: k("counter_bonus", 0),
             peace_until: k("peace_until", 500).max(0) as u32,
             build_mode: k("build_mode", 0),
             build_every: k("build_every", 11).max(1) as u32,
             build_cap: k("build_cap", 8).max(0) as usize,
             logistics_min: k("logistics_min", 80).max(2) as u32,
+            wave_cycle: k("wave_cycle", 0).max(0) as u32,
+            wave_charge: k("wave_charge", 0).max(0) as u32,
         }
     }
 }
@@ -94,6 +100,7 @@ pub struct Mosaic {
     neighbors: Vec<Vec<usize>>,
     seen: Vec<Option<Cell>>,
     own: Vec<bool>,
+    exposed_until: Vec<u32>,
     hostility: Vec<i64>,
     last_decay: u32,
     last_build: u32,
@@ -113,6 +120,7 @@ impl Mosaic {
             neighbors: vec![],
             seen: vec![],
             own: vec![],
+            exposed_until: vec![],
             hostility: vec![],
             last_decay: 0,
             last_build: 0,
@@ -155,6 +163,7 @@ impl Mosaic {
             .collect();
         self.seen = vec![None; slots];
         self.own = vec![false; slots];
+        self.exposed_until = vec![0; slots];
         self.hostility = vec![0; view.public_players.len()];
     }
 
@@ -187,6 +196,19 @@ impl Mosaic {
             self.own[i] = visible.owner == Some(view.you);
         }
         for event in &view.visible_events {
+            if let Event::Moved {
+                player,
+                from,
+                troops,
+                ..
+            } = event
+            {
+                if *player != view.you && *troops >= self.k.logistics_min {
+                    if let Some(i) = self.index(*from) {
+                        self.exposed_until[i] = view.tick + 8;
+                    }
+                }
+            }
             if let Event::Captured {
                 player,
                 previous_owner,
@@ -452,6 +474,9 @@ impl Mosaic {
         if let Some(owner) = owner {
             score += self.political_value(view, owner, land, leader);
         }
+        if self.exposed_until[to] >= view.tick {
+            score += self.k.counter_bonus;
+        }
         // A source sealed into the interior after this capture is especially efficient.
         if self.neighbors[from]
             .iter()
@@ -686,7 +711,16 @@ impl Bot for Mosaic {
         self.remember(view);
         let management = self.management();
         let (ready, blocked) = self.bids(view);
-        let action = if let Some(build) = self.build(view) {
+        let wave_pad = blocked.or(ready);
+        let charging = self.k.wave_cycle > 0
+            && view.tick % self.k.wave_cycle < self.k.wave_charge.min(self.k.wave_cycle)
+            && self.own.iter().filter(|owned| **owned).count() > self.k.opening_land;
+        let action = if charging && wave_pad.is_some() {
+            let pad = wave_pad.expect("checked above").from;
+            self.logistics(pad).unwrap_or(Action::Gather {
+                target: self.hexes[pad],
+            })
+        } else if let Some(build) = self.build(view) {
             self.last_build = view.tick;
             self.build_actions += 1;
             build

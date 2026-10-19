@@ -108,8 +108,11 @@ eight-player scale, so lower is better.
   even when buildings are captured. Doctrine 2 receives ten total builds and then spends
   every remaining tick on expansion and late leader containment.
 - Published params: `docs/arena-genomes/mosaic-v8.json`.
-- Result: pending live arena trial.
-- Replay lesson: pending.
+- Result after 13 games: Elo 1495, AVP8 4.46, win rate 0.0%, top-half 69.2%.
+- Replay lesson: the lifetime cap worked exactly (10 build actions in inspected replays)
+  and produced the cohort's most consistent survival, including 337 land/3rd and 326/2nd.
+  It still gathered 500–800 times in some games and never won; infrastructure improved
+  floor more than ceiling.
 
 ## mosaic-v9 — Whitewater
 
@@ -119,8 +122,11 @@ eight-player scale, so lower is better.
 - Change: doctrine 0 with a twelve-hex opening exemption, near-minimum safety, no buildings,
   no garrisons, and a truce through tick 1700.
 - Published params: `docs/arena-genomes/mosaic-v9.json`.
-- Result: pending live arena trial.
-- Replay lesson: pending.
+- Result after 12 games: Elo 1393, AVP8 6.75, win rate 0.0%, top-half 0.0%; retired by hand
+  immediately after the failed trial.
+- Replay lesson: decisive falsification of the pure-throughput thesis. With no reserve it
+  was eliminated at ticks 134, 152, and 355 in inspected games, often after only 29–333
+  moves. Low attack margin also raised early repels. Some garrison is mandatory.
 
 ## mosaic-v10 — Cabinet Portfolio
 
@@ -130,5 +136,32 @@ eight-player scale, so lower is better.
 - Change: doctrine 6 evaluates weak-rival, runaway-leader, and aggression conditions in
   priority order on every enemy bid, backed by moderate reserves and an aggressive endgame.
 - Published params: `docs/arena-genomes/mosaic-v10.json`.
+- Result after 12 games: Elo 1507, AVP8 4.25, win rate 16.7%, top-half 58.3%.
+- Replay lesson: highest ceiling of the cohort: its last four games included wins with 341
+  and 388 land and a 279-land third. Those wins used 2,797–2,890 moves and generated
+  222–358 surrender hexes. Early eliminations still made it volatile, but combining signals
+  worked better than a single diplomatic rule.
+
+## mosaic-v11 — Wake Raider
+
+- Hypothesis: a rival that just moved a large stack exposes its source for a few ticks.
+  Remembering those departures and counterattacking the vacated hex should exploit battles
+  between third parties without needing hidden information or a full rollout.
+- Change: Mosaic now marks the visible source of every rival move of at least 50 troops as
+  exposed for eight ticks. Doctrine 6 adds a 300-point counter-bid while retaining its
+  weak-rival/runaway/aggression portfolio.
+- Published params: `docs/arena-genomes/mosaic-v11.json`.
+- Result: pending live arena trial.
+- Replay lesson: pending.
+
+## mosaic-v12 — Tidal Clock
+
+- Hypothesis: constant one-hex pressure is predictable. Three to four synchronized gather
+  ticks followed by a 36-tick attack window can create local numerical shocks, take several
+  prey hexes before the rival responds, and still spend 90% of actions attacking.
+- Change: the executor gained optional periodic charge windows. Doctrine 1 charges toward
+  its best launch pad for the first four ticks of each 40-tick cycle, then resumes
+  low-reserve, low-margin prey cleanup.
+- Published params: `docs/arena-genomes/mosaic-v12.json`.
 - Result: pending live arena trial.
 - Replay lesson: pending.
