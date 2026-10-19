@@ -53,7 +53,7 @@ function StatusBadge({ status }: { status: MatchStatus }) {
   }
 }
 
-export function Home({ onOpen, onLeague, onNotes }: { onOpen: (id: string) => void; onLeague: () => void; onNotes: () => void }) {
+export function Home({ onOpen, onBot, onLeague, onNotes }: { onOpen: (id: string) => void; onBot: (id: string) => void; onLeague: () => void; onNotes: () => void }) {
   const [bots, setBots] = useState<BotInfo[]>([])
   const [matches, setMatches] = useState<MatchSummary[] | null>(null)
   const [total, setTotal] = useState(0)
@@ -116,7 +116,7 @@ export function Home({ onOpen, onLeague, onNotes }: { onOpen: (id: string) => vo
         </Card>
       )}
 
-      <Standings board={board} />
+      <Standings board={board} onBot={onBot} />
 
       <div className="grid gap-6 lg:grid-cols-[minmax(0,26rem)_minmax(0,1fr)]">
         <NewGame bots={bots} elo={elo} offline={!!offline} onCreated={onCreated} />
