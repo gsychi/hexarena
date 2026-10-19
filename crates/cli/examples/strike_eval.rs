@@ -11,7 +11,7 @@
 //! HEXARENA_EVAL_THREADS threads (default 1).
 
 use hexarena_arena::eval::{avp8, LOBBY};
-use hexarena_arena::{entrants::load_all, play};
+use hexarena_arena::{entrants::load_all, play_on};
 use hexarena_protocol::*;
 use hexarena_sdk::{roster, style, BotParams, Style};
 use std::collections::HashMap;
@@ -84,7 +84,7 @@ fn run(seed: u64, seats: &[Style]) -> Game {
         .enumerate()
         .map(|(i, s)| Style { name: format!("Player {}", i + 1), blurb: String::new(), ..s.clone() })
         .collect();
-    let played = play(seed, &styles, u32::MAX).expect("play");
+    let played = play_on(seed, &styles, u32::MAX, strike_map(seed)).expect("play");
     if let Ok(dir) = std::env::var("STRIKE_REPLAYS") {
         let tag: String = seats.iter().map(|s| if s.id == "candidate" { 'C' } else if s.id == "base" { 'B' } else { 'r' }).collect();
         let path = format!("{dir}/{seed}-{tag}.replay.json");
@@ -201,6 +201,17 @@ fn side(g: &Game, id: &str) -> Side {
         s.land3000 += x.land3000;
     }
     s
+}
+
+/// `STRIKE_MAP`: unset for procedural boards, `any` for a real-world map picked from the
+/// seed as self-play does, or a map id such as `japan`.
+fn strike_map(seed: u64) -> Option<MapPreset> {
+    let choice = std::env::var("STRIKE_MAP").ok()?;
+    if choice == "any" {
+        let all = hexarena_engine::atlas::PRESETS;
+        return Some(all[(seed.rotate_right(17) % all.len() as u64) as usize]);
+    }
+    Some(serde_json::from_value(serde_json::Value::String(choice.clone())).unwrap_or_else(|_| panic!("unknown map {choice}")))
 }
 
 fn main() {

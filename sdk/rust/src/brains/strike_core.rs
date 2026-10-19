@@ -260,6 +260,13 @@ struct Knobs {
     /// Demolish a Village, Farm or Quarry on a hex we took once the biggest enemy stack
     /// next to it would kill this % of its garrison (0 = never): it falls back bare.
     demolish_pct: u64,
+    /// Neck passes only for rivals touching our land, one rival a tick in turn (0/1).
+    neck_rr: bool,
+    /// Finish the victim once at most this many players are alive, in lobbies that
+    /// started with more (0 = never).
+    blitz_alive: u32,
+    /// Finish the victim once we hold this % of the board's passable hexes (0 = never).
+    blitz_share_pct: u32,
 }
 
 impl Knobs {
@@ -321,6 +328,9 @@ impl Knobs {
             reinforce: k("reinforce", 0) as u32,
             reinforce_min: k("reinforce_min", 300),
             demolish_pct: k("demolish_pct", 0) as u64,
+            neck_rr: k("neck_rr", 0) > 0,
+            blitz_alive: k("blitz_alive", 0) as u32,
+            blitz_share_pct: k("blitz_share_pct", 0) as u32,
         }
     }
 
@@ -359,6 +369,10 @@ pub struct StrikeCore {
     neck_buf: Regions,
     /// Most of our hexes one rival capture of each slot would swallow, this tick.
     neck: Vec<u32>,
+    /// Each rival's neck map as of its last pass.
+    neck_of: Vec<Vec<u32>>,
+    /// The rival whose neck pass ran last.
+    neck_turn: usize,
     /// Tick each slot was last seen changing owner.
     flipped: Vec<u32>,
     tick: u32,
@@ -380,6 +394,8 @@ impl StrikeCore {
             region_buf: Regions::default(),
             neck_buf: Regions::default(),
             neck: vec![],
+            neck_of: vec![],
+            neck_turn: 0,
             flipped: vec![],
             tick: 0,
         }
@@ -578,28 +594,63 @@ impl StrikeCore {
 
     /// One region pass per rival we have seen (Mason's neck defence, reused with credit):
     /// `neck[i]` is the most of our hexes a rival next to slot `i` would swallow by taking it.
-    fn necks(&mut self, geo: &Geometry, me: PlayerId) {
+    fn necks(&mut self, geo: &Geometry, me: PlayerId, mine: &[usize]) {
         let slots = geo.passable.len();
         self.neck.clear();
         self.neck.resize(slots, 0);
         let mut rivals = [false; 64];
-        for o in self.seen.iter().flatten().filter_map(|c| c.owner) {
-            if o != me && (o as usize) < rivals.len() {
-                rivals[o as usize] = true;
+        if self.k.neck_rr {
+            for &s in mine {
+                for &n in &geo.nbrs[s] {
+                    if let Some(o) = self.seen[n].and_then(|c| c.owner).filter(|&o| o != me) {
+                        if let Some(r) = rivals.get_mut(o as usize) {
+                            *r = true;
+                        }
+                    }
+                }
             }
-        }
-        let mut buf = std::mem::take(&mut self.neck_buf);
-        for r in (0..rivals.len()).filter(|&r| rivals[r]) {
-            let r = r as PlayerId;
-            self.regions(geo, me, r, &mut buf);
-            for i in 0..slots {
-                let m = buf.mine[i];
-                if m > self.neck[i] && geo.nbrs[i].iter().any(|&n| self.seen[n].is_some_and(|c| c.owner == Some(r))) {
-                    self.neck[i] = m.min(self.k.neck_cap);
+        } else {
+            for o in self.seen.iter().flatten().filter_map(|c| c.owner) {
+                if o != me && (o as usize) < rivals.len() {
+                    rivals[o as usize] = true;
                 }
             }
         }
+        if self.neck_of.len() < rivals.len() {
+            self.neck_of.resize(rivals.len(), vec![]);
+        }
+        // Round robin: one pass a tick for the next rival touching us, the others' maps
+        // kept from their last turn, so big boards cost one pass whatever the lobby.
+        let due: Vec<usize> = if self.k.neck_rr {
+            let n = rivals.len();
+            (1..=n).map(|d| (self.neck_turn + d) % n).find(|&r| rivals[r]).into_iter().collect()
+        } else {
+            (0..rivals.len()).filter(|&r| rivals[r]).collect()
+        };
+        let mut buf = std::mem::take(&mut self.neck_buf);
+        for &r in &due {
+            self.neck_turn = r;
+            let rid = r as PlayerId;
+            self.regions(geo, me, rid, &mut buf);
+            let mut map = std::mem::take(&mut self.neck_of[r]);
+            map.clear();
+            map.extend((0..slots).map(|i| {
+                let m = buf.mine[i];
+                let next_to = m > 0 && geo.nbrs[i].iter().any(|&n| self.seen[n].is_some_and(|c| c.owner == Some(rid)));
+                if next_to { m.min(self.k.neck_cap) } else { 0 }
+            }));
+            self.neck_of[r] = map;
+        }
         self.neck_buf = buf;
+        for (r, map) in self.neck_of.iter_mut().enumerate() {
+            if !rivals.get(r).copied().unwrap_or(false) {
+                map.clear();
+                continue;
+            }
+            for (n, &m) in self.neck.iter_mut().zip(map.iter()) {
+                *n = (*n).max(m);
+            }
+        }
     }
 
     /// Articulation points of the land we don't own (Tarjan, iterative). Enemy hexes
@@ -825,6 +876,14 @@ impl StrikeCore {
             .min_by_key(|&o| (self.land_of[o], o))
             .map(|o| o as PlayerId);
         let tick = view.tick;
+        let living = view.public_players.iter().filter(|p| p.alive).count() as u32;
+        let board: usize = geo.passable.iter().filter(|&&p| p).count();
+        let blitz = (self.k.blitz_alive > 0
+            && living <= self.k.blitz_alive
+            && view.public_players.len() as u32 > self.k.blitz_alive)
+            || (self.k.blitz_share_pct > 0
+                && view.public_players.len() > 2
+                && mine.len() * 100 >= board * self.k.blitz_share_pct as usize);
         if let Some(v) = self.victim {
             if contact.get(v as usize).copied().unwrap_or(false) {
                 self.victim_seen = tick;
@@ -833,14 +892,14 @@ impl StrikeCore {
             let land = |o: PlayerId| self.land_of.get(o as usize).copied().unwrap_or(0);
             let better = best.is_some_and(|b| b != v && land(b) * 100 <= land(v) * self.k.switch_pct);
             if !stale && !better {
-                self.finishing = self.k.finish_n > 0 && land(v) <= self.k.finish_n;
+                self.finishing = blitz || self.k.finish_n > 0 && land(v) <= self.k.finish_n;
                 return;
             }
         }
         self.victim = best;
         self.victim_seen = tick;
         self.finishing = best.is_some_and(|v| {
-            self.k.finish_n > 0 && self.land_of.get(v as usize).copied().unwrap_or(0) <= self.k.finish_n
+            blitz || self.k.finish_n > 0 && self.land_of.get(v as usize).copied().unwrap_or(0) <= self.k.finish_n
         });
     }
 
@@ -1117,7 +1176,7 @@ impl Bot for StrikeCore {
         let rush = sprinting || self.finishing;
         let seal = (self.k.seal > 0 || self.k.backyard > 0).then(|| self.seal(&geo, me));
         if self.k.neck_take > 0 || self.k.neck_want_pct > 0 {
-            self.necks(&geo, me);
+            self.necks(&geo, me, &mine);
         }
         let supply = self.supply(&geo, me, &mine);
         let mut buf = std::mem::take(&mut self.region_buf);
@@ -1228,7 +1287,7 @@ mod tests {
         assert_eq!(r.land[geo.slot(Hex::new(0, 0)).unwrap()], 0);
 
         // Seen from the centre's owner, the gap is the neck its one hex would fall through.
-        core.necks(&geo, 1);
+        core.necks(&geo, 1, &[geo.slot(Hex::new(0, 0)).unwrap()]);
         assert_eq!(core.neck[g], 1);
         assert_eq!(core.neck[geo.slot(Hex::new(3, 0)).unwrap()], 0);
         assert!(core.neck.iter().all(|&n| n <= 1));

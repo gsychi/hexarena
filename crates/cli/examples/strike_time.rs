@@ -56,6 +56,17 @@ fn seat(id: &str) -> Style {
     Style { id: id.into(), name: id.into(), blurb: String::new(), params: p, program: None }
 }
 
+/// `STRIKE_MAP`: unset for procedural boards, `any` for a real-world map picked from the
+/// seed as self-play does, or a map id such as `japan`.
+fn strike_map(seed: u64) -> Option<MapPreset> {
+    let choice = std::env::var("STRIKE_MAP").ok()?;
+    if choice == "any" {
+        let all = hexarena_engine::atlas::PRESETS;
+        return Some(all[(seed.rotate_right(17) % all.len() as u64) as usize]);
+    }
+    Some(serde_json::from_value(serde_json::Value::String(choice.clone())).unwrap_or_else(|_| panic!("unknown map {choice}")))
+}
+
 fn main() {
     let a: Vec<String> = std::env::args().skip(1).collect();
     let bot = seat(&a[0]);
@@ -80,7 +91,9 @@ fn main() {
             .enumerate()
             .map(|(i, s)| Style { name: format!("Player {}", i + 1), ..s.clone() })
             .collect();
-        let mut st = State::new(settings(8, seed), named.iter().map(|s| s.name.clone()).collect()).unwrap();
+        let mut s = settings(8, seed);
+        s.rules.map = strike_map(seed);
+        let mut st = State::new(s, named.iter().map(|s| s.name.clone()).collect()).unwrap();
         let mut bots: Vec<_> = named.iter().map(|s| brains::build(s.clone()).unwrap()).collect();
         let (mut g_worst, mut g_tick) = (0u64, 0u32);
         while !st.is_over() {
