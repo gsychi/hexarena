@@ -316,3 +316,23 @@ losses gather 800–2,100 times after a front becomes unaffordable.
   land; the latter used 2,984 moves and surrendered 286 hexes. Other seeds finished eighth.
   Army size can expose a cheap victim, but fog-stale troop totals can select a trap. No
   round-2 entrant achieved an early close.
+
+# Round 3 — mirrored gate optimization
+
+Arena Elo is no longer the objective. Every active entrant now plays the league's mirrored
+three-versus-three gate, and positive place gain over the current champion Ridgeline g6 is
+the only verdict. All prior Mosaic versions had negative gate gain; v22 was least bad at
+-0.58 ± 0.26 places.
+
+## bastion-v1 — Kin Treaty
+
+- Hypothesis: g6's largest structural waste in the mirrored gate is fighting its other two
+  identical seats. Three challenger copies that recognize their public seat-name family and
+  never attack one another can retain g6's proven safety/supply tactics while concentrating
+  every hostile action and garrison on champion seats.
+- Change: introduced the Bastion wrapper around the exact g6 Ridgeline genome. Same-family
+  visible land is presented to the tactical core as prohibitively defended neutral ground,
+  so it neither attacks nor garrisons against kin. The treaty lasts beyond the cutoff.
+- Published params: `docs/arena-genomes/bastion-v1.json`.
+- Gate result: pending.
+- Lesson: pending.

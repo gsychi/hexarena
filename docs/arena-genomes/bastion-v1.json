@@ -1,0 +1,29 @@
+{
+  "brain": "bastion",
+  "knobs": {
+    "sure_x10": 30,
+    "land": 100,
+    "enemy": 30,
+    "hug": 40,
+    "open": 15,
+    "height": 10,
+    "cost_pct": 100,
+    "wealth": 30,
+    "enclose": 100,
+    "guard": 20,
+    "margin_pct": 600,
+    "drop_w": 100,
+    "safe_min": 300,
+    "supply_every": 3,
+    "supply_min": 200,
+    "bar": 500,
+    "gather_until": 600,
+    "seal": 0,
+    "seal_max": 40,
+    "backyard": 0,
+    "sprint": 0,
+    "stage": 0,
+    "short_cost": 0,
+    "treaty_until": 3001
+  }
+}

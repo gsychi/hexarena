@@ -7,6 +7,7 @@
 //!
 //! [`BotParams::knob`]: crate::BotParams::knob
 
+pub mod bastion;
 pub mod mosaic;
 pub mod predator;
 pub mod relay;
@@ -20,7 +21,14 @@ use std::collections::BTreeMap;
 pub const DEFAULT: &str = "expander";
 
 /// Every brain id [`build`] accepts.
-pub const BRAINS: &[&str] = &[DEFAULT, "relay", "predator", "ridgeline", "mosaic"];
+pub const BRAINS: &[&str] = &[
+    DEFAULT,
+    "relay",
+    "predator",
+    "ridgeline",
+    "mosaic",
+    "bastion",
+];
 
 /// The bot that plays `style`, or an error naming an unknown brain.
 pub fn build(style: Style) -> Result<Box<dyn Bot>, String> {
@@ -29,6 +37,7 @@ pub fn build(style: Style) -> Result<Box<dyn Bot>, String> {
     }
     match style.params.brain.as_str() {
         DEFAULT => Ok(Box::new(Expander::new(style))),
+        "bastion" => Ok(Box::new(bastion::Bastion::new(style))),
         "mosaic" => Ok(Box::new(mosaic::Mosaic::new(style))),
         "relay" => Ok(Box::new(relay::Relay::new(style))),
         "predator" => Ok(Box::new(predator::Predator::new(style))),
