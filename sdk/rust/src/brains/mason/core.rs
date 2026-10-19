@@ -180,6 +180,8 @@ struct Knobs {
     prey: i64,
     /// Extra score for that rival's Villages.
     prey_village: i64,
+    /// Hunt only rivals that touch our land (0/1): fog makes a far rival look small.
+    prey_border: bool,
     /// Tick the late phase began.
     late_at: Option<u32>,
     /// Bonus for an enemy hex of a rival we know `n` hexes of: `focus * 50 / n`, so the
@@ -285,6 +287,7 @@ impl Knobs {
             finish_blitz: k("finish_blitz", 1) as u32,
             prey: k("prey", 0),
             prey_village: k("prey_village", 0),
+            prey_border: k("prey_border", 0) > 0,
             late_at: None,
             focus: k("focus", 0),
             push_gather: k("push_gather", 0) as u32,
@@ -1226,10 +1229,23 @@ impl Bot for Core {
         }
         self.prey_of = None;
         if self.finishing && self.k.prey > 0 {
+            let mut touching = [false; 16];
+            if self.k.prey_border {
+                for &i in &mine {
+                    for &n in &geo.nbrs[i] {
+                        if let Some(o) = self.seen[n].and_then(|c| c.owner).filter(|&o| o != me) {
+                            if let Some(t) = touching.get_mut(o as usize) {
+                                *t = true;
+                            }
+                        }
+                    }
+                }
+            }
             self.prey_of = view
                 .public_players
                 .iter()
                 .filter(|p| p.alive && p.id != me)
+                .filter(|p| !self.k.prey_border || touching.get(p.id as usize).copied().unwrap_or(false))
                 .filter_map(|p| self.land_of.get(p.id as usize).filter(|&&n| n > 0).map(|&n| (n, p.id)))
                 .min()
                 .map(|(_, id)| id);
