@@ -570,3 +570,11 @@ Relay's proven capture garrisons and spare-stack routing.
 - Economy: Village-only from tick 650 to 4000, paced every eight ticks; high build-site
   reserve and conservative Relay capture margins.
 - Result and replay lesson: pending 50-game sample.
+
+### jackal-v1 — Jackal
+
+- Hypothesis: stop after a sparse 48-build lattice at overtime and liquidate with lower
+  safety, 70% forwarding and extra enemy/enclosure value to turn troop income into a
+  conquest rather than another cutoff.
+- Economy: shallow lattice from tick 500 to 3000, then lean aggressive Relay.
+- Result and replay lesson: pending 50-game sample.
