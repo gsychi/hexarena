@@ -1,4 +1,4 @@
-import { Dice5, House, Loader2, Play, Plus, Shuffle, Swords, TrendingUp, Trophy, Users } from 'lucide-react'
+import { Dice5, Globe2, House, Loader2, Play, Plus, Shuffle, Swords, TrendingUp, Trophy, Users } from 'lucide-react'
 import { memo, useCallback, useEffect, useMemo, useState } from 'react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -7,9 +7,10 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectSeparator, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
-import type { BoardFormat, BotInfo, MatchStatus, MatchSummary } from './api'
+import type { BoardFormat, BotInfo, MapChoice, MapInfo, MatchStatus, MatchSummary } from './api'
 import { api } from './api'
-import { PLAYER_COLORS } from './model'
+import { MAP_NAMES, PLAYER_COLORS } from './model'
+import type { MapPreset } from './model'
 import { AgentsPanel } from './Agents'
 import { EloScatter } from './EloScatter'
 import { Offline, Page } from './Page'
@@ -22,6 +23,12 @@ const RECENT = 40
 const POLL_MS = 3000
 const BOARD_MS = 10_000
 const DEFAULT_LINEUP = ['expander', 'homesteader', 'raider', 'warden']
+const REAL_MAPS = Object.keys(MAP_NAMES) as MapPreset[]
+const MAP_CHOICES: { value: MapChoice; label: string }[] = [
+  { value: 'procedural', label: 'Procedural' },
+  { value: 'any', label: 'Any real-world map' },
+  ...REAL_MAPS.map((id) => ({ value: id, label: MAP_NAMES[id] })),
+]
 
 function finish(m: MatchSummary) {
   const at = `tick ${m.final_tick}`
@@ -116,7 +123,7 @@ export function GamesPage({ onOpen }: { onOpen: (id: string) => void }) {
   }, [setData])
 
   return (
-    <Page icon={Swords} wide title="Games" description="The self-playing arena keeps 8-player games going around the clock. Set up your own free-for-all, or open any game to watch its replay."
+    <Page icon={Swords} wide title="Games" description="The self-playing arena keeps 8-player games going around the clock, about one in ten on a real-world map. Set up your own free-for-all, or open any game to watch its replay."
       actions={<Button variant="outline" size="sm" onClick={() => onOpen('sample')}><Play />Watch sample match</Button>}>
       {error && <Offline error={error} onRetry={refresh} />}
       <div className="grid gap-6 lg:grid-cols-[minmax(0,26rem)_minmax(0,1fr)]">
@@ -141,6 +148,7 @@ export function GamesPage({ onOpen }: { onOpen: (id: string) => void }) {
                       <span className="font-mono text-xs text-muted-foreground">{m.id}</span>
                       <StatusBadge status={m.status} />
                       {m.auto && <Badge variant="outline" className="text-[10px] text-muted-foreground">Self-play</Badge>}
+                      {m.map && <Badge variant="outline" className="gap-1 border-sky-400/30 text-[10px] text-sky-300"><Globe2 className="size-3" />{MAP_NAMES[m.map]}</Badge>}
                       {m.winner && <span className="flex min-w-0 items-center gap-1 truncate text-xs"><Trophy className="size-3 shrink-0 text-amber-300" />{m.winner}</span>}
                     </div>
                     <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-xs text-muted-foreground">
@@ -174,7 +182,13 @@ const NewGame = memo(function NewGame({ bots, elo, offline, onCreated }: {
 }) {
   const [lineup, setLineup] = useState<string[]>(DEFAULT_LINEUP)
   const [seed, setSeed] = useState('')
+  const [map, setMap] = useState<MapChoice>('procedural')
+  const [maps, setMaps] = useState<MapInfo[]>([])
   const [count, setCount] = useState(1)
+  useEffect(() => { api.maps().then(setMaps).catch(() => {}) }, [])
+  const blurb = (id: MapChoice) => id === 'procedural' ? 'A new generated continent for every seed.'
+    : id === 'any' ? 'A real-world map picked at random for each game.'
+    : maps.find((m) => m.id === id)?.blurb
   const [creating, setCreating] = useState(false)
   const [createError, setCreateError] = useState<string | null>(null)
 
@@ -195,7 +209,7 @@ const NewGame = memo(function NewGame({ bots, elo, offline, onCreated }: {
     try {
       const s = seed.trim() === '' ? undefined : Number(seed)
       if (s !== undefined && (!Number.isSafeInteger(s) || s < 0)) throw new Error('Seed must be a whole number')
-      onCreated(await api.create({ bots: lineup, seed: s, count }))
+      onCreated(await api.create({ bots: lineup, seed: s, count, map }))
     } catch (e) {
       setCreateError(e instanceof Error ? e.message : String(e))
     } finally {
@@ -207,7 +221,7 @@ const NewGame = memo(function NewGame({ bots, elo, offline, onCreated }: {
     <Card>
       <CardHeader>
         <CardTitle>New game</CardTitle>
-        <CardDescription>Every seat is a CPU. Same seed and lineup always give the same game.</CardDescription>
+        <CardDescription>Every seat is a CPU. Same seed, map and lineup always give the same game.</CardDescription>
       </CardHeader>
       <CardContent className="space-y-5">
         <div className="space-y-2">
@@ -256,6 +270,24 @@ const NewGame = memo(function NewGame({ bots, elo, offline, onCreated }: {
           Every game ends the moment one player is left standing. From tick 3,000 attackers win each exchange more often (47% rising to 85%), and the cutoff is 10,000 ticks, where survivors are ranked by land. A game someone ends before the cutoff counts as much for Elo as 8 cutoff games in an 8-player lobby (N times in an N-player one).
         </p>
 
+        <div className="space-y-2">
+          <Label className="flex items-center gap-1.5"><Globe2 className="size-3.5" />Map</Label>
+          <Select value={map} onValueChange={(v) => v && setMap(v as MapChoice)} items={MAP_CHOICES}>
+            <SelectTrigger size="sm" className="w-full"><SelectValue /></SelectTrigger>
+            <SelectContent className="max-h-[22rem]">
+              <SelectGroup>
+                {MAP_CHOICES.slice(0, 2).map((c) => <SelectItem key={c.value} value={c.value}>{c.label}</SelectItem>)}
+              </SelectGroup>
+              <SelectSeparator />
+              <SelectGroup>
+                <SelectLabel>Real-world maps</SelectLabel>
+                {MAP_CHOICES.slice(2).map((c) => <SelectItem key={c.value} value={c.value} title={blurb(c.value)}>{c.label}</SelectItem>)}
+              </SelectGroup>
+            </SelectContent>
+          </Select>
+          <p className="text-[11px] text-muted-foreground">{blurb(map)}</p>
+        </div>
+
         <div className="grid grid-cols-2 gap-4">
           <div className="space-y-2">
             <Label htmlFor="seed">Seed</Label>
@@ -271,7 +303,9 @@ const NewGame = memo(function NewGame({ bots, elo, offline, onCreated }: {
             </ToggleGroup>
           </div>
         </div>
-        {count > 1 && <p className="-mt-3 text-[11px] text-muted-foreground">Runs {count} games with consecutive seeds, so each map is different.</p>}
+        {count > 1 && <p className="-mt-3 text-[11px] text-muted-foreground">
+          Runs {count} games with consecutive seeds, so {map === 'procedural' ? 'each map is different' : map === 'any' ? 'each one can land on a different real map' : 'the starts and terrain details differ'}.
+        </p>}
 
         {createError && <p className="text-sm text-destructive">{createError}</p>}
         <Button className="w-full" size="lg" onClick={create} disabled={creating || offline || bots.length === 0}>
