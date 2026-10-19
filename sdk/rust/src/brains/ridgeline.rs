@@ -656,7 +656,12 @@ impl Bot for Ridgeline {
                     mine.iter().any(|&s| geo.nbrs[s].iter().any(|&n| self.enemy(n, me)));
                 self.stage_to(&geo, me, b.from, !contact && view.tick < self.k.gather_until)
             });
+        let push = self.k.late_at.is_some()
+            && self.k.push_gather > 0
+            && view.tick % self.k.push_gather == 0;
+        let pad = capture.or(blocked).map(|c| c.from);
         let action = match (supply, capture) {
+            _ if push && pad.is_some() => Action::Gather { target: geo.hexes[pad.unwrap()] },
             (Some((gain, a)), _) if supply_tick && gain >= self.k.supply_min => a,
             _ if staging.is_some() => staging.unwrap(),
             (_, Some(c)) => {
