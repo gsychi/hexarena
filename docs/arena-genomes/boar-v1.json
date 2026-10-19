@@ -1,0 +1,32 @@
+{
+  "brain": "mosaic",
+  "knobs": {
+    "doctrine": 1,
+    "build_mode": 5,
+    "build_start": 700,
+    "build_stop": 5500,
+    "build_land_min": 65,
+    "build_depth": 3,
+    "build_every": 7,
+    "build_cap": 100,
+    "margin_pct": 148,
+    "endgame_margin_pct": 102,
+    "guard": 22,
+    "hold_pct": 50,
+    "forward_pct": 75,
+    "enemy": 48,
+    "prey": 185,
+    "cost": 29,
+    "enclose_value": 140,
+    "aggression_tick": 4500,
+    "finish_tick": 4500,
+    "finish_alive": 5,
+    "finish_ratio_pct": 103,
+    "finish_bonus": 700,
+    "finish_target_mode": 1,
+    "hunt_value": 36,
+    "lookahead_value": 65,
+    "relay_patience": 100,
+    "allow_gather": 0
+  }
+}
