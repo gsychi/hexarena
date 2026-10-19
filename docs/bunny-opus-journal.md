@@ -29,3 +29,36 @@ it marches through our land to the pad facing the cheapest breach, then chains s
 captures into enemy interior, leaving up to 15% of itself on each trail hex. Walls from
 tick 800 only.
 Local: +0.73 ± 0.28 (5 pairs), ~63 builds/game.
+**Gate: +0.417 ± 0.087 over 32 games -> PROMOTED (league champion g12).**
+warren-v1 (same builder, no strike) was rejected at -0.11 ± 0.11, so the builder alone
+does not pay; the strike stack is what beats Ridgeline.
+
+### thumper-v2 — Carrot Supply Line
+Hypothesis: v1 + 8 farms / 24 villages + spare interior stacks walk to the thumper +
+120-tick sprint before the cutoff.
+Local vs g12 (relay/predator sparring): +0.60 ± 0.27. **Gate: -0.33 ± 0.24 (16 games), rejected.**
+Lesson: my local sparring partners were wrong (the real pool is earlier Ridgeline
+champions + roster ridgeline), and 5 local pairs are far too noisy. Harness fixed.
+
+Debugging the thumper (env-gated counters, removed before publishing): it is idle on ~90%
+of late ticks. "Spare" troops (beyond garrison targets) top out at 2-7k while the bank is
+150-660k: nearly the whole bank is pinned in border garrisons by the mutual arms race.
+Tried (local only): letting any border stack that can breach right now become the
+thumper, and a sticky rally hex that idle-tick feed moves pile into. Strike captures
+tripled, but losses rose almost as much (net +20..60 hexes): the thumper dives into enemy
+interior and leaves a one-hex-wide trail that is retaken.
+
+### thumper-v3 — Hedgerow Hopper
+Hypothesis: v1, but thumper targets are scored by own neighbours (+60) and exposed sides
+(-30) instead of enemy depth, so the front advances as a supported line.
+
+### thumper-v4 — Early Spring
+Hypothesis: v1 with the strike from tick 600 instead of 1000, while borders are thin.
+
+### thumper-v5 — Village Carpet
+Hypothesis: resource and idle late ticks are wasted; from t800 put a plain Village on
+every interior hex (+1 troop/tick each). ~100-170 builds/game.
+
+### thumper-v6 — Thick Fur
+Hypothesis: defend against enemy thumpers: from t800 every enemy-facing hex ramps (over
+600 ticks) to a garrison floor of 3000 troops divided by its Wall multiplier.

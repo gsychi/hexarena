@@ -33,7 +33,7 @@ fn main() {
     let mut lost = vec![0u32; n];
     let mut builds = vec![0u32; n];
     let mut moves_own = vec![0u32; n];
-    let snaps = [300u32, 600, 1000, 1500, 2000, 2500, 2999];
+    let snaps = [500u32, 1000, 2000, 3000, 4000, 5000, 6000, 7000, 8000, 9000];
     while !st.is_over() {
         let cmds: TickCommands = (0..n as PlayerId)
             .filter(|&p| !st.eliminated[p as usize])
@@ -97,8 +97,9 @@ fn main() {
             }
         }
     }
+    println!("final tick {}", st.tick);
     let r = st.result.clone().unwrap();
     for pl in &r.placements {
-        println!("{} place {} land {}", styles[pl.player as usize].id, pl.place_start, pl.land);
+        println!("{} place {} land {} out {:?}", styles[pl.player as usize].id, pl.place_start, pl.land, pl.eliminated_at);
     }
 }

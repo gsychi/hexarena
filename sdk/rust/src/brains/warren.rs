@@ -189,6 +189,15 @@ struct BuildKnobs {
     guard_late: u64,
     guard_from: u32,
     guard_ramp: u32,
+    /// Hexes this close (ticks) to the storm hold no garrison and are evacuated.
+    flee_lead: u32,
+    /// Smallest doomed stack worth an evacuation move.
+    flee_min: u32,
+    /// Captures and builds need at least this many safe ticks left on the hex.
+    cap_life: u32,
+    village_life: u32,
+    /// Plain Villages may also go on enemy-facing hexes.
+    carpet_border: bool,
 }
 
 impl BuildKnobs {
@@ -211,6 +220,11 @@ impl BuildKnobs {
             guard_late: k("guard_late", 0) as u64,
             guard_from: k("guard_from", 800) as u32,
             guard_ramp: k("guard_ramp", 600) as u32,
+            flee_lead: k("flee_lead", 0) as u32,
+            flee_min: k("flee_min", 20) as u32,
+            cap_life: k("cap_life", 0) as u32,
+            village_life: k("village_life", 0) as u32,
+            carpet_border: k("carpet_border", 0) > 0,
         }
     }
 }
@@ -269,6 +283,10 @@ pub struct Warren {
     /// Slot of the thumper stack, while one is on the move.
     army: Option<usize>,
     tick: u32,
+    /// Chance (milli) an attacker wins an exchange this tick; rises in overtime.
+    win: u32,
+    /// Tick each slot first lies in the storm (u32::MAX = never).
+    doom: Vec<u32>,
     /// Border hex the feed builds up until it can breach, while no thumper is out.
     rally: Option<usize>,
 }
@@ -289,8 +307,75 @@ impl Warren {
             seen: vec![],
             army: None,
             tick: 0,
+            win: RulesConfig::default().attacker_exchange_win_milli,
+            doom: vec![],
             rally: None,
         }
+    }
+
+    /// Safe ticks left on slot `i` before the storm reaches it.
+    fn life(&self, i: usize) -> u32 {
+        self.doom.get(i).map_or(u32::MAX, |d| d.saturating_sub(self.tick))
+    }
+
+    fn compute_doom(&mut self, geo: &Geometry) {
+        let centre = Hex::new(0, 0);
+        let dist: Vec<i32> = geo.hexes.iter().map(|h| h.distance(centre)).collect();
+        let floor = (0..geo.passable.len())
+            .filter(|&i| geo.passable[i])
+            .map(|i| dist[i])
+            .min()
+            .unwrap_or(0);
+        let r = &self.rules;
+        let mut by_dist = vec![u32::MAX; (geo.radius + 2) as usize];
+        if r.storm_end > r.storm_start {
+            for t in r.storm_start..=r.storm_end {
+                if let Some(sr) = r.storm_radius(t, geo.radius, floor) {
+                    for d in (sr + 1).max(0)..=geo.radius {
+                        let e = &mut by_dist[d as usize];
+                        if *e == u32::MAX {
+                            *e = t;
+                        }
+                    }
+                }
+            }
+        }
+        self.doom = dist.iter().map(|&d| by_dist[d.clamp(0, geo.radius) as usize]).collect();
+    }
+
+    /// Evacuates the biggest stack the storm has reached or is about to reach, one hex
+    /// toward safer ground (capturing inward when that is a sure thing).
+    fn flee(&self, geo: &Geometry, me: PlayerId, mine: &[usize]) -> Option<Action> {
+        if self.b.flee_lead == 0 {
+            return None;
+        }
+        let mut best: Option<(u32, usize, usize)> = None;
+        for &s in mine {
+            let troops = self.seen[s]?.troops;
+            if troops < self.b.flee_min.max(2) || self.life(s) > self.b.flee_lead {
+                continue;
+            }
+            let dest = geo.nbrs[s]
+                .iter()
+                .copied()
+                .filter(|&n| self.life(n) > self.life(s))
+                .filter(|&n| {
+                    self.owned(n, me)
+                        || self.seen[n].is_some_and(|c| {
+                            let defense = self.defense(geo, s, n, c.wall_milli) as u32;
+                            let (mean, sd) = self.loss_stats(c.troops, defense);
+                            ((mean + 3 * sd).div_ceil(1000) + 1) < troops as u64
+                        })
+                })
+                .max_by_key(|&n| (self.life(n), self.owned(n, me), std::cmp::Reverse(n)));
+            if let Some(d) = dest {
+                if best.map_or(true, |b| troops > b.0) {
+                    best = Some((troops, s, d));
+                }
+            }
+        }
+        let (troops, s, d) = best?;
+        Some(Action::Move { from: geo.hexes[s], to: geo.hexes[d], troops: troops - 1 })
     }
 
     fn troops_at(&self, i: usize) -> u64 {
@@ -417,7 +502,7 @@ impl Warren {
         let mut best: Option<(i64, usize, u64)> = None;
         for &t in &geo.nbrs[a] {
             let Some(tc) = self.seen[t] else { continue };
-            if tc.owner == Some(me) {
+            if tc.owner == Some(me) || (self.b.cap_life > 0 && self.life(t) <= self.b.cap_life) {
                 continue;
             }
             let defense = self.defense(geo, a, t, tc.wall_milli) as u32;
@@ -589,13 +674,15 @@ impl Warren {
             let cost = self.rules.build_cost(k, near_quarry(c.hex));
             resource >= cost.resource && c.troops >= cost.troops + 1 + extra
         };
+        let life = |h: Hex| geo.slot(h).map_or(0, |i| self.life(i));
+        let vl = self.b.village_life;
         let empty = || mine.iter().copied().filter(|c| c.building.is_none());
 
         let farms = count(Building::Farm);
         if farms < self.b.farms && tick >= self.b.farm_tick {
             let site = empty()
                 .filter(|c| self.rules.terrain_allowed(Building::Farm, height(c.hex)))
-                .filter(|c| interior(c.hex) && affordable(c, Building::Farm, 0))
+                .filter(|c| interior(c.hex) && affordable(c, Building::Farm, 0) && life(c.hex) >= 2 * vl)
                 .max_by_key(|c| {
                     let room = c
                         .hex
@@ -612,7 +699,11 @@ impl Warren {
         if count(Building::Wall) < self.b.walls && tick >= self.b.wall_tick {
             let site = empty()
                 .filter_map(|c| heat(c.hex).map(|h| (h, c)))
-                .filter(|(h, c)| *h >= self.b.wall_heat && affordable(c, Building::Wall, self.b.wall_keep))
+                .filter(|(h, c)| {
+                    *h >= self.b.wall_heat
+                        && affordable(c, Building::Wall, self.b.wall_keep)
+                        && life(c.hex) >= self.b.cap_life
+                })
                 .max_by_key(|(h, c)| {
                     let walls = c
                         .hex
@@ -628,7 +719,7 @@ impl Warren {
         }
         if count(Building::Village) < self.b.villages {
             let site = empty()
-                .filter(|c| interior(c.hex) && affordable(c, Building::Village, 0))
+                .filter(|c| interior(c.hex) && affordable(c, Building::Village, 0) && life(c.hex) >= vl)
                 .find(|c| {
                     c.hex.neighbors().iter().any(|n| {
                         mine.iter().any(|f| {
@@ -647,7 +738,7 @@ impl Warren {
             let min = self.rules.quarry.min_friendly_distance;
             let site = empty()
                 .filter(|c| self.rules.terrain_allowed(Building::Quarry, height(c.hex)))
-                .filter(|c| interior(c.hex) && affordable(c, Building::Quarry, 0))
+                .filter(|c| interior(c.hex) && affordable(c, Building::Quarry, 0) && life(c.hex) >= 2 * vl)
                 .filter(|c| {
                     !mine.iter().any(|q| kind_of(q) == Some(Building::Quarry) && q.hex.distance(c.hex) < min)
                 })
@@ -656,10 +747,12 @@ impl Warren {
                 return Some(Action::Build { at: c.hex, building: Building::Quarry });
             }
         }
-        if tick >= self.b.carpet_tick && self.b.carpet_tick > 0 && resource >= 2 + self.b.carpet_reserve {
+        let village_cost = self.rules.build_cost(Building::Village, false).resource;
+        if tick >= self.b.carpet_tick && self.b.carpet_tick > 0 && resource >= village_cost + self.b.carpet_reserve.min(village_cost * 5) {
             let site = empty()
-                .filter(|c| interior(c.hex) && affordable(c, Building::Village, 0))
-                .max_by_key(|c| (c.troops, std::cmp::Reverse(c.hex)));
+                .filter(|c| (self.b.carpet_border || interior(c.hex)) && affordable(c, Building::Village, 0))
+                .filter(|c| life(c.hex) >= vl)
+                .max_by_key(|c| (life(c.hex).min(20_000) / 100, c.troops, std::cmp::Reverse(c.hex)));
             if let Some(c) = site {
                 return Some(Action::Build { at: c.hex, building: Building::Village });
             }
@@ -673,7 +766,7 @@ impl Warren {
         let d = defense.max(1) as u64;
         let per_win = (1_000_000 + d / 2) / d;
         let wins = (def as u64 * 1000).div_ceil(per_win);
-        let p = self.rules.attacker_exchange_win_milli as u64;
+        let p = self.win as u64;
         let q = 1000 - p;
         let mean = wins * q * 1000 / p;
         // Negative binomial: var = wins * q / p^2.
@@ -683,7 +776,7 @@ impl Warren {
 
     /// Defenders `attackers` troops expect to kill behind `defense` milli going all in.
     fn kills(&self, attackers: u64, defense: u64) -> u64 {
-        let p = self.rules.attacker_exchange_win_milli as u64;
+        let p = self.win as u64;
         attackers * p * 1000 / ((1000 - p) * defense.max(1))
     }
 
@@ -703,6 +796,9 @@ impl Warren {
     /// Garrison own (or soon own) hex `h` wants against its enemy neighbours, treating
     /// `ours` as ours too; `None` when no enemy touches it.
     fn want(&self, geo: &Geometry, me: PlayerId, h: usize, ours: usize) -> Option<u64> {
+        if self.b.flee_lead > 0 && self.life(h) <= self.b.flee_lead {
+            return None;
+        }
         let mut worst: Option<u64> = None;
         // A Wall we take loses its links, so it only counts at its bare multiplier.
         let wall = match self.seen[h] {
@@ -894,7 +990,7 @@ impl Warren {
             let before = Self::safety(troops, want_s_before);
             for &t in &geo.nbrs[s] {
                 let Some(tc) = self.seen[t] else { continue };
-                if tc.owner == Some(me) {
+                if tc.owner == Some(me) || (self.b.cap_life > 0 && self.life(t) <= self.b.cap_life) {
                     continue;
                 }
                 let defense = self.defense(geo, s, t, tc.wall_milli) as u32;
@@ -1101,7 +1197,11 @@ impl Bot for Warren {
 
     fn act(&mut self, view: &View) -> PlayerCommand {
         self.tick = view.tick;
+        self.win = self.rules.attacker_win_milli(view.tick);
         let geo = self.geo.take().unwrap_or_else(|| Geometry::new(view));
+        if self.doom.is_empty() {
+            self.compute_doom(&geo);
+        }
         if self.seen.is_empty() {
             self.seen = vec![None; geo.passable.len()];
         }
@@ -1133,9 +1233,11 @@ impl Bot for Warren {
         let build = (!sprinting && weak_capture && staging.is_none())
             .then(|| self.build(view, &geo))
             .flatten();
-        let strike = self.strike(&geo, me, &mine, view.tick);
+        let flee = self.flee(&geo, me, &mine);
+        let strike = if flee.is_some() { None } else { self.strike(&geo, me, &mine, view.tick) };
         let feed = if sprinting { None } else { self.feed(&geo, me) };
         let action = match (supply, capture) {
+            _ if flee.is_some() => flee.unwrap(),
             _ if strike.is_some() => strike.unwrap(),
             (Some((gain, a)), _) if supply_tick && gain >= self.k.supply_min => a,
             _ if staging.is_some() => staging.unwrap(),
