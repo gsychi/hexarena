@@ -5,6 +5,7 @@ use hexarena_protocol::*;
 use hexarena_sdk::{roster, style, Style};
 use std::collections::HashMap;
 
+mod agent;
 mod arena;
 
 pub(crate) fn flags(args: &[String]) -> HashMap<String, String> {
@@ -160,13 +161,14 @@ fn main() {
         Some("map") => map(flags(rest)),
         Some("eval") => arena::eval(&flags(rest)),
         Some("arena") => arena::main(rest),
+        Some("agent") => agent::main(rest),
         Some("bot") => hexarena_sdk::process::serve_stdio(),
         Some("verify") => rest.first().map(|p| verify(p)).unwrap_or(Err("usage: hexarena verify <replay.json>".into())),
         Some("export") => match (rest.first(), rest.get(1)) {
             (Some(a), Some(b)) => export(a, b),
             _ => Err("usage: hexarena export <replay.json> <viewer.json>".into()),
         },
-        _ => Err("usage: hexarena <simulate|report|map|verify|export|eval|arena|bot> [--players N | --bots expander,raider,... --seed S --matches M --max-ticks T --out file]".into()),
+        _ => Err("usage: hexarena <simulate|report|map|verify|export|eval|arena|agent|bot> [--players N | --bots expander,raider,... --seed S --matches M --max-ticks T --out file]".into()),
     };
     if let Err(e) = res {
         eprintln!("error: {e}");

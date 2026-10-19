@@ -2,7 +2,8 @@
  * The agents designing bots, drawn as little researchers in the same flat style as the
  * bot mascots: a soft creature in a lab coat with glasses or goggles, a hairdo or hat,
  * and a research prop. Every look is stable for an agent's id. Claude agents wear warm
- * colours and GPT agents cool ones.
+ * colours and GPT agents cool ones. An agent that isn't working right now dozes: eyes
+ * shut, mouth open and a few Zs drifting up.
  */
 import { hash, INK, PALETTES } from './BotAvatar'
 import type { Palette } from './BotAvatar'
@@ -119,6 +120,34 @@ function Eyes() {
   )
 }
 
+function SleepyEyes() {
+  return (
+    <g fill="none" stroke={INK} strokeWidth={2.4} strokeLinecap="round">
+      <path d="M34.5 52Q39 55.5 43.5 52" />
+      <path d="M56.5 52Q61 55.5 65.5 52" />
+    </g>
+  )
+}
+
+function Zs({ color }: { color: string }) {
+  const zs = [
+    { x: 70, y: 30, size: 11, delay: 0 },
+    { x: 79, y: 20, size: 9, delay: 1 },
+    { x: 86, y: 11, size: 7, delay: 2 },
+  ]
+  return (
+    <g fill={color} fontFamily="ui-sans-serif, system-ui, sans-serif" fontWeight={800}>
+      {zs.map((z) => (
+        <text key={z.delay} x={z.x} y={z.y} fontSize={z.size} opacity={0}>
+          z
+          <animate attributeName="opacity" values="0;1;1;0" keyTimes="0;0.2;0.7;1" dur="3s" begin={`${z.delay}s`} repeatCount="indefinite" />
+          <animateTransform attributeName="transform" type="translate" values="0 3;0 -3" dur="3s" begin={`${z.delay}s`} repeatCount="indefinite" />
+        </text>
+      ))}
+    </g>
+  )
+}
+
 function GlassesShape({ kind }: { kind: Glasses }) {
   const frame = { fill: '#fff', fillOpacity: 0.16, stroke: INK, strokeWidth: 2.4 }
   switch (kind) {
@@ -218,12 +247,12 @@ function PropShape({ kind }: { kind: Prop }) {
   }
 }
 
-export function AgentAvatar({ id, model, size = 44, className }: { id: string; model: string | null; size?: number; className?: string }) {
+export function AgentAvatar({ id, model, size = 44, asleep = false, className }: { id: string; model: string | null; size?: number; asleep?: boolean; className?: string }) {
   const l = lookOf(id, model)
   const p = l.palette
   const clip = `agent-clip-${id.replace(/[^a-zA-Z0-9_-]/g, '-')}`
   return (
-    <svg viewBox="0 0 100 100" width={size} height={size} className={className} role="img" aria-label="Researcher">
+    <svg viewBox="0 0 100 100" width={size} height={size} className={className} role="img" aria-label={asleep ? 'Researcher, asleep' : 'Researcher'}>
       <defs>
         <clipPath id={clip}><circle cx={50} cy={50} r={50} /></clipPath>
       </defs>
@@ -234,14 +263,17 @@ export function AgentAvatar({ id, model, size = 44, className }: { id: string; m
         <ellipse cx={50} cy={50} rx={27} ry={25} fill={p.body} />
         <ellipse cx={37} cy={37} rx={6} ry={3.4} transform="rotate(-32 37 37)" fill="#fff" opacity={0.3} />
         <TopShape kind={l.top} p={p} shirt={l.shirt} />
-        <Eyes />
+        {asleep ? <SleepyEyes /> : <Eyes />}
         <GlassesShape kind={l.glasses} />
         <g fill={p.blush} opacity={0.55}>
           <ellipse cx={30} cy={63} rx={4.5} ry={2.6} />
           <ellipse cx={70} cy={63} rx={4.5} ry={2.6} />
         </g>
-        <path d="M45 64Q50 68.5 55 64" fill="none" stroke={INK} strokeWidth={2.4} strokeLinecap="round" />
+        {asleep
+          ? <ellipse cx={50} cy={65.5} rx={2.6} ry={3.2} fill={INK} />
+          : <path d="M45 64Q50 68.5 55 64" fill="none" stroke={INK} strokeWidth={2.4} strokeLinecap="round" />}
         <PropShape kind={l.prop} />
+        {asleep && <Zs color={p.light} />}
       </g>
     </svg>
   )

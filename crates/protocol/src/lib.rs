@@ -110,6 +110,10 @@ pub enum Action {
         at: Hex,
         building: Building,
     },
+    /// Tear down the building on an owned hex. Nothing is refunded.
+    Demolish {
+        at: Hex,
+    },
 }
 
 /// Free management commands. They never consume the main action but have cooldowns.
@@ -262,6 +266,12 @@ pub struct RulesConfig {
     pub wall: WallRules,
     pub encirclement_enabled: bool,
     pub impassable_breaks_encirclement: bool,
+    /// Go-style capture: a region of hexes not owned by the capturer (enemy, neutral or
+    /// mixed, impassable hexes allowed inside) that touches neither the board edge nor
+    /// anything but the capturer's land becomes the capturer's, troops and all.
+    /// Replaces the single-owner encirclement check when on.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub region_capture: bool,
     pub spawn_min_distance: i32,
 }
 
@@ -284,7 +294,7 @@ fn is_sqrt_exponent(v: &f64) -> bool {
 impl Default for RulesConfig {
     fn default() -> Self {
         RulesConfig {
-            version: "v0.6".into(),
+            version: "v0.7".into(),
             min_players: 2,
             max_players: 8,
             map_radius_factor: 9.25,
@@ -347,6 +357,7 @@ impl Default for RulesConfig {
             },
             encirclement_enabled: true,
             impassable_breaks_encirclement: true,
+            region_capture: true,
             spawn_min_distance: 8,
         }
     }
@@ -538,6 +549,13 @@ pub enum Event {
         hexes: Vec<Hex>,
     },
     Built {
+        player: PlayerId,
+        at: Hex,
+        building: Building,
+    },
+    /// Recorded in replays only: bots frozen before v0.7 cannot parse it, so views
+    /// leave it out (the hex's building simply disappears).
+    Demolished {
         player: PlayerId,
         at: Hex,
         building: Building,

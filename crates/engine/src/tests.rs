@@ -632,6 +632,126 @@ fn capture_surrenders_enclosed_enemy_component() {
     );
 }
 
+/// Owner 1 on `c`, neutral (7 troops) on its neighbour `d`, and player 0 on every hex
+/// around the pair except `gap`, which is neutral. Returns (c, d, gap, ring).
+fn ringed_pair(st: &mut State) -> (Hex, Hex, Hex, Vec<Hex>) {
+    clear_owners(st);
+    let c = interior_open(st);
+    let d = c.neighbors()[0];
+    let mut ring: Vec<Hex> = c
+        .neighbors()
+        .into_iter()
+        .chain(d.neighbors())
+        .filter(|h| *h != c && *h != d)
+        .collect();
+    ring.sort_unstable();
+    ring.dedup();
+    set(st, c, Some(1), 4);
+    set(st, d, None, 7);
+    for &h in &ring {
+        set(st, h, Some(0), 40);
+    }
+    let gap = ring[0];
+    set(st, gap, None, 1);
+    let f = faraway(st, c);
+    set(st, f, Some(1), 3);
+    (c, d, gap, ring)
+}
+
+fn close_gap(st: &mut State, gap: Hex, ring: &[Hex]) {
+    let from = *ring
+        .iter()
+        .find(|h| h.distance(gap) == 1 && **h != gap)
+        .unwrap();
+    st.step(&act(0, Action::Move { from, to: gap, troops: 30 }));
+    assert_eq!(st.cell(gap).unwrap().owner, Some(0));
+}
+
+#[test]
+fn closing_a_ring_captures_everything_inside_it_like_go() {
+    let mut st = state(3, 16);
+    let (c, d, gap, ring) = ringed_pair(&mut st);
+    assert!(st.settings.rules.region_capture);
+    close_gap(&mut st, gap, &ring);
+    assert_eq!(st.cell(c).unwrap().owner, Some(0), "enemy hex inside");
+    assert_eq!(st.cell(d).unwrap().owner, Some(0), "neutral hex inside");
+    assert_eq!(st.cell(d).unwrap().troops, 7 + 1, "troops kept, plus production");
+    let ev = &st.last_events;
+    assert!(ev.iter().any(|e| matches!(
+        e,
+        Event::Surrendered { capturer: 0, from: 1, hexes } if hexes == &vec![c]
+    )));
+    assert!(ev.iter().any(|e| matches!(
+        e,
+        Event::Captured { player: 0, at, previous_owner: None, .. } if *at == d
+    )));
+}
+
+#[test]
+fn a_ring_with_an_impassable_hex_inside_still_captures_the_open_hexes() {
+    let mut st = state(3, 16);
+    let (c, d, gap, ring) = ringed_pair(&mut st);
+    set(&mut st, d, None, 0);
+    set_impassable(&mut st, d);
+    close_gap(&mut st, gap, &ring);
+    assert_eq!(st.cell(c).unwrap().owner, Some(0));
+    assert_eq!(st.cell(d).unwrap().owner, None, "impassable is never owned");
+}
+
+#[test]
+fn a_region_that_reaches_the_board_edge_is_not_captured() {
+    let mut st = state(3, 16);
+    let (c, d, gap, ring) = ringed_pair(&mut st);
+    let other = *ring.iter().find(|h| h.distance(gap) > 1).unwrap();
+    set(&mut st, other, None, 1);
+    close_gap(&mut st, gap, &ring);
+    assert_eq!(st.cell(c).unwrap().owner, Some(1), "a gap still leads out");
+    assert_eq!(st.cell(d).unwrap().owner, None);
+}
+
+#[test]
+fn without_region_capture_only_single_owner_encirclement_applies() {
+    let mut st = state(3, 16);
+    st.settings.rules.region_capture = false;
+    let (c, d, gap, ring) = ringed_pair(&mut st);
+    close_gap(&mut st, gap, &ring);
+    assert_eq!(st.cell(c).unwrap().owner, Some(1), "c borders neutral d");
+    assert_eq!(st.cell(d).unwrap().owner, None);
+}
+
+#[test]
+fn demolish_removes_an_owned_building_and_uses_the_action() {
+    let mut st = state(2, 21);
+    let h = first_owned(&st, 0);
+    put_building(&mut st, h, Building::Wall);
+    let troops = st.cell(h).unwrap().troops;
+    st.step(&act(0, Action::Demolish { at: h }));
+    let c = st.cell(h).unwrap();
+    assert_eq!(c.building, None);
+    assert_eq!(c.owner, Some(0));
+    assert!(c.troops >= troops, "no troops are spent");
+    assert!(st.last_events.iter().any(|e| matches!(
+        e,
+        Event::Demolished { player: 0, at, building: Building::Wall } if *at == h
+    )));
+    assert!(
+        !st.view(0)
+            .visible_events
+            .iter()
+            .any(|e| matches!(e, Event::Demolished { .. })),
+        "bots frozen before v0.7 cannot parse it"
+    );
+    st.step(&act(0, Action::Demolish { at: h }));
+    assert!(st.last_events.iter().any(|e| matches!(
+        e,
+        Event::Rejected { player: 0, reason } if reason == "nothing to demolish"
+    )));
+    let theirs = first_owned(&st, 1);
+    put_building(&mut st, theirs, Building::Farm);
+    st.step(&act(0, Action::Demolish { at: theirs }));
+    assert_eq!(st.cell(theirs).unwrap().building, Some(Building::Farm));
+}
+
 // ---------- buildings ----------
 
 #[test]
