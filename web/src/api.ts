@@ -1,10 +1,14 @@
+import { registerBots } from './lineage'
+
 export interface BotInfo {
   id: string
   name: string
   blurb: string
-  kind?: 'roster' | 'league' | 'entrant'
+  kind?: 'roster' | 'entrant'
   /** Arena entrants only: who published the version. */
   author?: string
+  /** The bots it takes its policy from, as ids; empty for a design from scratch. */
+  parents?: string[]
   own_build?: boolean
   /** Why it was retired from the arena; retired bots stay playable. */
   retired?: string | null
@@ -100,7 +104,15 @@ export interface BotProfile {
   standing: { rank: number | null; row: LeaderboardRow } | null
   curves: EloCurve[]
   games: ProfileGame[]
+  parents: Kin[]
+  /** Versions that name this bot as a parent. */
+  children: Kin[]
 }
+
+export interface Kin { id: string; name: string; retired: boolean }
+
+/** Each bot's Elo going into a game and, once the game is rated, after it. */
+export interface MatchElo { rules_version: string; rated: boolean; bots: { bot: string; name: string; before: number | null; after: number | null }[] }
 
 export interface ArenaEntrant {
   id: string
@@ -113,74 +125,13 @@ export interface ArenaEntrant {
   games: number
   brain: string
   own_build: boolean
-  /** Its mirrored gate against the league champion, once the arena has sent it. */
-  gate: ArenaGate | null
+  parents: string[]
 }
-
-export type ArenaGate =
-  | { status: 'queued'; at: number }
-  | { status: 'promoted' | 'rejected'; at: number; games: number; gain: number; gain_se: number; avp: number; champion_avp: number; champion: string; became: string | null }
 
 /** The self-playing arena: published bot versions and the retirement rule. */
 export interface ArenaInfo { autoplay: boolean; top: number; trial_games: number; entrants: ArenaEntrant[]; retired: Record<string, string> }
 
 export interface CreateMatch { bots: string[]; seed?: number; count: number }
-
-export interface GateResult {
-  games: number
-  challenger_avp: number
-  champion_avp: number
-  gain: number
-  gain_se: number
-  promoted: boolean
-  secs: number
-}
-
-export interface Benchmark { games: number; avp: number; win_rate: number; top_half_rate: number; close_rate?: number; avg_close_tick?: number | null }
-
-export interface Generation {
-  gen: number
-  id: string
-  /** Brain plus lineage, e.g. "Relay g3 ← g2" or "Relay g2 (new brain by agent tempo)". */
-  name?: string
-  /** Generations it was derived from; empty for a seed or a brand-new brain. */
-  parents?: string[]
-  /** The champion it beat to be promoted. */
-  beat?: string | null
-  origin: string
-  note: string | null
-  created_at: number
-  params: Record<string, unknown>
-  changes: string[]
-  gate: GateResult | null
-  benchmark: Benchmark
-  elo: number
-}
-
-export interface Attempt {
-  n: number
-  at: number
-  id: string
-  origin: string
-  note: string | null
-  parent: string
-  changes: string[]
-  gate: GateResult
-  became: number | null
-}
-
-export interface League {
-  rules_version: string
-  started_at: number
-  updated_at: number
-  gate_config: { min_pairs: number; max_pairs: number; batch_pairs: number; min_gain: number; z_accept: number; close_bonus?: number; close_speed_bonus?: number }
-  generations: Generation[]
-  attempts: Attempt[]
-  attempts_total: number
-  games_total: number
-  play_secs: number
-  elo: Record<string, number>
-}
 
 async function json<T>(res: Response): Promise<T> {
   if (!res.ok) {
@@ -191,7 +142,8 @@ async function json<T>(res: Response): Promise<T> {
 }
 
 export const api = {
-  bots: () => fetch('/api/bots').then((r) => json<BotInfo[]>(r)),
+  /** Every bot, also recorded as lineage so mascots can inherit their parents' looks. */
+  bots: () => fetch('/api/bots').then((r) => json<BotInfo[]>(r)).then((b) => { registerBots(b); return b }),
   profile: (id: string) => fetch(`/api/bots/${encodeURIComponent(id)}/profile`).then((r) => json<BotProfile>(r)),
   matches: () => fetch('/api/matches').then((r) => json<MatchSummary[]>(r)),
   /** The newest `limit` games plus how many games there are in all. */
@@ -199,7 +151,7 @@ export const api = {
     fetch(`/api/matches?limit=${limit}`).then(async (r) => ({ games: await json<MatchSummary[]>(r), total: Number(r.headers.get('x-total-count') ?? 0) })),
   match: (id: string) => fetch(`/api/matches/${id}`).then((r) => json<MatchSummary>(r)),
   leaderboard: () => fetch('/api/leaderboard').then((r) => json<Leaderboard>(r)),
-  league: () => fetch('/api/league').then((r) => json<League>(r)),
+  matchElo: (id: string) => fetch(`/api/matches/${id}/elo`).then((r) => json<MatchElo>(r)),
   arena: () => fetch('/api/arena').then((r) => json<ArenaInfo>(r)),
   notes: () => fetch('/api/observations').then((r) => json<Note[]>(r)),
   addNote: (n: { author: string; kind: NoteKind; text: string; bots?: string[]; tags?: string[] }) =>

@@ -9,6 +9,7 @@ import { Slider } from '@/components/ui/slider'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
+import { api } from './api'
 import { Board, buildingPips } from './Board'
 import { BuildingIcon, Legend } from './Legend'
 import type { Cell, GameEvent, Placement, ViewerReplay } from './model'
@@ -40,12 +41,30 @@ function describe(e: GameEvent, names: string[]): { player: number; text: string
 
 const eventHex = (e: GameEvent) => ('at' in e ? e.at : null)
 
+/** One seat's Elo going into the game and, once the game is rated, after it. */
+interface SeatElo { before: number; after: number | null }
+
+/** `1532`, plus the change once the game is rated (`+12` / `−8`). */
+function EloTag({ elo, change }: { elo?: SeatElo | null; change: boolean }) {
+  if (!elo) return null
+  const d = elo.after === null ? null : Math.round(elo.after - elo.before)
+  return (
+    <span className="ml-1.5 whitespace-nowrap text-[11px] font-normal tabular-nums text-muted-foreground" title={elo.after === null ? 'Elo going into this game' : `Elo ${Math.round(elo.before)} before this game, ${Math.round(elo.after)} after`}>
+      ({Math.round(elo.before)})
+      {change && d !== null && (
+        <span className={`ml-1 font-medium ${d > 0 ? 'text-emerald-400' : d < 0 ? 'text-rose-400' : 'text-muted-foreground'}`}>{d > 0 ? `+${d}` : d < 0 ? `−${-d}` : '±0'}</span>
+      )}
+    </span>
+  )
+}
+
 function SectionLabel({ children }: { children: React.ReactNode }) {
   return <div className="text-[10px] font-medium uppercase tracking-[0.14em] text-muted-foreground">{children}</div>
 }
 
-export function Viewer({ src, label, onBack }: { src: string; label: string; onBack: () => void }) {
+export function Viewer({ src, match, label, onBack }: { src: string; match?: string; label: string; onBack: () => void }) {
   const [rep, setRep] = useState<ViewerReplay | null>(null)
+  const [elo, setElo] = useState<(SeatElo | null)[]>([])
   const [error, setError] = useState<string | null>(null)
   const [tick, setTick] = useState(0)
   const [playing, setPlaying] = useState(false)
@@ -58,18 +77,34 @@ export function Viewer({ src, label, onBack }: { src: string; label: string; onB
   const [hideEnd, setHideEnd] = useState(false)
 
   useEffect(() => {
-    setRep(null); setError(null); setTick(0); setPlaying(false); setSelected(null)
-    fetch(src)
-      .then((r) => { if (!r.ok) throw new Error(`${r.status} ${r.statusText}`); return r.json() })
-      .then((raw) => {
+    setRep(null); setError(null); setTick(0); setPlaying(false); setSelected(null); setElo([])
+    // Seats and ratings are extras: the replay still plays without them.
+    const extras = match
+      ? Promise.all([api.match(match), api.matchElo(match)]).catch(() => null)
+      : Promise.resolve(null)
+    Promise.all([fetch(src).then((r) => { if (!r.ok) throw new Error(`${r.status} ${r.statusText}`); return r.json() }), extras])
+      .then(([raw, extra]) => {
         const loaded = loadViewer(raw)
+        if (extra) {
+          const [summary, ratings] = extra
+          const byBot = new Map(ratings.bots.map((b) => [b.bot, b]))
+          const seats = summary.seats
+          const once = (bot: string) => seats.filter((x) => x.bot === bot).length === 1
+          if (seats.length === loaded.names.length) {
+            loaded.names = loaded.names.map((n, p) => (once(seats[p].bot) ? byBot.get(seats[p].bot)?.name ?? n : n))
+            setElo(seats.map((x) => {
+              const b = byBot.get(x.bot)
+              return b && b.before !== null ? { before: b.before, after: b.after } : null
+            }))
+          }
+        }
         const want = new URLSearchParams(location.search).get('tick')
         const lastTick = loaded.store.last
         if (want) setTick(want === 'end' ? lastTick : Math.min(lastTick, Math.max(0, Number(want) || 0)))
         setRep(loaded)
       })
       .catch((e) => setError(String(e)))
-  }, [src])
+  }, [src, match])
 
   useEffect(() => {
     if (!playing || !rep) return
@@ -159,6 +194,7 @@ export function Viewer({ src, label, onBack }: { src: string; label: string; onB
                   <TableCell className="py-1.5 font-medium">
                     <span className="mr-2 inline-block size-2 rounded-full" style={{ background: PLAYER_COLORS[p % 8] }} />
                     <span className="mr-1 text-[10px]" style={{ color: PLAYER_COLORS[p % 8] }}>{PLAYER_MARKS[p % 8]}</span>{n}
+                    <EloTag elo={elo[p]} change={tick === last} />
                   </TableCell>
                   <TableCell className="py-1.5 text-right tabular-nums">{knows(p) ? stats[p].land : '—'}</TableCell>
                   <TableCell className="py-1.5 text-right tabular-nums">{knows(p) ? stats[p].troops : '—'}</TableCell>
@@ -229,7 +265,7 @@ export function Viewer({ src, label, onBack }: { src: string; label: string; onB
         <div className="relative min-h-0 flex-1">
           <Board rep={rep} cells={cells} perspective={perspective} visible={visible} selected={selected} heightMode={heightMode} tick={tick}
             onSelect={(i) => { setSelected(i); if (i !== null) setTab('hex') }} />
-          {tick === last && !hideEnd && <MatchOver rep={rep} onReplay={() => { setTick(0); setPlaying(true) }} onClose={() => setHideEnd(true)} />}
+          {tick === last && !hideEnd && <MatchOver rep={rep} elo={elo} onReplay={() => { setTick(0); setPlaying(true) }} onClose={() => setHideEnd(true)} />}
         </div>
         <Card size="sm" className="py-2">
           <CardContent className="flex flex-wrap items-center gap-2">
@@ -261,7 +297,7 @@ export function Viewer({ src, label, onBack }: { src: string; label: string; onB
   )
 }
 
-function MatchOver({ rep, onReplay, onClose }: { rep: ViewerReplay; onReplay: () => void; onClose: () => void }) {
+function MatchOver({ rep, elo, onReplay, onClose }: { rep: ViewerReplay; elo: (SeatElo | null)[]; onReplay: () => void; onClose: () => void }) {
   const ps = [...rep.result.placements].sort((a, b) => a.place_start - b.place_start || a.player - b.player)
   const survivors = ps.filter((p) => p.land > 0).length
   const winner = ps[0]
@@ -299,6 +335,7 @@ function MatchOver({ rep, onReplay, onClose }: { rep: ViewerReplay; onReplay: ()
                   <TableCell className="py-1.5 tabular-nums">{place(p)}</TableCell>
                   <TableCell className="py-1.5 font-medium">
                     <span className="mr-2 inline-block size-2 rounded-full" style={{ background: PLAYER_COLORS[p.player % 8] }} />{rep.names[p.player]}
+                    <EloTag elo={elo[p.player]} change />
                     {p.land === 0 && <span className="ml-1.5 text-[10px] text-muted-foreground">eliminated</span>}
                   </TableCell>
                   <TableCell className="py-1.5 text-right tabular-nums">{p.land}</TableCell>

@@ -2,7 +2,13 @@
  * Cute flat mascots for bots, drawn in SVG. Each bot gets a stable look from its id:
  * a soft body, simple face and colour, plus ears or a crest that follow the animal in
  * its name (rabbit ears for Burrow and Snowshoe, horns for Ridgeline, and so on).
+ * A bot with parents inherits instead: ears from its first parent (the one it takes the
+ * most policy from), each other feature from one of its parents, one feature of its
+ * own, and its parent's colour shifted a little, so families look alike but no two
+ * siblings match.
  */
+import { lineageOf, useLineageVersion } from './lineage'
+
 
 type Family = 'rabbit' | 'round' | 'cat' | 'horned' | 'spiky' | 'tuft' | 'fin' | 'tentacle' | 'mask' | 'antenna' | 'sprout'
 type Body = 'blob' | 'round' | 'bean' | 'gumdrop' | 'blossom'
@@ -53,7 +59,13 @@ function family(id: string, name: string, h: number): Family {
   return h % 2 ? 'antenna' : 'sprout'
 }
 
-export function avatarTraits(id: string, name: string) {
+const BODIES: Body[] = ['blob', 'round', 'bean', 'gumdrop', 'blossom']
+const EYES: Eyes[] = ['dots', 'oval', 'happy', 'dots', 'sleepy', 'oval']
+const MOUTHS: Mouth[] = ['smile', 'cat', 'o', 'smile', 'tongue']
+
+interface Traits { family: Family; palette: Palette; body: Body; eyes: Eyes; mouth: Mouth; blush: boolean; teeth: boolean }
+
+function ownTraits(id: string, name: string): Traits {
   const h = hash(id)
   const pick = <T,>(xs: readonly T[], shift: number) => xs[(h >>> shift) % xs.length]
   const fam = family(id, name, h)
@@ -61,12 +73,67 @@ export function avatarTraits(id: string, name: string) {
   return {
     family: fam,
     palette: pick(PALETTES, 0),
-    body: pick<Body>(['blob', 'round', 'bean', 'gumdrop', 'blossom'], 5),
-    eyes: owlish ? 'big' as Eyes : pick<Eyes>(['dots', 'oval', 'happy', 'dots', 'sleepy', 'oval'], 9),
-    mouth: pick<Mouth>(['smile', 'cat', 'o', 'smile', 'tongue'], 13),
+    body: pick(BODIES, 5),
+    eyes: owlish ? 'big' : pick(EYES, 9),
+    mouth: pick(MOUTHS, 13),
     blush: ((h >>> 17) & 3) !== 0,
     teeth: (fam === 'rabbit' || /beaver|capybara/i.test(name)) && ((h >>> 19) & 1) === 1,
   }
+}
+
+function hexToHsl(hex: string): [number, number, number] {
+  const n = parseInt(hex.slice(1), 16)
+  const [r, g, b] = [(n >> 16) & 255, (n >> 8) & 255, n & 255].map((v) => v / 255)
+  const max = Math.max(r, g, b), min = Math.min(r, g, b), l = (max + min) / 2
+  if (max === min) return [0, 0, l]
+  const d = max - min
+  const s = l > 0.5 ? d / (2 - max - min) : d / (max + min)
+  const h = max === r ? (g - b) / d + (g < b ? 6 : 0) : max === g ? (b - r) / d + 2 : (r - g) / d + 4
+  return [h * 60, s, l]
+}
+
+function hslToHex(h: number, s: number, l: number) {
+  const f = (n: number) => {
+    const k = (n + h / 30) % 12
+    const c = l - s * Math.min(l, 1 - l) * Math.max(-1, Math.min(k - 3, 9 - k, 1))
+    return Math.round(c * 255).toString(16).padStart(2, '0')
+  }
+  return `#${f(0)}${f(8)}${f(4)}`
+}
+
+/** The same palette with every colour's hue turned by `deg`. */
+function shiftPalette(p: Palette, deg: number): Palette {
+  const turn = (hex: string) => { const [h, s, l] = hexToHsl(hex); return hslToHex((h + deg + 360) % 360, s, l) }
+  return { body: turn(p.body), shade: turn(p.shade), light: turn(p.light), blush: p.blush, bg: turn(p.bg) }
+}
+
+function traitsOf(id: string, name: string, seen: Set<string>): Traits {
+  const own = ownTraits(id, name)
+  const parents = (lineageOf(id)?.parents ?? []).filter((p) => !seen.has(p))
+  if (parents.length === 0) return own
+  const lineage = new Set(seen).add(id)
+  const from = parents.map((p) => traitsOf(p, lineageOf(p)?.name ?? p, lineage))
+  const h = hash(`${id}#kid`)
+  const parent = (shift: number) => from[(h >>> shift) % from.length]
+  const kid: Traits = {
+    family: from[0].family,
+    palette: shiftPalette(parent(2).palette, (h & 1 ? 1 : -1) * (14 + ((h >>> 4) % 16))),
+    body: parent(9).body,
+    eyes: parent(11).eyes,
+    mouth: parent(13).mouth,
+    blush: parent(15).blush,
+    teeth: parent(17).teeth,
+  }
+  switch ((h >>> 20) % 3) {
+    case 0: kid.body = own.body === kid.body ? BODIES[(BODIES.indexOf(own.body) + 1) % BODIES.length] : own.body; break
+    case 1: kid.eyes = own.eyes === kid.eyes ? EYES[(EYES.indexOf(own.eyes) + 1) % EYES.length] : own.eyes; break
+    default: kid.mouth = own.mouth === kid.mouth ? MOUTHS[(MOUTHS.indexOf(own.mouth) + 1) % MOUTHS.length] : own.mouth
+  }
+  return kid
+}
+
+export function avatarTraits(id: string, name: string): Traits {
+  return traitsOf(id, name, new Set())
 }
 
 function BodyShape({ kind, fill }: { kind: Body; fill: string }) {
@@ -188,6 +255,7 @@ function MouthShape({ kind, teeth }: { kind: Mouth; teeth: boolean }) {
 }
 
 export function BotAvatar({ id, name, size = 40, ring = true, className }: { id: string; name: string; size?: number; ring?: boolean; className?: string }) {
+  useLineageVersion()
   const t = avatarTraits(id, name)
   const p = t.palette
   const eyeGap = t.eyes === 'big' ? 11 : 10

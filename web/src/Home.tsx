@@ -1,4 +1,4 @@
-import { BookOpen, Dice5, Dna, Loader2, Play, Plus, Shuffle, Trophy, TriangleAlert, Users } from 'lucide-react'
+import { BookOpen, Dice5, Loader2, Play, Plus, Shuffle, Trophy, TriangleAlert, Users } from 'lucide-react'
 import { memo, useCallback, useEffect, useMemo, useState } from 'react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -7,9 +7,10 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectSeparator, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
-import type { BotInfo, Leaderboard, MatchStatus, MatchSummary } from './api'
+import type { ArenaInfo, BotInfo, Leaderboard, MatchStatus, MatchSummary } from './api'
 import { api } from './api'
 import { PLAYER_COLORS } from './model'
+import { EloScatter } from './EloScatter'
 import { Standings } from './Standings'
 
 const BATCHES = [1, 5, 10, 20]
@@ -53,16 +54,17 @@ function StatusBadge({ status }: { status: MatchStatus }) {
   }
 }
 
-export function Home({ onOpen, onBot, onLeague, onNotes }: { onOpen: (id: string) => void; onBot: (id: string) => void; onLeague: () => void; onNotes: () => void }) {
+export function Home({ onOpen, onBot, onNotes }: { onOpen: (id: string) => void; onBot: (id: string) => void; onNotes: () => void }) {
   const [bots, setBots] = useState<BotInfo[]>([])
   const [matches, setMatches] = useState<MatchSummary[] | null>(null)
   const [total, setTotal] = useState(0)
   const [board, setBoard] = useState<Leaderboard | null>(null)
+  const [arena, setArena] = useState<ArenaInfo | null>(null)
   const [offline, setOffline] = useState<string | null>(null)
 
   const refresh = useCallback(() => {
-    Promise.all([api.recentMatches(RECENT), api.leaderboard()])
-      .then(([m, l]) => { setMatches(m.games); setTotal(m.total); setBoard(l); setOffline(null) })
+    Promise.all([api.recentMatches(RECENT), api.leaderboard(), api.arena()])
+      .then(([m, l, a]) => { setMatches(m.games); setTotal(m.total); setBoard(l); setArena(a); setOffline(null) })
       .catch((e) => setOffline(String(e.message ?? e)))
   }, [])
 
@@ -95,7 +97,6 @@ export function Home({ onOpen, onBot, onLeague, onNotes }: { onOpen: (id: string
           <p className="text-sm text-muted-foreground">Set up a free-for-all, let the CPUs fight it out on the Rust engine, then watch the replay.</p>
         </div>
         <div className="flex flex-wrap gap-2">
-          <Button variant="outline" size="sm" onClick={onLeague}><Dna />League progression</Button>
           <Button variant="outline" size="sm" onClick={onNotes}><BookOpen />Lab notebook</Button>
           <Button variant="outline" size="sm" onClick={() => onOpen('sample')}><Play />Watch sample match</Button>
         </div>
@@ -117,6 +118,20 @@ export function Home({ onOpen, onBot, onLeague, onNotes }: { onOpen: (id: string
       )}
 
       <Standings board={board} onBot={onBot} />
+
+      {board && arena && (
+        <Card>
+          <CardHeader>
+            <CardTitle>Progress</CardTitle>
+            <CardDescription>
+              Every published version's current Elo (rules {board.rules_version}) against when it went up. The green line is the frontier: the best Elo anything published so far has reached. Switch to ms per move for the speed–strength Pareto front. Click a dot to open its profile.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <EloScatter rows={board.bots} retiredRows={board.retired_bots ?? []} entrants={arena.entrants} top={board.top ?? 20} onBot={onBot} />
+          </CardContent>
+        </Card>
+      )}
 
       <div className="grid gap-6 lg:grid-cols-[minmax(0,26rem)_minmax(0,1fr)]">
         <NewGame bots={bots} elo={elo} offline={!!offline} onCreated={onCreated} />
@@ -186,10 +201,9 @@ const NewGame = memo(function NewGame({ bots, elo, offline, onCreated }: {
   const items = useMemo(() => bots.map((b) => ({ value: b.id, label: b.name })), [bots])
   const groups = useMemo(() => {
     const byElo = (list: BotInfo[]) => [...list].sort((a, b) => (elo.get(b.id) ?? -Infinity) - (elo.get(a.id) ?? -Infinity) || a.name.localeCompare(b.name))
-    const choices = bots.filter((b) => b.id !== 'champion')
     return [
-      ['Active', byElo(choices.filter((b) => !b.retired))],
-      ['Retired', byElo(choices.filter((b) => b.retired))],
+      ['Active', byElo(bots.filter((b) => !b.retired))],
+      ['Retired', byElo(bots.filter((b) => b.retired))],
     ] as const
   }, [bots, elo])
 

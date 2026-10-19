@@ -1,16 +1,15 @@
 import { StrictMode, useEffect, useRef, useState } from 'react'
 import { createRoot } from 'react-dom/client'
 import './index.css'
+import { api } from './api'
 import { Viewer } from './App.tsx'
 import { BotPage } from './BotPage.tsx'
 import { Home } from './Home.tsx'
-import { LeaguePage } from './League.tsx'
 import { NotebookPage } from './Notebook.tsx'
 
-type Route = { page: 'home' } | { page: 'league' } | { page: 'notes' } | { page: 'match'; id: string } | { page: 'bot'; id: string }
+type Route = { page: 'home' } | { page: 'notes' } | { page: 'match'; id: string } | { page: 'bot'; id: string }
 
 function parse(hash: string): Route {
-  if (/^#\/league\b/.test(hash)) return { page: 'league' }
   if (/^#\/notes\b/.test(hash)) return { page: 'notes' }
   const bot = hash.match(/^#\/bot\/([^/?#]+)/)
   if (bot) return { page: 'bot', id: decodeURIComponent(bot[1]) }
@@ -21,7 +20,6 @@ function parse(hash: string): Route {
 function hashOf(r: Route): string {
   switch (r.page) {
     case 'home': return '/'
-    case 'league': return '/league'
     case 'notes': return '/notes'
     case 'match': return `/match/${r.id}`
     case 'bot': return `/bot/${encodeURIComponent(r.id)}`
@@ -29,8 +27,17 @@ function hashOf(r: Route): string {
   }
 }
 
+/** How often bot lineage is refetched, so new versions' mascots inherit their looks. */
+const BOTS_MS = 60_000
+
 function Root() {
   const [route, setRoute] = useState(() => parse(location.hash))
+  useEffect(() => {
+    const load = () => { api.bots().catch(() => {}) }
+    load()
+    const t = setInterval(load, BOTS_MS)
+    return () => clearInterval(t)
+  }, [])
   const backTo = useRef('/')
   const current = useRef(route)
   useEffect(() => {
@@ -46,16 +53,14 @@ function Root() {
   const go = (hash: string) => { location.hash = hash }
   switch (route.page) {
     case 'home':
-      return <div className="h-full overflow-y-auto"><Home onOpen={(id) => go(`/match/${id}`)} onBot={(id) => go(`/bot/${encodeURIComponent(id)}`)} onLeague={() => go('/league')} onNotes={() => go('/notes')} /></div>
-    case 'league':
-      return <LeaguePage onBack={() => go('/')} onOpen={(id) => go(`/match/${id}`)} />
+      return <div className="h-full overflow-y-auto"><Home onOpen={(id) => go(`/match/${id}`)} onBot={(id) => go(`/bot/${encodeURIComponent(id)}`)} onNotes={() => go('/notes')} /></div>
     case 'notes':
       return <NotebookPage onBack={() => go('/')} onOpen={(id) => go(`/match/${id}`)} />
     case 'bot':
-      return <BotPage key={route.id} id={route.id} onBack={() => go('/')} onOpen={(id) => go(`/match/${id}`)} />
+      return <BotPage key={route.id} id={route.id} onBack={() => go('/')} onOpen={(id) => go(`/match/${id}`)} onBot={(id) => go(`/bot/${encodeURIComponent(id)}`)} />
     case 'match': {
       const src = route.id === 'sample' ? '/sample-replay.json' : `/api/matches/${route.id}/viewer`
-      return <Viewer key={route.id} src={src} label={route.id === 'sample' ? 'Sample match' : `Game ${route.id}`} onBack={() => go(backTo.current)} />
+      return <Viewer key={route.id} src={src} match={route.id === 'sample' ? undefined : route.id} label={route.id === 'sample' ? 'Sample match' : `Game ${route.id}`} onBack={() => go(backTo.current)} />
     }
     default: {
       const never: never = route

@@ -134,6 +134,28 @@ fn now_ms() -> u64 {
         .as_millis() as u64
 }
 
+/// `s` with every bot that has one seat called by its current name, so renamed bots
+/// read the same in old games. Repeated bots keep their numbered seat names.
+fn renamed(s: &Summary, catalog: &Catalog) -> Summary {
+    let mut s = s.clone();
+    let once = |bot: &str| s.seats.iter().filter(|x| x.bot == bot).count() == 1;
+    let names: Vec<Option<String>> = s.seats.iter().map(|x| (once(&x.bot) && catalog.knows(&x.bot)).then(|| catalog.display_name(&x.bot))).collect();
+    for (seat, name) in s.seats.iter_mut().zip(&names) {
+        if let Some(n) = name {
+            if s.winner.as_deref() == Some(seat.name.as_str()) {
+                s.winner = Some(n.clone());
+            }
+            seat.name = n.clone();
+        }
+    }
+    for st in &mut s.standings {
+        if let Some(Some(n)) = names.get(st.player as usize) {
+            st.name = n.clone();
+        }
+    }
+    s
+}
+
 fn err(code: StatusCode, msg: impl Into<String>) -> Response {
     (code, Json(serde_json::json!({ "error": msg.into() }))).into_response()
 }
@@ -273,11 +295,13 @@ struct ListQuery {
 
 /// Games newest first; `X-Total-Count` carries how many there are in all.
 async fn list(State(app): State<Shared>, Query(q): Query<ListQuery>) -> Response {
+    let catalog = app.catalog();
     let matches = app.matches.lock().unwrap();
     let total = matches.len();
     let mut v: Vec<&Summary> = matches.values().collect();
     v.sort_by(|a, b| b.created_at.cmp(&a.created_at).then(b.id.cmp(&a.id)));
     v.truncate(q.limit.unwrap_or(usize::MAX));
+    let v: Vec<Summary> = v.into_iter().map(|m| renamed(m, &catalog)).collect();
     ([("x-total-count", total.to_string())], Json(v)).into_response()
 }
 
@@ -467,8 +491,9 @@ async fn add_note(State(app): State<Shared>, Json(new): Json<notes::NewNote>) ->
 }
 
 async fn one(State(app): State<Shared>, Path(id): Path<String>) -> Response {
+    let catalog = app.catalog();
     match app.matches.lock().unwrap().get(&id) {
-        Some(s) => Json(s.clone()).into_response(),
+        Some(s) => Json(renamed(s, &catalog)).into_response(),
         None => err(StatusCode::NOT_FOUND, "no such match"),
     }
 }
@@ -540,7 +565,7 @@ async fn profile(State(app): State<Shared>, Path(id): Path<String>) -> Response 
                     "players": m.seats.len(), "winner": m.winner, "auto": m.auto,
                     "place_start": seat.map(|s| s.place_start), "place_end": seat.map(|s| s.place_end),
                     "ms_per_move": seat.and_then(|s| s.ms_per_move),
-                    "opponents": m.seats.iter().filter(|s| s.bot != id).map(|s| &s.name).collect::<Vec<_>>(),
+                    "opponents": m.seats.iter().filter(|s| s.bot != id).map(|s| catalog.display_name(&s.bot)).collect::<Vec<_>>(),
                 })
             })
             .collect()
