@@ -1,0 +1,25 @@
+{
+  "brain": "snowshoe",
+  "knobs": {
+    "build_mode": 5,
+    "build_cap": 100,
+    "build_every": 3,
+    "build_start": 70,
+    "build_stop": 6000,
+    "build_reserve": 8,
+    "build_depth": 1,
+    "max_farms": 67,
+    "max_villages": 33,
+    "max_quarries": 0,
+    "max_walls": 0,
+    "lifetime_build_cap": 100,
+    "farm_required": 1,
+    "farm_per_village": 2,
+    "villages_per_farm": 1,
+    "lattice": 1,
+    "village_color": 0,
+    "farm_village_bonus": 600,
+    "village_farm_bonus": 700,
+    "farm_future_bonus": 100
+  }
+}

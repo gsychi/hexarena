@@ -158,6 +158,8 @@ struct Knobs {
     build_center: i64,
     /// Never build farther than this from the centre (0 = no limit).
     build_radius: i32,
+    /// Require this many complete rings of friendly land around economic buildings.
+    build_depth: usize,
     /// Bonus for putting a discounted building next to a Quarry.
     quarry_bonus: i64,
     /// Whether Villages require an adjacent Farm.
@@ -171,6 +173,9 @@ struct Knobs {
     village_farm_bonus: i64,
     /// Bonus for each empty owned Village site neighboring a prospective Farm.
     farm_future_bonus: i64,
+    /// Use a 3-colour lattice, reserving `village_color` for Villages.
+    lattice: bool,
+    village_color: i32,
     /// Score penalty per hex of distance from the centre when capturing.
     capture_center: i64,
     /// Tick at which storm migration begins (0 = disabled).
@@ -226,6 +231,7 @@ impl Knobs {
             wall_enemy_only: k("wall_enemy_only", 0) > 0,
             build_center: k("build_center", 0),
             build_radius: k("build_radius", 0) as i32,
+            build_depth: k("build_depth", 0) as usize,
             quarry_bonus: k("quarry_bonus", 0),
             farm_required: k("farm_required", 1) > 0,
             villages_per_farm: k("villages_per_farm", 0) as usize,
@@ -233,6 +239,8 @@ impl Knobs {
             farm_village_bonus: k("farm_village_bonus", 250),
             village_farm_bonus: k("village_farm_bonus", 200),
             farm_future_bonus: k("farm_future_bonus", 0),
+            lattice: k("lattice", 0) > 0,
+            village_color: k("village_color", 0) as i32 % 3,
             capture_center: k("capture_center", 0),
             migrate_start: k("migrate_start", 0) as u32,
             migrate_every: k("migrate_every", 6) as u32,
@@ -713,6 +721,28 @@ impl Ridgeline {
         counts
     }
 
+    fn interior_site(&self, geo: &Geometry, me: PlayerId, origin: usize, depth: usize) -> bool {
+        let mut reached = vec![false; geo.passable.len()];
+        reached[origin] = true;
+        let mut frontier = vec![origin];
+        for _ in 0..depth {
+            let mut next = vec![];
+            for cell in frontier {
+                for &neighbor in &geo.nbrs[cell] {
+                    if !self.owned(neighbor, me) {
+                        return false;
+                    }
+                    if !reached[neighbor] {
+                        reached[neighbor] = true;
+                        next.push(neighbor);
+                    }
+                }
+            }
+            frontier = next;
+        }
+        true
+    }
+
     /// Picks an infrastructure investment without weakening an exposed garrison. The
     /// modes deliberately share one planner so genomes can test radically different
     /// build portfolios while preserving Ridgeline's proven capture policy.
@@ -783,6 +813,14 @@ impl Ridgeline {
             for &i in mine {
                 let c = self.seen[i]?;
                 if c.building.is_some() || !self.rules.terrain_allowed(kind, geo.height[i]) {
+                    continue;
+                }
+                let color = (geo.hexes[i].q - geo.hexes[i].r).rem_euclid(3);
+                if (kind != Building::Wall && !self.interior_site(geo, me, i, self.k.build_depth))
+                    || (self.k.lattice
+                        && ((kind == Building::Village && color != self.k.village_color)
+                            || (kind == Building::Farm && color == self.k.village_color)))
+                {
                     continue;
                 }
                 let centre_distance = geo.hexes[i].distance(Hex::new(0, 0));

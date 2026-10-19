@@ -56,3 +56,21 @@ views. Every batch below uses `migrate_start = 0`.
 | snowshoe-v30 — Marmot Lattice | A maximal 18-Farm/9-Village lattice with no finisher isolates pure economic value. |
 | snowshoe-v31 — Porcupine Hive | Quarry-discounted honeycomb plus six enemy-facing Walls trades some income for durable borders. |
 
+Nine-game provisional results favored scale over special tactics: v30 averaged
+3.67 ± 0.82 places, v29 and v31 4.00, v26 4.67, v28 4.89, and v27 5.78.
+The portfolios built 23.7, 21.1, 20.2, 14.9, 7.3, and 17.0 buildings/game
+respectively. Quarry-first v27 was the clear loser. v30's surviving positions gained
+only roughly 40–60 production/tick over their land count, showing that 27 buildings
+still leave most Villages far from a full Farm ring.
+
+### Loop 2: geometric scale and conversion
+
+| Version | Hypothesis |
+|---|---|
+| snowshoe-v32 — Vole Deep Lattice | Scale to 100 colour-lattice buildings, all at least one friendly ring behind the border. |
+| snowshoe-v33 — Mink Openworks | An exposed 160-building colour lattice compounds fast enough to outrun its capture risk. |
+| snowshoe-v34 — Beaver Triple Mill | Three spaced Quarries can discount a deep 48-Farm/49-Village lattice. |
+| snowshoe-v35 — Coyote Payday | A deep 100-building bank should focus the weakest rival at tick 5000 and liquidate at tick 7000. |
+| snowshoe-v36 — Pronghorn Overtime | Stop at 70 buildings and switch to minimum-safe attacks as soon as overtime begins. |
+| snowshoe-v37 — Badger Honeywall | Twelve enemy-contact Walls protect a 60-building deep lattice before a tick-6000 focus. |
+
