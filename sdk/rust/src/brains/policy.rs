@@ -180,6 +180,10 @@ pub struct Model {
     pub b1: Vec<f32>,
     pub w2: Vec<f32>,
     pub b2: f32,
+    /// Added to the score of every candidate of each kind (empty = none), so self-play
+    /// can retune how readily each kind of action is taken.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub kind_bias: Vec<f32>,
 }
 
 impl Model {
@@ -194,6 +198,7 @@ impl Model {
             b1: vec![0.0; h],
             w2: vec![0.0; h],
             b2: 0.0,
+            kind_bias: vec![],
         }
     }
 
@@ -284,6 +289,9 @@ impl Folded {
                 wt[k * h + j] = w;
                 b1[j] -= w * m.mean[k];
             }
+        }
+        for (k, b) in m.kind_bias.iter().enumerate().take(NK) {
+            lin[NG + k] += b;
         }
         Folded { h, wt, b1, lin, w2: m.w2.clone(), b2 }
     }

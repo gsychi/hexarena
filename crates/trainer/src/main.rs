@@ -167,6 +167,9 @@ fn extract(f: &BTreeMap<String, String>) -> Result<(), String> {
     let teachers: Vec<String> = f.get("teachers").map(|s| s.split(',').map(String::from).collect()).unwrap_or_default();
     let mut rng = Rng(get(f, "seed", 7));
     let k_hard: usize = get(f, "hard", 16);
+    // Sampling periods before tick 300 and before tick 1500: early mistakes are the
+    // costliest (an early elimination is a last place), so the opening is sampled densely.
+    let early = (get(f, "every-opening", every as usize), get(f, "every-early", every as usize));
     let scorer = match f.get("model") {
         Some(p) => {
             let m: hexarena_sdk::brains::policy::Model =
@@ -217,7 +220,8 @@ fn extract(f: &BTreeMap<String, String>) -> Result<(), String> {
                     Action::Move { to, .. } => st.cell(*to).is_some_and(|c| c.owner != Some(seat)),
                     _ => false,
                 };
-                let sample = tick == 0 || rng.below(every as usize) == 0;
+                let rate = if tick < 300 { early.0 } else if tick < 1500 { early.1 } else { every as usize };
+                let sample = tick == 0 || rng.below(rate) == 0;
                 if sample {
                     let view = st.view(seat);
                     fz[k].build(&view, &hist[k]);
@@ -309,6 +313,7 @@ fn dagger(f: &BTreeMap<String, String>) -> Result<(), String> {
     let k_sib: usize = get(f, "sib", 8);
     let game_base: u32 = get(f, "game-base", 10_000);
     let k_hard: usize = get(f, "hard", 16);
+    let early = (get(f, "every-opening", every), get(f, "every-early", every));
     let prefix = f.get("out").ok_or("--out")?.clone();
     let open = |ext: &str| std::io::BufWriter::new(std::fs::File::create(format!("{prefix}.{ext}")).unwrap());
     let mut out = Out { x: open("x.f16"), rows: open("rows.f32"), groups: open("groups.u32"), nrows: 0 };
@@ -351,7 +356,8 @@ fn dagger(f: &BTreeMap<String, String>) -> Result<(), String> {
                     pol.fz.build(&view, &hist);
                     let i = pol.choose();
                     let t = pol.fz.find(&tcmd.action);
-                    let label = view.tick > 0 && rng.below(every) == 0;
+                    let rate = if view.tick < 300 { early.0 } else if view.tick < 1500 { early.1 } else { every };
+                    let label = view.tick > 0 && rng.below(rate) == 0;
                     if label {
                         labels.push((view.tick, p, tcmd.action.clone()));
                     }

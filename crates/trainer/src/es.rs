@@ -8,7 +8,7 @@
 
 use crate::{get, Rng};
 use hexarena_arena::eval::compare;
-use hexarena_sdk::brains::policy::Model;
+use hexarena_sdk::brains::policy::{Model, NK};
 use hexarena_sdk::{roster, BotParams, Style};
 use std::collections::BTreeMap;
 
@@ -61,11 +61,19 @@ pub fn run(f: &BTreeMap<String, String>) -> Result<(), String> {
     let lr: f64 = get(f, "lr", 0.02);
     let mut rng = Rng(get(f, "seed", 11));
     let seed0: u64 = get(f, "seed-base", 7_000_000);
-    let idx = subspace(&model, f.get("subspace").map_or("out", |s| s.as_str()));
+    let which = f.get("subspace").map_or("out", |s| s.as_str()).to_string();
+    let kind_only = which == "kind";
+    if kind_only && model.kind_bias.len() != NK {
+        model.kind_bias = vec![0.0; NK];
+    }
+    let get_theta = |m: &Model| if kind_only { m.kind_bias.clone() } else { m.params() };
+    let set_theta = |m: &mut Model, p: &[f32]| if kind_only { m.kind_bias = p.to_vec() } else { m.set_params(p) };
+    let idx: Vec<usize> = if kind_only { (0..NK).collect() } else { subspace(&model, &which) };
     let tmp = format!("{out}.tmp");
-    let mut theta: Vec<f32> = model.params();
-    // Scale perturbations to each parameter's size so small and large weights move alike.
-    let scale: Vec<f64> = idx.iter().map(|&i| (theta[i].abs() as f64).max(0.05)).collect();
+    let mut theta: Vec<f32> = get_theta(&model);
+    // Scale perturbations to each parameter's size so small and large weights move alike;
+    // kind biases are in score units, which are about 1 apart between good and bad moves.
+    let scale: Vec<f64> = idx.iter().map(|&i| if kind_only { 1.0 } else { (theta[i].abs() as f64).max(0.05) }).collect();
     let started = std::time::Instant::now();
     let mut log = vec![];
     for it in 0..iters {
@@ -77,9 +85,9 @@ pub fn run(f: &BTreeMap<String, String>) -> Result<(), String> {
             plus[i] += (sigma * scale[k] * eps[k]) as f32;
             minus[i] -= (sigma * scale[k] * eps[k]) as f32;
         }
-        model.set_params(&plus);
+        set_theta(&mut model, &plus);
         let gp = score(&model, &base, seed, pairs, &tmp)?;
-        model.set_params(&minus);
+        set_theta(&mut model, &minus);
         let gm = score(&model, &base, seed, pairs, &tmp)?;
         let diff = gp - gm;
         for (k, &i) in idx.iter().enumerate() {
@@ -91,7 +99,8 @@ pub fn run(f: &BTreeMap<String, String>) -> Result<(), String> {
             "iter {it}: gain + {gp:+.2} - {gm:+.2} (running mean {mean:+.3}) {:.0}s",
             started.elapsed().as_secs_f64()
         );
-        model.set_params(&theta);
+        set_theta(&mut model, &theta);
+        eprintln!("  theta {:?}", idx.iter().take(12).map(|&i| (theta[i] * 100.0).round() / 100.0).collect::<Vec<_>>());
         std::fs::write(&out, serde_json::to_vec(&model).unwrap()).map_err(|e| e.to_string())?;
     }
     Ok(())
