@@ -759,3 +759,10 @@ or Predator as the tactical executor.
   80-site economy without Grazer's unsuccessful custom survivor lock.
 - Economy: 80-site lattice and 24 late Walls over Predator.
 - Result and replay lesson: pending 50-game sample.
+
+### leopard-v1 — Leopard
+
+- Hypothesis: Predator's hunt benefits more from Mongoose's discounted one-Quarry mixed
+  industry and earlier 20-Wall shell than from Tiger's larger plain lattice.
+- Economy: 72-site one-Quarry lattice and 20 midgame Walls over Predator.
+- Result and replay lesson: pending 50-game sample.
