@@ -1,7 +1,7 @@
 export const BUILDING_STYLE = [
   { name: 'Farm', color: '#86e36a', light: '#c8f6b4', ink: '#0f2a0a', desc: 'Valley extractor. Links to up to 3 adjacent Villages.' },
   { name: 'Village', color: '#ffb35c', light: '#ffdcae', ink: '#3a1d02', desc: 'Makes 2 troops/tick, or 3 when a Farm supports it.' },
-  { name: 'Quarry', color: '#5cc8f2', light: '#b9eafc', ink: '#062436', desc: 'Hill extractor. Adjacent builds cost 25% fewer troops and 1 less Resource.' },
+  { name: 'Quarry', color: '#5cc8f2', light: '#b9eafc', ink: '#062436', desc: 'Hills only. Makes 1 Resource every 10 ticks. Anything you build right next to it is cheaper: Village 57 troops + 1 Resource (normally 75 + 2), Wall 25 + 0 (normally 33 + 1), Farm 38 (normally 50).' },
   { name: 'Wall', color: '#d5d9e1', light: '#ffffff', ink: '#1a1d24', desc: 'Defense 2.0x, 2.5x with one linked Wall, 3.0x with two.' },
 ] as const
 
