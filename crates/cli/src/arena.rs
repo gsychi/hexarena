@@ -145,6 +145,9 @@ fn print_briefing(dir: &std::path::Path, author: &str) {
     for m in unanswered.iter().rev() {
         println!("message for you from the arena: {}", m["text"].as_str().unwrap_or_default());
     }
+    println!(
+        "tell people what you are working on (shown on the home page): curl -s -X POST -H 'content-type: application/json' http://127.0.0.1:47240/api/agents/{author}/status -d '{{\"text\":\"...\"}}'"
+    );
     if !unanswered.is_empty() {
         println!(
             "reply with: curl -s -X POST -H 'content-type: application/json' http://127.0.0.1:47240/api/agents/{author}/messages -d '{{\"from\":\"{author}\",\"text\":\"...\"}}'"

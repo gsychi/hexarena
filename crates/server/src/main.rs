@@ -506,9 +506,11 @@ async fn agents(State(app): State<Shared>) -> Json<Vec<serde_json::Value>> {
     let models = hexarena_arena::entrants::author_models(&app.arena_dir);
     let notes = app.notes.all(&app.arena_dir);
     let messages = app.chat.all(&app.arena_dir);
+    let statuses = app.chat.statuses(&app.arena_dir);
     let mut ids: std::collections::BTreeSet<&str> = catalog.entrants.iter().map(|e| e.author.as_str()).collect();
     ids.extend(notes.iter().map(|n| n.author.as_str()));
     ids.extend(messages.iter().map(|m| m.agent.as_str()));
+    ids.extend(statuses.keys().map(String::as_str));
     let mut out: Vec<(u64, serde_json::Value)> = ids
         .into_iter()
         .filter(|a| is_designer(a))
@@ -523,6 +525,7 @@ async fn agents(State(app): State<Shared>) -> Json<Vec<serde_json::Value>> {
                 latest.map(|e| e.created_at),
                 mine.last().map(|n| n.at),
                 replied.map(|m| m.at),
+                statuses.get(a).map(|s| s.at),
             ]
             .into_iter()
             .flatten()
@@ -542,12 +545,59 @@ async fn agents(State(app): State<Shared>) -> Json<Vec<serde_json::Value>> {
                 "messages": thread.len(),
                 "last_message": thread.last(),
                 "unanswered": unanswered,
+                "status": statuses.get(a),
             });
             (last_seen, v)
         })
         .collect();
     out.sort_by(|a, b| b.0.cmp(&a.0));
     Json(out.into_iter().map(|(_, v)| v).collect())
+}
+
+async fn set_status(State(app): State<Shared>, Path(agent): Path<String>, Json(new): Json<chat::NewStatus>) -> Response {
+    if !is_designer(&agent) {
+        return err(StatusCode::BAD_REQUEST, "status belongs to an agent, e.g. agent:sol");
+    }
+    match app.chat.set_status(&app.arena_dir, &agent, new, now_ms()) {
+        Ok(s) => (StatusCode::CREATED, Json(s)).into_response(),
+        Err(e) => err(StatusCode::BAD_REQUEST, e),
+    }
+}
+
+/// Newest items an agent's activity feed keeps.
+const ACTIVITY_ITEMS: usize = 300;
+
+/// One agent's work and conversation as a single timeline, oldest first: the bots it
+/// sent in (with their hypothesis and how they are doing), its notebook notes, and its
+/// message thread.
+async fn activity(State(app): State<Shared>, Path(agent): Path<String>) -> Json<serde_json::Value> {
+    let catalog = app.catalog();
+    let board = board(&app, &catalog);
+    let row = |id: &str| board.rows.iter().chain(&board.retired_rows).find(|r| r.bot == id);
+    let mut items: Vec<(u64, serde_json::Value)> = vec![];
+    for e in catalog.entrants.iter().filter(|e| e.author == agent) {
+        let r = row(&e.id);
+        items.push((e.created_at, serde_json::json!({
+            "type": "bot", "at": e.created_at, "id": e.id, "name": e.name, "note": e.note,
+            "parents": e.parents, "retired": e.retired, "retired_reason": e.retired_reason,
+            "elo": r.map(|r| r.elo), "rank": r.filter(|_| !e.retired).map(|r| r.rank), "games": r.map_or(0, |r| r.games),
+        })));
+    }
+    for n in app.notes.all(&app.arena_dir).into_iter().filter(|n| n.author == agent) {
+        items.push((n.at, serde_json::json!({
+            "type": "note", "at": n.at, "n": n.n, "kind": n.kind, "text": n.text, "matches": n.matches, "bots": n.bots,
+        })));
+    }
+    for m in app.chat.thread(&app.arena_dir, &agent) {
+        items.push((m.at, serde_json::json!({ "type": "message", "at": m.at, "n": m.n, "from": m.from, "text": m.text })));
+    }
+    items.sort_by_key(|(at, _)| *at);
+    let skip = items.len().saturating_sub(ACTIVITY_ITEMS);
+    Json(serde_json::json!({
+        "agent": agent,
+        "status": app.chat.statuses(&app.arena_dir).get(&agent),
+        "items": items.into_iter().skip(skip).map(|(_, v)| v).collect::<Vec<_>>(),
+    }))
 }
 
 async fn thread(State(app): State<Shared>, Path(agent): Path<String>) -> Json<Vec<chat::Message>> {
@@ -835,6 +885,8 @@ async fn main() {
         .route("/api/observations", get(list_notes).post(add_note))
         .route("/api/agents", get(agents))
         .route("/api/agents/{agent}/messages", get(thread).post(say))
+        .route("/api/agents/{agent}/status", axum::routing::post(set_status))
+        .route("/api/agents/{agent}/activity", get(activity))
         .route("/api/health", get(|| async { "ok" }))
         .with_state(app);
     if let Ok(web) = std::env::var("HEXARENA_WEB") {

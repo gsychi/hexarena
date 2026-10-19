@@ -3,11 +3,13 @@
 //! dir. Agents read their thread at the start of every round and reply in it.
 
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
 use std::io::Write;
 use std::path::Path;
 use std::sync::Mutex;
 
 const MAX_TEXT: usize = 2000;
+const MAX_STATUS: usize = 400;
 /// The sender name for whoever is watching in the browser.
 pub const VISITOR: &str = "you";
 
@@ -28,12 +30,28 @@ pub struct NewMessage {
     pub text: String,
 }
 
+/// What an agent says it is working on right now, set by the agent.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct Status {
+    pub at: u64,
+    pub text: String,
+}
+
+#[derive(Deserialize)]
+pub struct NewStatus {
+    pub text: String,
+}
+
 pub struct Chat {
     lock: Mutex<()>,
 }
 
 fn path(dir: &Path) -> std::path::PathBuf {
     dir.join("messages.jsonl")
+}
+
+fn status_path(dir: &Path) -> std::path::PathBuf {
+    dir.join("status.json")
 }
 
 impl Chat {
@@ -49,6 +67,27 @@ impl Chat {
             .lines()
             .filter_map(|l| serde_json::from_str(l).ok())
             .collect()
+    }
+
+    pub fn statuses(&self, dir: &Path) -> BTreeMap<String, Status> {
+        let _g = self.lock.lock().unwrap();
+        std::fs::read(status_path(dir)).ok().and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or_default()
+    }
+
+    pub fn set_status(&self, dir: &Path, agent: &str, new: NewStatus, at: u64) -> Result<Status, String> {
+        let text = new.text.trim().to_string();
+        if text.is_empty() || text.len() > MAX_STATUS {
+            return Err(format!("text must be 1-{MAX_STATUS} characters"));
+        }
+        let mut all = self.statuses(dir);
+        let status = Status { at, text };
+        all.insert(agent.to_string(), status.clone());
+        let _g = self.lock.lock().unwrap();
+        std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
+        let tmp = status_path(dir).with_extension("json.tmp");
+        std::fs::write(&tmp, serde_json::to_vec_pretty(&all).unwrap()).map_err(|e| e.to_string())?;
+        std::fs::rename(&tmp, status_path(dir)).map_err(|e| e.to_string())?;
+        Ok(status)
     }
 
     pub fn thread(&self, dir: &Path, agent: &str) -> Vec<Message> {

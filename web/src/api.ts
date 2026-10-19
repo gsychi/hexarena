@@ -164,7 +164,18 @@ export interface Agent {
   last_message: ChatMessage | null
   /** Messages since the agent last replied. */
   unanswered: number
+  /** What the agent says it is working on, if it has said. */
+  status: AgentStatus | null
 }
+
+export interface AgentStatus { at: number; text: string }
+
+export type ActivityItem =
+  | { type: 'bot'; at: number; id: string; name: string; note: string | null; parents: string[]; retired: boolean; retired_reason: string | null; elo: number | null; rank: number | null; games: number }
+  | { type: 'note'; at: number; n: number; kind: NoteKind; text: string; matches: string[]; bots: string[] }
+  | { type: 'message'; at: number; n: number; from: string; text: string }
+
+export interface Activity { agent: string; status: AgentStatus | null; items: ActivityItem[] }
 
 export interface CreateMatch { bots: string[]; seed?: number; count: number }
 
@@ -190,6 +201,7 @@ export const api = {
   matchElo: (id: string) => fetch(`/api/matches/${id}/elo`).then((r) => json<MatchElo>(r)),
   arena: () => fetch('/api/arena').then((r) => json<ArenaInfo>(r)),
   agents: () => fetch('/api/agents').then((r) => json<Agent[]>(r)),
+  activity: (agent: string) => fetch(`/api/agents/${encodeURIComponent(agent)}/activity`).then((r) => json<Activity>(r)),
   thread: (agent: string) => fetch(`/api/agents/${encodeURIComponent(agent)}/messages`).then((r) => json<ChatMessage[]>(r)),
   say: (agent: string, text: string) =>
     fetch(`/api/agents/${encodeURIComponent(agent)}/messages`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ from: 'you', text }) }).then((r) => json<ChatMessage>(r)),

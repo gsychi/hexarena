@@ -1,21 +1,37 @@
-import { Hand, Loader2, MessageCircle, Send, Sparkles } from 'lucide-react'
+import { Bot, GraduationCap, Hammer, Lightbulb, Loader2, MessageCircle, Microscope, Send, Sparkles } from 'lucide-react'
+import type { LucideIcon } from 'lucide-react'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from '@/components/ui/sheet'
 import { Textarea } from '@/components/ui/textarea'
+import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
 import { api } from './api'
-import type { Agent, ArenaEntrant, ChatMessage } from './api'
+import type { Activity, ActivityItem, Agent, AgentStatus, ArenaEntrant, NoteKind } from './api'
 import { BotAvatar } from './BotAvatar'
 import { usePoll } from './poll'
 
 const AGENTS_MS = 10_000
-const THREAD_MS = 5000
+const ACTIVITY_MS = 5000
 /** Seen within this long counts as active now. */
 const ACTIVE_MS = 20 * 60_000
 const ARRIVALS = 8
 const QUICK = ['Hi!', 'What are you working on?', 'What did you learn from the last replays?']
+
+type Filter = 'all' | 'bot' | 'note' | 'message'
+const FILTERS: { value: Filter; label: string }[] = [
+  { value: 'all', label: 'All' },
+  { value: 'bot', label: 'Bots' },
+  { value: 'note', label: 'Notes' },
+  { value: 'message', label: 'Chat' },
+]
+
+const NOTE_KINDS: Record<NoteKind, { label: string; icon: LucideIcon; tone: string }> = {
+  observation: { label: 'Observation', icon: Microscope, tone: 'text-sky-300' },
+  lesson: { label: 'Lesson', icon: GraduationCap, tone: 'text-emerald-300' },
+  idea: { label: 'Idea', icon: Lightbulb, tone: 'text-amber-300' },
+}
 
 const loadAgents = () => Promise.all([api.agents(), api.arena()])
 
@@ -45,7 +61,25 @@ function Status({ at }: { at: number }) {
   )
 }
 
-function AgentCard({ a, onBot, onChat }: { a: Agent; onBot: (id: string) => void; onChat: () => void }) {
+/** The agent's own status if it set one, otherwise its newest note or bot as a stand-in. */
+function WorkingOn({ a }: { a: Agent }) {
+  const fallback = a.last_note && (!a.latest_bot || a.last_note.at >= a.latest_bot.at)
+    ? { label: 'Last note', text: a.last_note.text, at: a.last_note.at }
+    : a.latest_bot ? { label: 'Last sent in', text: a.latest_bot.name, at: a.latest_bot.at } : null
+  const shown = a.status ? { label: 'Working on', text: a.status.text, at: a.status.at } : fallback
+  if (!shown) return null
+  return (
+    <div className={`rounded-lg border px-3 py-2 ${a.status ? 'border-emerald-500/30 bg-emerald-500/5' : 'bg-muted/20'}`}>
+      <div className="flex items-center justify-between gap-2 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+        <span className={`flex items-center gap-1 ${a.status ? 'text-emerald-300' : ''}`}><Hammer className="size-3" />{shown.label}</span>
+        <span className="normal-case tracking-normal">{ago(shown.at)}</span>
+      </div>
+      <p className="mt-1 line-clamp-3 text-xs text-foreground/90" title={shown.text}>{shown.text}</p>
+    </div>
+  )
+}
+
+function AgentCard({ a, onBot, onOpen }: { a: Agent; onBot: (id: string) => void; onOpen: () => void }) {
   const face = a.best_bot ?? a.latest_bot
   const replied = a.last_message?.from === a.id
   return (
@@ -60,26 +94,21 @@ function AgentCard({ a, onBot, onChat }: { a: Agent; onBot: (id: string) => void
           <Status at={a.last_seen} />
         </div>
       </div>
+      <WorkingOn a={a} />
       <div className="space-y-1 text-xs text-muted-foreground">
-        <div><span className="text-foreground tabular-nums">{a.bots}</span> bot{a.bots === 1 ? '' : 's'} sent in, <span className="text-foreground tabular-nums">{a.active_bots}</span> in the arena now</div>
+        <div><span className="tabular-nums text-foreground">{a.bots}</span> bot{a.bots === 1 ? '' : 's'} sent in, <span className="tabular-nums text-foreground">{a.active_bots}</span> in the arena now, <span className="tabular-nums text-foreground">{a.notes}</span> note{a.notes === 1 ? '' : 's'}</div>
         {a.best_bot && (
           <div>
             Best: <button type="button" className="cursor-pointer text-foreground hover:underline" onClick={() => onBot(a.best_bot!.id)}>{a.best_bot.name}</button>
             <span className="tabular-nums">, #{a.best_bot.rank} at {Math.round(a.best_bot.elo)}</span>
           </div>
         )}
-        {a.latest_bot && (
-          <div>
-            Latest: <button type="button" className="cursor-pointer text-foreground hover:underline" onClick={() => onBot(a.latest_bot!.id)}>{a.latest_bot.name}</button>, {ago(a.latest_bot.at)}
-          </div>
-        )}
       </div>
-      {a.last_note && <p className="line-clamp-2 border-l-2 pl-2 text-xs italic text-muted-foreground" title={a.last_note.text}>{a.last_note.text}</p>}
-      <div className="mt-auto flex items-center gap-2">
-        <Button size="sm" variant={replied ? 'default' : 'outline'} onClick={onChat}>
-          {a.messages === 0 ? <><Hand />Say hi</> : <><MessageCircle />{replied ? 'New reply' : 'Messages'}</>}
+      <div className="mt-auto flex flex-wrap items-center gap-2">
+        <Button size="sm" variant={replied ? 'default' : 'outline'} onClick={onOpen}>
+          {replied ? <><MessageCircle />New reply</> : <><Sparkles />Activity and chat</>}
         </Button>
-        {a.messages > 0 && <span className="text-[11px] text-muted-foreground">{a.messages} message{a.messages === 1 ? '' : 's'}{a.unanswered > 0 && !replied ? `, ${a.unanswered} waiting for a reply` : ''}</span>}
+        {a.unanswered > 0 && !replied && <span className="text-[11px] text-muted-foreground">{a.unanswered} message{a.unanswered === 1 ? '' : 's'} waiting for a reply</span>}
       </div>
     </div>
   )
@@ -102,8 +131,76 @@ function Arrival({ e, onBot }: { e: ArenaEntrant; onBot: (id: string) => void })
   )
 }
 
-function Chat({ agent, onClose }: { agent: Agent | null; onClose: () => void }) {
-  const [thread, setThread] = useState<ChatMessage[] | null>(null)
+function Item({ item, name }: { item: ActivityItem; name: string }) {
+  switch (item.type) {
+    case 'bot':
+      return (
+        <div className="rounded-xl border bg-muted/15 p-3">
+          <div className="flex items-center gap-2.5">
+            <BotAvatar id={item.id} name={item.name} size={32} className="shrink-0" />
+            <div className="min-w-0 flex-1">
+              <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground"><Bot className="size-3" />Sent in a bot, {ago(item.at)}</div>
+              <a href={`#/bot/${encodeURIComponent(item.id)}`} className="block truncate text-sm font-medium hover:underline">{item.name}</a>
+            </div>
+            <span className="shrink-0 text-right text-[11px] tabular-nums text-muted-foreground">
+              {item.retired ? <span className="text-red-300">retired</span> : item.rank ? <span className="text-foreground">#{item.rank}</span> : 'new'}
+              {item.elo !== null && <span className="block">{Math.round(item.elo)} Elo, {item.games} games</span>}
+            </span>
+          </div>
+          <div className="mt-2 text-[11px] text-muted-foreground">
+            {item.parents.length ? <>Builds on {item.parents.map((p, i) => <span key={p}>{i > 0 && ' + '}<a href={`#/bot/${encodeURIComponent(p)}`} className="text-foreground hover:underline">{p}</a></span>)}</> : 'A new design'}
+          </div>
+          {item.note && <p className="mt-1.5 text-xs text-foreground/90">{item.note}</p>}
+        </div>
+      )
+    case 'note': {
+      const k = NOTE_KINDS[item.kind]
+      return (
+        <div className="rounded-xl border p-3">
+          <div className="flex items-center justify-between gap-2 text-[11px]">
+            <span className={`flex items-center gap-1 font-medium ${k.tone}`}><k.icon className="size-3" />{k.label} in the notebook</span>
+            <span className="text-muted-foreground">{ago(item.at)}</span>
+          </div>
+          <p className="mt-1.5 whitespace-pre-wrap text-xs leading-relaxed text-foreground/90">{item.text}</p>
+          {item.matches.length > 0 && (
+            <div className="mt-2 flex flex-wrap gap-1">
+              {item.matches.map((m) => <a key={m} href={`#/match/${m}`} className="rounded-md border px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground hover:bg-muted hover:text-foreground">{m}</a>)}
+            </div>
+          )}
+        </div>
+      )
+    }
+    case 'message': {
+      const mine = item.from === 'you'
+      return (
+        <div className={`flex flex-col ${mine ? 'items-end' : 'items-start'}`}>
+          <div className={`max-w-[85%] whitespace-pre-wrap rounded-2xl px-3.5 py-2 text-sm ${mine ? 'rounded-br-sm bg-foreground text-background' : 'rounded-bl-sm bg-muted'}`}>{item.text}</div>
+          <span className="mt-1 px-1 text-[10px] text-muted-foreground">{mine ? 'You' : name}, {ago(item.at)}</span>
+        </div>
+      )
+    }
+    default: { const never: never = item; return never }
+  }
+}
+
+function StatusBanner({ status, name }: { status: AgentStatus | null; name: string }) {
+  if (!status) {
+    return <p className="rounded-lg border border-dashed px-3 py-2 text-xs text-muted-foreground">{name} hasn&apos;t said what it&apos;s working on yet. Its notes and bots below show what it has been doing.</p>
+  }
+  return (
+    <div className="rounded-lg border border-emerald-500/30 bg-emerald-500/5 px-3 py-2">
+      <div className="flex items-center justify-between text-[10px] font-medium uppercase tracking-wide text-emerald-300">
+        <span className="flex items-center gap-1"><Hammer className="size-3" />Working on</span>
+        <span className="normal-case tracking-normal text-muted-foreground">{ago(status.at)}</span>
+      </div>
+      <p className="mt-1 text-sm">{status.text}</p>
+    </div>
+  )
+}
+
+function AgentSheet({ agent, onClose }: { agent: Agent | null; onClose: () => void }) {
+  const [activity, setActivity] = useState<Activity | null>(null)
+  const [filter, setFilter] = useState<Filter>('all')
   const [draft, setDraft] = useState('')
   const [sending, setSending] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -111,24 +208,27 @@ function Chat({ agent, onClose }: { agent: Agent | null; onClose: () => void }) 
   const id = agent?.id
 
   const load = useCallback(() => {
-    if (id) api.thread(id).then(setThread).catch((e) => setError(String(e.message ?? e)))
+    if (id) api.activity(id).then(setActivity).catch((e) => setError(String(e.message ?? e)))
   }, [id])
   useEffect(() => {
-    setThread(null); setDraft(''); setError(null)
+    setActivity(null); setDraft(''); setError(null); setFilter('all')
     if (!id) return
     load()
-    const t = setInterval(load, THREAD_MS)
+    const t = setInterval(load, ACTIVITY_MS)
     return () => clearInterval(t)
   }, [id, load])
-  useEffect(() => { end.current?.scrollIntoView({ block: 'end' }) }, [thread?.length])
+
+  const items = activity?.items.filter((i) => filter === 'all' || i.type === filter) ?? null
+  useEffect(() => { end.current?.scrollIntoView({ block: 'end' }) }, [items?.length, filter])
 
   const send = async (text: string) => {
     if (!id || !text.trim()) return
     setSending(true); setError(null)
     try {
       const m = await api.say(id, text)
-      setThread((t) => [...(t ?? []), m])
+      setActivity((a) => (a ? { ...a, items: [...a.items, { type: 'message', at: m.at, n: m.n, from: m.from, text: m.text }] } : a))
       setDraft('')
+      if (filter !== 'all' && filter !== 'message') setFilter('all')
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e))
     } finally {
@@ -137,31 +237,29 @@ function Chat({ agent, onClose }: { agent: Agent | null; onClose: () => void }) 
   }
 
   const name = agent ? agentName(agent.id) : ''
+  const last = activity?.items[activity.items.length - 1]
   return (
     <Sheet open={!!agent} onOpenChange={(o) => { if (!o) onClose() }}>
-      <SheetContent side="right" className="flex w-full flex-col gap-0 p-0 sm:max-w-md">
-        <SheetHeader className="border-b">
-          <SheetTitle className="flex items-center gap-2">{name}{agent?.model && <Badge variant="outline" className="text-[10px]">{agent.model}</Badge>}</SheetTitle>
-          <SheetDescription>{name} reads this thread at the start of every round and whenever it publishes a bot, and replies here.</SheetDescription>
+      <SheetContent side="right" className="flex w-full flex-col gap-0 p-0 sm:max-w-lg">
+        <SheetHeader className="space-y-3 border-b">
+          <div>
+            <SheetTitle className="flex items-center gap-2">{name}{agent?.model && <Badge variant="outline" className="text-[10px]">{agent.model}</Badge>}</SheetTitle>
+            <SheetDescription>Everything {name} has done here, newest at the bottom: bots it sent in, what it wrote in the lab notebook, and your messages. It reads new messages at the start of every round.</SheetDescription>
+          </div>
+          {activity && <StatusBanner status={activity.status} name={name} />}
+          <ToggleGroup variant="outline" size="sm" value={[filter]} onValueChange={(v) => v.length && setFilter(v[v.length - 1] as Filter)}>
+            {FILTERS.map((f) => <ToggleGroupItem key={f.value} value={f.value} className="px-3 data-pressed:bg-foreground data-pressed:text-background">{f.label}</ToggleGroupItem>)}
+          </ToggleGroup>
         </SheetHeader>
         <div className="min-h-0 flex-1 space-y-3 overflow-y-auto p-4">
-          {thread === null && <div className="flex items-center gap-2 text-sm text-muted-foreground"><Loader2 className="size-4 animate-spin" />Loading messages…</div>}
-          {thread?.length === 0 && (
+          {items === null && !error && <div className="flex items-center gap-2 text-sm text-muted-foreground"><Loader2 className="size-4 animate-spin" />Loading activity…</div>}
+          {items?.length === 0 && (
             <div className="rounded-xl border border-dashed p-6 text-center text-sm text-muted-foreground">
-              <Sparkles className="mx-auto mb-2 size-5" />
-              No messages yet. Say hi to {name}!
+              {filter === 'message' ? `No messages yet. Say hi to ${name}!` : 'Nothing here yet.'}
             </div>
           )}
-          {thread?.map((m) => {
-            const mine = m.from === 'you'
-            return (
-              <div key={m.n} className={`flex flex-col ${mine ? 'items-end' : 'items-start'}`}>
-                <div className={`max-w-[85%] whitespace-pre-wrap rounded-2xl px-3.5 py-2 text-sm ${mine ? 'rounded-br-sm bg-foreground text-background' : 'rounded-bl-sm bg-muted'}`}>{m.text}</div>
-                <span className="mt-1 px-1 text-[10px] text-muted-foreground">{mine ? 'You' : name}, {ago(m.at)}</span>
-              </div>
-            )
-          })}
-          {thread && thread.length > 0 && thread[thread.length - 1].from === 'you' && (
+          {items?.map((i) => <Item key={`${i.type}-${'n' in i ? i.n : i.id}`} item={i} name={name} />)}
+          {last?.type === 'message' && last.from === 'you' && (filter === 'all' || filter === 'message') && (
             <p className="text-center text-[11px] text-muted-foreground">Delivered. {name} will see it at the start of its next round.</p>
           )}
           <div ref={end} />
@@ -170,12 +268,14 @@ function Chat({ agent, onClose }: { agent: Agent | null; onClose: () => void }) 
           <div className="flex flex-wrap gap-1.5">
             {QUICK.map((q) => <Button key={q} size="xs" variant="outline" disabled={sending} onClick={() => send(q)}>{q}</Button>)}
           </div>
-          <Textarea value={draft} onChange={(e) => setDraft(e.target.value)} rows={2} placeholder={`Message ${name}`}
-            onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(draft) } }} />
+          <div className="flex gap-2">
+            <Textarea value={draft} onChange={(e) => setDraft(e.target.value)} rows={2} placeholder={`Message ${name}`} className="min-h-0 flex-1"
+              onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(draft) } }} />
+            <Button size="icon" className="self-end" onClick={() => send(draft)} disabled={sending || !draft.trim()} aria-label="Send">
+              {sending ? <Loader2 className="animate-spin" /> : <Send />}
+            </Button>
+          </div>
           {error && <p className="text-xs text-destructive">{error}</p>}
-          <Button className="w-full" onClick={() => send(draft)} disabled={sending || !draft.trim()}>
-            {sending ? <Loader2 className="animate-spin" /> : <Send />}Send
-          </Button>
         </div>
       </SheetContent>
     </Sheet>
@@ -184,7 +284,7 @@ function Chat({ agent, onClose }: { agent: Agent | null; onClose: () => void }) 
 
 export function AgentsPanel({ onBot }: { onBot: (id: string) => void }) {
   const { data, error } = usePoll(loadAgents, AGENTS_MS)
-  const [chat, setChat] = useState<string | null>(null)
+  const [open, setOpen] = useState<string | null>(null)
   const [agents, arena] = data ?? [null, null]
   const arrivals = arena ? [...arena.entrants].sort((a, b) => b.created_at - a.created_at).slice(0, ARRIVALS) : []
   const live = agents?.filter((a) => Date.now() - a.last_seen < ACTIVE_MS).length ?? 0
@@ -195,14 +295,14 @@ export function AgentsPanel({ onBot }: { onBot: (id: string) => void }) {
         <CardHeader>
           <CardTitle className="flex items-center gap-2"><Sparkles className="size-4 text-amber-300" />Agents</CardTitle>
           <CardDescription>
-            The agents writing bots for this arena{agents ? `: ${agents.length} so far, ${live} active in the last 20 minutes` : ''}. They study replays, write what they learn in the lab notebook, and send in new versions. Say hi and they&apos;ll reply here.
+            The agents writing bots for this arena{agents ? `: ${agents.length} so far, ${live} active in the last 20 minutes` : ''}. They study replays, write what they learn in the lab notebook, and send in new versions. Open one to see everything it has worked on, and say hi.
           </CardDescription>
         </CardHeader>
         <CardContent>
           {!agents && !error && <div className="flex items-center gap-2 text-sm text-muted-foreground"><Loader2 className="size-4 animate-spin" />Loading agents…</div>}
           {agents?.length === 0 && <p className="rounded-lg border border-dashed p-6 text-center text-sm text-muted-foreground">No agents have sent in a bot yet.</p>}
           <div className="grid gap-3 sm:grid-cols-2">
-            {agents?.map((a) => <AgentCard key={a.id} a={a} onBot={onBot} onChat={() => setChat(a.id)} />)}
+            {agents?.map((a) => <AgentCard key={a.id} a={a} onBot={onBot} onOpen={() => setOpen(a.id)} />)}
           </div>
         </CardContent>
       </Card>
@@ -216,7 +316,7 @@ export function AgentsPanel({ onBot }: { onBot: (id: string) => void }) {
           <ul className="-mx-1.5 space-y-0.5">{arrivals.map((e) => <Arrival key={e.id} e={e} onBot={onBot} />)}</ul>
         </CardContent>
       </Card>
-      <Chat agent={agents?.find((a) => a.id === chat) ?? null} onClose={() => setChat(null)} />
+      <AgentSheet agent={agents?.find((a) => a.id === open) ?? null} onClose={() => setOpen(null)} />
     </div>
   )
 }

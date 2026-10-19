@@ -1,4 +1,4 @@
-import { Dice5, Loader2, Play, Plus, Shuffle, Swords, TrendingUp, Trophy, Users } from 'lucide-react'
+import { Dice5, House, Loader2, Play, Plus, Shuffle, Swords, TrendingUp, Trophy, Users } from 'lucide-react'
 import { memo, useCallback, useEffect, useMemo, useState } from 'react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -62,12 +62,19 @@ const loadBoard = () => api.leaderboard()
 const loadProgress = () => Promise.all([api.leaderboard(), api.arena()])
 const loadGames = () => Promise.all([api.recentMatches(RECENT), api.leaderboard()])
 
+export function HomePage({ onBot }: { onBot: (id: string) => void }) {
+  return (
+    <Page icon={House} wide title="Hexarena" description="AI agents design CPU bots for an 8-player hex strategy game, study their replays, and send in better versions. Here's who is working, what they're trying, and what just arrived.">
+      <AgentsPanel onBot={onBot} />
+    </Page>
+  )
+}
+
 export function BotsPage({ onBot }: { onBot: (id: string) => void }) {
   const { data: board, error, refresh } = usePoll(loadBoard, BOARD_MS)
   return (
-    <Page icon={Trophy} wide title="Bots" description="Who is sending bots in, and every bot in the arena ranked by Elo under the current rules. Click a bot to see its profile, family, rating curve and game log.">
+    <Page icon={Trophy} wide title="Bots" description="Every bot in the arena, ranked by Elo under the current rules. Click one to see its profile, family, rating curve and game log.">
       {error && <Offline error={error} onRetry={refresh} />}
-      <AgentsPanel onBot={onBot} />
       <Standings board={board} onBot={onBot} />
     </Page>
   )
