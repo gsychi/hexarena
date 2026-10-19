@@ -59,6 +59,7 @@ struct Knobs {
     build_stop: u32,
     build_land_min: usize,
     build_safe_neighbors: usize,
+    build_depth: u32,
     build_every: u32,
     build_cap: usize,
     quarry_cap: usize,
@@ -109,6 +110,7 @@ impl Knobs {
             build_stop: k("build_stop", 10_000).max(0) as u32,
             build_land_min: k("build_land_min", 0).max(0) as usize,
             build_safe_neighbors: k("build_safe_neighbors", 0).clamp(0, 6) as usize,
+            build_depth: k("build_depth", 0).max(0) as u32,
             build_every: k("build_every", 11).max(1) as u32,
             build_cap: k("build_cap", 8).max(0) as usize,
             quarry_cap: k("quarry_cap", 2).max(0) as usize,
@@ -877,6 +879,22 @@ impl Mosaic {
             return None;
         }
         let mode = self.k.build_mode;
+        let mut depth = vec![u32::MAX; self.own.len()];
+        let mut depth_queue = VecDeque::new();
+        for i in 0..self.own.len() {
+            if self.own[i] && self.neighbors[i].iter().any(|&n| !self.own[n]) {
+                depth[i] = 0;
+                depth_queue.push_back(i);
+            }
+        }
+        while let Some(i) = depth_queue.pop_front() {
+            for &n in &self.neighbors[i] {
+                if self.own[n] && depth[n] == u32::MAX {
+                    depth[n] = depth[i] + 1;
+                    depth_queue.push_back(n);
+                }
+            }
+        }
         let open_village = self.seen.iter().enumerate().any(|(v, cell)| {
             self.own[v]
                 && cell.as_ref().is_some_and(|cell| {
@@ -913,6 +931,9 @@ impl Mosaic {
             else {
                 continue;
             };
+            if depth[i] < self.k.build_depth {
+                continue;
+            }
             let exposed = self.neighbors[i]
                 .iter()
                 .any(|&n| self.enemy(n, view.you).is_some());
@@ -1078,6 +1099,58 @@ impl Mosaic {
             troops: troops as u32,
         })
     }
+
+    /// The preferred blocked pad may sit in a component with no spare troops. Keep the
+    /// rest of the empire productive by moving its best interior surplus one step toward
+    /// the nearest frontier; later ticks can route that stack into whichever breach opens.
+    fn feed_frontier(&self, me: PlayerId) -> Option<Action> {
+        let mut parent = vec![usize::MAX; self.own.len()];
+        let mut distance = vec![u32::MAX; self.own.len()];
+        let mut queue = VecDeque::new();
+        for i in 0..self.own.len() {
+            if self.own[i]
+                && self.neighbors[i]
+                    .iter()
+                    .any(|&n| !self.own[n] && self.terrain[n].is_some_and(|t| t.passable()))
+            {
+                parent[i] = i;
+                distance[i] = 0;
+                queue.push_back(i);
+            }
+        }
+        while let Some(i) = queue.pop_front() {
+            for &n in &self.neighbors[i] {
+                if self.own[n] && parent[n] == usize::MAX {
+                    parent[n] = i;
+                    distance[n] = distance[i] + 1;
+                    queue.push_back(n);
+                }
+            }
+        }
+        let mut source: Option<(u64, usize, u64)> = None;
+        for i in 0..self.own.len() {
+            if distance[i] == 0 || distance[i] == u32::MAX {
+                continue;
+            }
+            let troops = self.seen[i].as_ref().map_or(0, |cell| cell.troops) as u64;
+            let spare = troops.saturating_sub(1 + self.reserve(i, usize::MAX, me));
+            if spare < self.k.relay_floor {
+                continue;
+            }
+            let value = spare * 1000 / distance[i] as u64;
+            if source.is_none_or(|best| {
+                (value, spare, std::cmp::Reverse(i)) > (best.0, best.2, std::cmp::Reverse(best.1))
+            }) {
+                source = Some((value, i, spare));
+            }
+        }
+        let (_, from, troops) = source?;
+        Some(Action::Move {
+            from: self.hexes[from],
+            to: self.hexes[parent[from]],
+            troops: troops as u32,
+        })
+    }
 }
 
 impl Bot for Mosaic {
@@ -1100,6 +1173,7 @@ impl Bot for Mosaic {
         let action = if charging && wave_pad.is_some() {
             let bid = wave_pad.expect("checked above");
             self.logistics(bid.from, bid.short, view.you)
+                .or_else(|| self.feed_frontier(view.you))
                 .or_else(|| {
                     self.k.allow_gather.then(|| Action::Gather {
                         target: self.hexes[bid.from],
@@ -1108,6 +1182,7 @@ impl Bot for Mosaic {
                 .unwrap_or(Action::NoOp)
         } else if let Some(bid) = relay {
             self.logistics(bid.from, bid.short, view.you)
+                .or_else(|| self.feed_frontier(view.you))
                 .or_else(|| {
                     self.k.allow_gather.then(|| Action::Gather {
                         target: self.hexes[bid.from],
@@ -1126,6 +1201,7 @@ impl Bot for Mosaic {
             }
         } else if let Some(bid) = blocked {
             self.logistics(bid.from, bid.short, view.you)
+                .or_else(|| self.feed_frontier(view.you))
                 .or_else(|| {
                     self.k.allow_gather.then(|| Action::Gather {
                         target: self.hexes[bid.from],
@@ -1133,7 +1209,7 @@ impl Bot for Mosaic {
                 })
                 .unwrap_or(Action::NoOp)
         } else {
-            Action::NoOp
+            self.feed_frontier(view.you).unwrap_or(Action::NoOp)
         };
         PlayerCommand { management, action }
     }

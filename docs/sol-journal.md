@@ -455,32 +455,83 @@ Villages and every Village to touch six Farms.
   followed by the notebook's successful tick-4500 push, will dominate both small rings and
   standalone Villages.
 - Economy: balanced Farm/Village lattice, 120-build cap.
-- Result and replay lesson: pending 50-game sample.
+- Provisional after 11 games: Elo 1441, AVP8 5.64 ± 0.62, no wins.
+- Replay lesson: reached second after all 120 builds, but another seed spent 28 build
+  actions before dying at tick 1058; surviving banks could still NoOp 6,389 ticks.
 
 ### yak-v1 — Yak
 
 - Hypothesis: captured infrastructure is the main lattice risk, so sacrificing buildable
   area for five-neighbour depth should yield a smaller but much more durable troop engine.
 - Economy: deep-interior 100-build lattice after 80 land.
-- Result and replay lesson: pending 50-game sample.
+- Provisional after 11 games: Elo 1428, AVP8 6.27 ± 0.69, no wins.
+- Replay lesson: five-neighbour depth yielded 63 buildings and a third, but that survivor
+  NoOped 6,853 ticks. Local depth did not solve disconnected supply routing.
 
 ### goat-v1 — Goat
 
 - Hypothesis: four hill Quarries embedded in the lattice both discount nearby construction
   and, under live v0.6 rules, add another +1/tick to adjacent Villages.
 - Economy: 120-build Quarry/Farm/Village lattice.
-- Result and replay lesson: pending 50-game sample.
+- Provisional after 11 games: Elo 1450, AVP8 6.00 ± 0.41, no wins.
+- Replay lesson: many seeds died before the tick-600 build start, so Quarry benefits never
+  activated. Opening survival, not discount efficiency, dominated.
 
 ### wolf-v1 — Wolf
 
 - Hypothesis: stop an 80-build lattice at overtime and immediately exploit rising attacker
   odds; this tests the aggressive tick-3000 conversion against Hare's safer tick 4500.
 - Economy: medium lattice through tick 3000, then all-out prey closeout.
-- Result and replay lesson: pending 50-game sample.
+- Provisional after 12 games: Elo 1393, AVP8 5.92 ± 0.50, no wins.
+- Replay lesson: one strong second used 80 builds, 9,523 moves, 2,526 captures and only 397
+  NoOps. Tick-3000 conversion works when alive, but early deaths make it volatile.
 
 ### lynx-v1 — Lynx
 
 - Hypothesis: in no-storm games the largest possible bank wins; continue a 160-build
   lattice through tick 7000, then convert the late 71–85% attack odds.
 - Economy: maximum lattice, deliberately late tick-6000 aggression.
+- Provisional after 11 games: Elo 1435, AVP8 5.64 ± 0.78, one win.
+- Replay lesson: won with 46 Villages and 91 Farms, proving scale, yet still NoOped 2,031
+  ticks and often died early. A large bank needs general frontier feeding.
+
+## Batch 4
+
+Mosaic now falls back from an unreachable preferred pad to a multi-source BFS that moves
+the largest interior surplus toward its nearest frontier. Build depth is measured by owned
+path distance from foreign land rather than neighbour count.
+
+### coyote-v1 — Coyote
+
+- Hypothesis: Wolf's 80-build conversion becomes consistent with depth-2 sites, tick-4500
+  timing, and frontier fallback feeding.
+- Economy: medium depth-2 lattice, then aggressive conversion.
+- Result and replay lesson: pending 50-game sample.
+
+### panther-v1 — Panther
+
+- Hypothesis: 120 deep builds are enough scale if every stranded production stack keeps
+  walking toward some frontier instead of waiting for the preferred breach.
+- Economy: depth-2 120-build lattice, tick-4500 push.
+- Result and replay lesson: pending 50-game sample.
+
+### ram-v1 — Ram
+
+- Hypothesis: Pangolin's leading recipe transfers: Quarry-enhanced lattice, two-ring depth,
+  frontier feeding, and tick-4500 aggression.
+- Economy: four-Quarry depth-2 lattice, 120-build cap.
+- Result and replay lesson: pending 50-game sample.
+
+### boar-v1 — Boar
+
+- Hypothesis: depth 3 can eliminate early infrastructure capture even if it limits the
+  lattice to 100 builds and starts later.
+- Economy: deepest lattice, 100-build cap.
+- Result and replay lesson: pending 50-game sample.
+
+### owl-v1 — Owl
+
+- Hypothesis: with fallback feeding available, a 160-build Quarry lattice can bank longer
+  without wasting its output, then convert at tick 5500.
+- Economy: maximum depth-2 Quarry lattice and late aggression.
 - Result and replay lesson: pending 50-game sample.
