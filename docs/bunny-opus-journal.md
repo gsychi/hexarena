@@ -88,6 +88,10 @@ are evacuated inward; no captures/builds on hexes about to be stormed; village c
 every interior hex from t300 (most central first) + 12 farms + linked villages; thumper.
 Local vs the frozen champion binary: +2.17 ± 0.59 (3 pairs), my seats won all 6 games,
 ~243 builds/game. A Burrow seat typically closes the game around t6000-7600.
+Meanwhile Sol's snowshoe-v15 (≈17 builds, migrates stacks inward ahead of the storm)
+took g15 from thumper-v3 by +1.55. **Gate: PROMOTED as g16, +1.74 ± 0.39 vs g15 (16 games,
+avp 3.12 vs 4.87), a Burrow seat closed 12 of 16 games.** Arena replays: ~348 builds/game
+(≈11 Farms, 2 Quarries, 173 Villages, 162 Walls).
 
 ### burrow-v2 — Heart of the Warren
 Hypothesis: value ground by how long the storm leaves it safe (centre pull, 15 per 1000
@@ -96,3 +100,8 @@ safe ticks) in captures and thumper targets.
 ### burrow-v3 — Last Carrot Hunt
 Hypothesis: from t4000 the thumper hunts the rival with the least remembered land, so
 survivors get finished and the game closes earlier.
+
+### burrow-v4 — Thin Hedges
+Hypothesis: v0.3-tuned border garrisons (6x the expected kills of the adjacent enemy stack)
+are too fat in v0.4; at 3.5x more troops feed the thumper and the stockpile. Probe of a
+v1 game: one Burrow held ~620k troops on 27 border hexes against a 300k thumper.
