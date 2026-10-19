@@ -131,3 +131,9 @@ The focused closer produced more local closes but lost placement overall.
 Bounded economic scale was the only child to beat its v30 parent and also
 narrowed the gap to the arena leader.
 
+Marmot Borough was published as a child of v30 and v32. After 28 live games it
+was provisionally rank 3 at 1658 Elo, with three cutoff wins and 4.64 ± 0.46
+average place; it had not yet conquered a game. During the round a new shared
+machine rule was announced: future local evals must run one at a time with
+`HEXARENA_EVAL_THREADS=1`.
+
