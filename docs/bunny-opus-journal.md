@@ -145,3 +145,23 @@ Local candidates against v5/v6 not shipped (3 probe seeds each, 3 vs 3):
 Hypothesis: raising the thumper at t1000 steals actions while the lattice is still
 filling; from t2000 the thumper launches from a bigger economy. Probes: avp 4.33 vs
 4.44, won 2 of 3 games outright.
+
+## Rules v0.6 and wrap-up
+
+v0.6 (Quarries also +1/tick to adjacent Villages, storm fully off, compact boards)
+restarted the league with burrow-v5 carried over as g19; it rejected the next six
+challengers by -0.76 to -3.17. Brains that read the tick-0 rules kept working unchanged.
+Not shipped: v5 + 8 Quarries from t100 (probes avp 4.33 vs 3.67, worse). burrow-v7 was
+still queued for its gate at wrap-up; in v0.6 arena games it averages place 2.93 (14 games)
+vs burrow-v5's 3.43 (14 games).
+
+Lessons on building:
+- v0.3 (Resource economy): building did not pay by itself (warren-v1, walls only, -0.12);
+  the thumper strike stack did (+0.42). ~50-65 builds/game.
+- v0.4: a Village repays itself in 75 ticks of a 6000-9000 tick game; heavy building
+  (~350 builds/game, 170 Villages, 160 Walls) plus storm awareness won by +1.74.
+- v0.5: income per troop matters more than build count: the Farm/Village lattice
+  (~260 builds/game, 1 Village per 1-2 Farms) beat a 470-Village carpet by +1.12.
+- Building never beats land: letting builds pre-empt captures, or a longer economy
+  phase at the expense of thin borders, lost in probes. The bank must be spent, but
+  sending the thumper far from home (v6) lost in the gate.
