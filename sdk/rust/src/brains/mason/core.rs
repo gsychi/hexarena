@@ -196,6 +196,9 @@ struct Knobs {
     /// the best second step would then seal that the first step is credited with.
     setup_k: usize,
     setup_pct: i64,
+    /// Extra first steps on the board edge, next to the most rival land: cutting a
+    /// rival's strip of edge is what makes its land enclosable.
+    edge_k: usize,
     /// Second steps the lookahead tries after each first step (0 = two-step lookahead
     /// only), and % of the extra ring value a third step would then seal.
     setup3_k: usize,
@@ -270,6 +273,7 @@ impl Knobs {
             ring_farm: k("ring_farm", 40),
             ring_troop_pct: k("ring_troop_pct", 50),
             setup_k: k("setup_k", 10) as usize,
+            edge_k: k("edge_k", 0) as usize,
             setup_pct: k("setup_pct", 40),
             setup3_k: k("setup3_k", 0) as usize,
             setup3_pct: k("setup3_pct", 25),
@@ -445,6 +449,26 @@ impl Core {
                 .collect();
             cands.sort_unstable_by(|x, y| y.cmp(x));
             cands.truncate(self.k.setup_k);
+            if self.k.edge_k > 0 {
+                let rival = |j: usize| self.seen[j].is_some_and(|c| c.owner.is_some_and(|o| o != me));
+                let near_rival = |a: usize| {
+                    let h = geo.hexes[a];
+                    h.neighbors()
+                        .into_iter()
+                        .flat_map(|x| x.neighbors())
+                        .filter(|&y| y != h && geo.slot(y).is_some_and(rival))
+                        .count() as u32
+                };
+                let mut edge: Vec<(u32, usize)> = frontier
+                    .iter()
+                    .filter(|&&a| b.boundary[a] && self.ring[a].hexes == 0 && !cands.iter().any(|c| c.1 == a))
+                    .map(|&a| (near_rival(a), a))
+                    .filter(|e| e.0 > 0)
+                    .collect();
+                edge.sort_unstable_by(|x, y| y.cmp(x));
+                edge.truncate(self.k.edge_k);
+                cands.extend(edge);
+            }
             let mut after = std::mem::take(&mut self.scratch);
             let mut after2 = std::mem::take(&mut self.scratch2);
             let mut blocked2 = std::mem::take(&mut self.blocked2);

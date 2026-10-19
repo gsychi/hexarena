@@ -1,0 +1,43 @@
+{
+ "attack_margin_pct": 130,
+ "enemy_bonus": 20,
+ "build_cap": 16,
+ "build_every": 12,
+ "kinds": [
+  "farm",
+  "village",
+  "quarry",
+  "wall"
+ ],
+ "gather_every": 4,
+ "land_value": 40,
+ "hug_value": 8,
+ "focus_bonus": 40,
+ "kill_value_pct": 100,
+ "grab_every": 3,
+ "settle_every": 2,
+ "march": true,
+ "threat_min": 0,
+ "counter_margin_pct": 0,
+ "defend_gather": 0,
+ "defend_range": 0,
+ "endgame_ticks": 0,
+ "endgame_margin_pct": 200,
+ "endgame_enemy_bonus": 20,
+ "brain": "mason",
+ "knobs": {
+  "build_from": 50,
+  "edge_cluster": 300,
+  "late_from": 4500,
+  "quarry": 1,
+  "quarry_first": 1,
+  "quarry_sites": 3,
+  "quarry_village": 1,
+  "village_first": 1,
+  "wall_from": 3000,
+  "wall_gap": 2,
+  "farm_min_villages": 2,
+  "quarry_ring": 1,
+  "ring": 1
+ }
+}

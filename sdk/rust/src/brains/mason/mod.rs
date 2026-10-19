@@ -101,6 +101,19 @@ struct Knobs {
     /// Troops a tick a Quarry adds to each adjacent Village (the frozen binary can't read
     /// it from newer live rules, so it is a knob).
     quarry_village: u64,
+    /// Build an affordable Quarry before any discounted lattice sites around it (0/1).
+    quarry_first: bool,
+    /// Fewest useful empty neighbours required by a quarry-first site.
+    quarry_sites: usize,
+    /// Prefer discounted Villages before Farms, and never build a Farm that feeds fewer
+    /// than `farm_min_villages` Villages (0/1).
+    village_first: bool,
+    /// Finish an affordable discounted Village before starting another Quarry ring (0/1;
+    /// Keystone's `ring_first`, renamed since the core's `ring_first` is a capture bar).
+    quarry_ring: bool,
+    farm_min_villages: u64,
+    /// Quarry score bonus per useful neighbour when the cluster touches the board edge.
+    edge_cluster: u64,
     /// Walls on enemy-facing border hexes from this tick (0 = never).
     wall_from: u32,
     /// Fewest ticks between two Walls.
@@ -138,6 +151,10 @@ struct Knobs {
     demolish_def: u32,
     /// Demolish Walls deep inside our land, on ticks no capture wants (0/1).
     clear_walls: bool,
+    /// Pockets a rival can swallow (bits, 0 = off): 1 = no builds on hexes a rival is
+    /// about to take, 2 = also demolish the best Village in a pocket whose neck is about
+    /// to fall (pockets only, unlike `demolish`).
+    pocket_guard: u32,
     /// Demolish a captured building off our lattice colouring when the lattice building
     /// would add at least this many troops a tick (0 = never).
     lattice_fix: u64,
@@ -157,6 +174,12 @@ impl Knobs {
             quarry: k("quarry", 0) > 0,
             quarry_min_x10: k("quarry_min_x10", 20) as u64,
             quarry_village: k("quarry_village", 0) as u64,
+            quarry_first: k("quarry_first", 0) > 0,
+            quarry_sites: k("quarry_sites", 2) as usize,
+            village_first: k("village_first", 0) > 0,
+            quarry_ring: k("quarry_ring", 0) > 0,
+            farm_min_villages: k("farm_min_villages", 1) as u64,
+            edge_cluster: k("edge_cluster", 0) as u64,
             wall_from: k("wall_from", 0) as u32,
             wall_gap: k("wall_gap", 4) as u32,
             wall_cap: k("wall_cap", 60) as usize,
@@ -176,6 +199,7 @@ impl Knobs {
             demolish_ban: k("demolish_ban", 300) as u32,
             demolish_def: k("demolish_def", 40) as u32,
             clear_walls: k("clear_walls", 0) > 0,
+            pocket_guard: k("pocket_guard", 0) as u32,
             lattice_fix: k("lattice_fix", 0) as u64,
         }
     }
@@ -386,6 +410,8 @@ impl Mason {
         }
         let fut = self.k.future_pct * 10;
         let mut best: Option<(u64, usize, Building)> = None;
+        let mut best_quarry: Option<(u64, usize)> = None;
+        let mut best_ring_village: Option<(u64, usize)> = None;
         for i in 0..slots {
             if site[i] != Site::Empty
                 || depth[i] < self.k.depth
@@ -408,8 +434,11 @@ impl Mason {
             } else if self.farmable(m, i) {
                 let partners =
                     m.nbrs[i].iter().filter(|&&n| site[n] == Site::Empty && m.colour(n) == vclass).count() as u64;
-                let rate = 1000 * self.rules.village.farm_bonus as u64 * count(Building::Village) + fut * partners;
-                options.push((Building::Farm, rate));
+                let villages = count(Building::Village);
+                if !self.k.village_first || villages >= self.k.farm_min_villages {
+                    let rate = 1000 * self.rules.village.farm_bonus as u64 * villages + fut * partners;
+                    options.push((Building::Farm, rate));
+                }
             } else if self.k.quarry && self.quarry_ok(m, i) {
                 let close = (0..slots).any(|j| {
                     site[j] == Site::Mine(Building::Quarry)
@@ -430,6 +459,21 @@ impl Mason {
                         .sum();
                     let c = cost(Building::Quarry, i) as u64;
                     let qv = self.k.quarry_village;
+                    if self.k.quarry_first && troops[i] >= c as u32 + 1 {
+                        let useful = m.nbrs[i]
+                            .iter()
+                            .filter(|&&n| site[n] == Site::Empty && (m.colour(n) == vclass || self.farmable(m, n)))
+                            .count();
+                        if useful >= self.k.quarry_sites {
+                            let edge = m.nbrs[i].len() < 6 || m.nbrs[i].iter().any(|&n| m.nbrs[n].len() < 6);
+                            let score = saved * 10
+                                + qv * useful as u64 * fut
+                                + if edge { self.k.edge_cluster * useful as u64 } else { 0 };
+                            if best_quarry.is_none_or(|x| (score, std::cmp::Reverse(i)) > (x.0, std::cmp::Reverse(x.1))) {
+                                best_quarry = Some((score, i));
+                            }
+                        }
+                    }
                     if qv > 0 {
                         let vsites = m.nbrs[i]
                             .iter()
@@ -449,10 +493,30 @@ impl Mason {
                     continue;
                 }
                 let roi = rate / c.max(1) as u64;
+                if self.k.village_first
+                    && b == Building::Village
+                    && near_quarry(i)
+                    && best_ring_village.is_none_or(|x| (roi, std::cmp::Reverse(i)) > (x.0, std::cmp::Reverse(x.1)))
+                {
+                    best_ring_village = Some((roi, i));
+                }
                 if roi >= self.k.min_roi && best.is_none_or(|x| (roi, std::cmp::Reverse(i)) > (x.0, std::cmp::Reverse(x.1))) {
                     best = Some((roi, i, b));
                 }
             }
+        }
+        let village = |(roi, i): (u64, usize)| (roi, Action::Build { at: m.hexes[i], building: Building::Village });
+        if self.k.quarry_ring {
+            if let Some(v) = best_ring_village {
+                return Some(village(v));
+            }
+        }
+        if let Some((score, i)) = best_quarry {
+            let roi = self.k.rush_roi.max(score / cost(Building::Quarry, i).max(1) as u64);
+            return Some((roi, Action::Build { at: m.hexes[i], building: Building::Quarry }));
+        }
+        if let Some(v) = best_ring_village {
+            return Some(village(v));
         }
         best.map(|(roi, i, b)| (roi, Action::Build { at: m.hexes[i], building: b }))
     }
@@ -591,8 +655,12 @@ impl Mason {
         self.danger.clear();
         self.danger.resize(slots, false);
         let mut danger = std::mem::take(&mut self.danger);
-        let mut consider = |i: usize, best: &mut Option<(u32, usize)>| {
+        let pocket_only = !self.k.demolish && self.k.pocket_guard & 2 != 0;
+        let mut consider = |i: usize, best: &mut Option<(u32, usize)>, pocket: bool| {
             danger[i] = true;
+            if pocket_only && !pocket {
+                return;
+            }
             if let Some(c) = village(i) {
                 if Some(i) != busy && best.is_none_or(|b| (c.income, std::cmp::Reverse(i)) > (b.0, std::cmp::Reverse(b.1))) {
                     *best = Some((c.income, i));
@@ -628,7 +696,7 @@ impl Mason {
                 if self.debug_on && village(x).is_some() {
                     eprintln!("  t{} direct x={:?} troops {}", view.tick, m.hexes[x], cell[x].map_or(0, |c| c.troops));
                 }
-                consider(x, &mut best);
+                consider(x, &mut best, false);
                 if Some(x) == busy || floods >= 8 {
                     continue;
                 }
@@ -642,7 +710,7 @@ impl Mason {
                             eprintln!("  t{} pocket via x={:?} (troops {}) by p{} size {}", view.tick, m.hexes[x], cell[x].map_or(0, |c| c.troops), r, self.tarjan.flooded().len());
                         }
                         for &j in self.tarjan.flooded() {
-                            consider(j as usize, &mut best);
+                            consider(j as usize, &mut best, true);
                         }
                     }
                 }
@@ -706,7 +774,8 @@ impl Bot for Mason {
             self.calib = keep;
         }
         let ring_capture = self.inner.chosen.is_some();
-        let doomed = if self.k.demolish { self.endangered_village(view, &m, &cmd.action) } else { None };
+        let guard = self.k.demolish || self.k.pocket_guard > 0;
+        let doomed = if guard { self.endangered_village(view, &m, &cmd.action) } else { None };
         let mut built = false;
         if let (true, Some(vclass), false) = (open, self.vclass, ring_capture) {
             if let Some((roi, a)) = self.build(view, &m, vclass) {
@@ -733,7 +802,7 @@ impl Bot for Mason {
         if walls {
             cmd.management.extend(self.links(view, &m));
         }
-        if self.k.demolish
+        if (self.k.demolish || self.k.pocket_guard & 2 != 0)
             && !ring_capture
             && self.last_demolish.is_none_or(|t| view.tick >= t + self.k.demolish_gap)
         {
