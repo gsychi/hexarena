@@ -312,9 +312,13 @@ impl Knobs {
 
 pub struct Core {
     /// Knobs for a duel: every `duel_X` knob of the genome replaces `X`. They take over
-    /// in a 1v1, and in a bigger lobby once at most `ffa_duel_when` players are alive.
+    /// in a 1v1, and in a bigger lobby once at most `ffa_duel_when` players are alive or
+    /// we own at least `ffa_duel_share`% of the passable hexes (0 = off).
     duel: Option<Knobs>,
     ffa_duel_when: usize,
+    ffa_duel_share: usize,
+    /// We held `ffa_duel_share` of the board last tick.
+    dominant: bool,
     name: String,
     rules: RulesConfig,
     /// Chance (milli) an attacker wins an exchange this tick; rises in overtime.
@@ -359,6 +363,8 @@ impl Core {
         Core {
             duel: (!overrides.is_empty()).then(|| Knobs::read(&duel_style)),
             ffa_duel_when: style.params.knob("ffa_duel_when", 0).max(0) as usize,
+            ffa_duel_share: style.params.knob("ffa_duel_share", 0).max(0) as usize,
+            dominant: false,
             name: style.id.clone(),
             rules: RulesConfig::default(),
             win: RulesConfig::default().attacker_exchange_win_milli,
@@ -1108,7 +1114,7 @@ impl Bot for Core {
         self.win = self.rules.attacker_win_milli(view.tick);
         if self.duel.is_some() {
             let alive = view.public_players.iter().filter(|p| p.alive).count();
-            if view.public_players.len() == 2 || alive <= self.ffa_duel_when {
+            if view.public_players.len() == 2 || alive <= self.ffa_duel_when || self.dominant {
                 self.k = self.duel.take().unwrap();
             }
         }
@@ -1143,6 +1149,10 @@ impl Bot for Core {
         self.mine_now.resize(slots, false);
         for &i in &mine {
             self.mine_now[i] = true;
+        }
+        if self.duel.is_some() && self.ffa_duel_share > 0 {
+            let land = geo.passable.iter().filter(|&&p| p).count();
+            self.dominant = mine.len() * 100 >= land * self.ffa_duel_share;
         }
         for i in 0..slots {
             if let Some(c) = self.seen[i].as_mut() {
