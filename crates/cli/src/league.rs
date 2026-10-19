@@ -11,8 +11,9 @@ const USAGE: &str = "usage: hexarena league <run|eval|submit|show> [--dir data/l
   run    [--attempts N]                          keep evolving (forever by default)
   eval   --params cand.json [--against base.json] [--pairs N] [--seed S]
          gate a genome against the champion on fixed seeds without changing the league
-  submit --params cand.json --origin agent:NAME [--note TEXT]
-         queue a genome for the running league's next official gate
+  submit --params cand.json --origin agent:NAME [--note TEXT] [--parents g3,g1]
+         queue a genome for the running league's next official gate; parents default to
+         the champion when the brain matches it, and to none (a new brain) otherwise
   show                                           champion and progression summary";
 
 fn dir(f: &HashMap<String, String>) -> PathBuf {
@@ -107,7 +108,8 @@ fn eval(f: &HashMap<String, String>) -> Result<(), String> {
 fn submit(f: &HashMap<String, String>) -> Result<(), String> {
     let params = read_params(f.get("params").ok_or(USAGE)?)?;
     let origin = f.get("origin").cloned().unwrap_or_else(|| "agent:anonymous".into());
-    let sub = Submission { origin: origin.clone(), note: f.get("note").cloned(), params };
+    let parents = f.get("parents").map(|p| p.split(',').map(|s| s.trim().to_string()).filter(|s| !s.is_empty()).collect());
+    let sub = Submission { origin: origin.clone(), note: f.get("note").cloned(), params, parents };
     let inbox = dir(f).join("inbox");
     std::fs::create_dir_all(&inbox).map_err(|e| e.to_string())?;
     let safe: String = origin.chars().map(|c| if c.is_ascii_alphanumeric() { c } else { '-' }).collect();
@@ -128,9 +130,8 @@ fn show(f: &HashMap<String, String>) -> Result<(), String> {
     );
     for g in &l.generations {
         println!(
-            "{:>4} {:<10} elo {:>6.0}  benchmark AVP {:.2} win {:>3.0}% top-half {:>3.0}%  {}",
-            g.id,
-            g.origin,
+            "{:<44} elo {:>6.0}  benchmark AVP {:.2} win {:>3.0}% top-half {:>3.0}%  {}",
+            g.name,
             g.elo,
             g.benchmark.avp,
             g.benchmark.win_rate * 100.0,

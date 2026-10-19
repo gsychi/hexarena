@@ -68,7 +68,12 @@ export interface Benchmark { games: number; avp: number; win_rate: number; top_h
 export interface Generation {
   gen: number
   id: string
-  parent: string | null
+  /** Brain plus lineage, e.g. "Relay g3 ← g2" or "Relay g2 (new brain by agent tempo)". */
+  name?: string
+  /** Generations it was derived from; empty for a seed or a brand-new brain. */
+  parents?: string[]
+  /** The champion it beat to be promoted. */
+  beat?: string | null
   origin: string
   note: string | null
   created_at: number

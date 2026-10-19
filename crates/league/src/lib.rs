@@ -13,7 +13,7 @@ pub mod rng;
 
 use eval::{benchmark, gate, Benchmark, Entrant, GameLog, GateConfig, GateResult};
 use hexarena_protocol::RulesConfig;
-use hexarena_sdk::{roster, BotParams};
+use hexarena_sdk::{brains, roster, BotParams};
 use rng::Rng;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
@@ -30,8 +30,19 @@ const KEEP_ATTEMPTS: usize = 5000;
 pub struct Generation {
     pub gen: u32,
     pub id: String,
-    pub parent: Option<String>,
-    /// `seed`, `mutation`, `crossover`, or `agent:<name>` for inbox submissions.
+    /// The brain and its lineage, e.g. `Relay g3 ← g2` or `Relay g2 (new brain by agent tempo)`.
+    #[serde(default)]
+    pub name: String,
+    /// The generations this genome was derived from; empty for a seed or a new brain.
+    #[serde(default)]
+    pub parents: Vec<String>,
+    /// The champion it beat to be promoted.
+    #[serde(default)]
+    pub beat: Option<String>,
+    /// Leagues written before `parents` and `beat` stored the beaten champion here.
+    #[serde(default, skip_serializing)]
+    parent: Option<String>,
+    /// `seed`, `carryover`, `mutation`, `crossover`, or `agent:<name>` for inbox submissions.
     pub origin: String,
     pub note: Option<String>,
     pub created_at: u64,
@@ -64,6 +75,25 @@ pub struct Submission {
     #[serde(default)]
     pub note: Option<String>,
     pub params: BotParams,
+    /// Generations the genome was derived from. Defaults to the champion when the brain
+    /// matches the champion's, and to none (a new brain) otherwise.
+    #[serde(default)]
+    pub parents: Option<Vec<String>>,
+}
+
+/// A generation's display name: its brain, its id, and where it came from.
+pub fn lineage_name(gen: u32, params: &BotParams, origin: &str, parents: &[String]) -> String {
+    let brain = if params.brain.is_empty() { brains::DEFAULT } else { params.brain.as_str() };
+    let mut chars = brain.chars();
+    let brain: String = chars.next().map(|c| c.to_ascii_uppercase()).into_iter().chain(chars).collect();
+    let from = match (parents, origin.strip_prefix("agent:")) {
+        ([], Some(agent)) => format!("(new brain by agent {agent})"),
+        ([], None) if origin == "carryover" => "(carried over)".into(),
+        ([], None) => "(seed)".into(),
+        (ps, Some(agent)) => format!("← {} (tuned by agent {agent})", ps.join(" × ")),
+        (ps, None) => format!("← {}", ps.join(" × ")),
+    };
+    format!("{brain} g{gen} {from}")
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -79,6 +109,9 @@ pub struct League {
     pub play_secs: f64,
     /// Current Elo of every identity that has played (generations, roster, challengers).
     pub elo: BTreeMap<String, f64>,
+    /// The opponents the stored benchmarks were played against.
+    #[serde(default)]
+    pub benchmark_roster: Vec<String>,
 }
 
 pub fn now_ms() -> u64 {
@@ -96,6 +129,17 @@ pub fn roster_entrants() -> Vec<Entrant> {
             id: format!("r-{}", s.id),
             params: s.params,
         })
+        .collect()
+}
+
+/// The classic CPUs every generation is benchmarked against. Fixed, so benchmarks stay
+/// comparable across generations when stronger CPUs join the roster.
+pub const BENCHMARK_ROSTER: &[&str] = &["expander", "homesteader", "raider", "warden"];
+
+pub fn benchmark_entrants() -> Vec<Entrant> {
+    roster_entrants()
+        .into_iter()
+        .filter(|e| BENCHMARK_ROSTER.iter().any(|id| e.id == format!("r-{id}")))
         .collect()
 }
 
@@ -120,8 +164,16 @@ impl League {
         if !Self::path(dir).exists() {
             return Self::seed(dir, BotParams::default(), "seed", "The hand-written Expander".into());
         }
-        let old = Self::load(dir)?;
+        let mut old = Self::load(dir)?;
         if old.rules_version == RulesConfig::default().version {
+            old.backfill_lineage();
+            for g in &mut old.generations {
+                brains::complete_knobs(&mut g.params)?;
+            }
+            if old.benchmark_roster != BENCHMARK_ROSTER {
+                old.rebenchmark(dir)?;
+            }
+            old.save(dir)?;
             return Ok(old);
         }
         // Ratings and benchmarks don't carry across rules, so the old league is archived
@@ -138,9 +190,10 @@ impl League {
         Self::seed(dir, c.params.clone(), "carryover", note)
     }
 
-    fn seed(dir: &Path, params: BotParams, origin: &str, note: String) -> Result<League, String> {
+    fn seed(dir: &Path, mut params: BotParams, origin: &str, note: String) -> Result<League, String> {
+        brains::complete_knobs(&mut params)?;
         let seed = Entrant { id: "g0".into(), params };
-        let (bench, logs) = benchmark(&seed, &roster_entrants())?;
+        let (bench, logs) = benchmark(&seed, &benchmark_entrants())?;
         let mut league = League {
             rules_version: RulesConfig::default().version,
             started_at: now_ms(),
@@ -148,7 +201,10 @@ impl League {
             gate_config: GateConfig::default(),
             generations: vec![Generation {
                 gen: 0,
+                name: lineage_name(0, &seed.params, origin, &[]),
                 id: seed.id,
+                parents: vec![],
+                beat: None,
                 parent: None,
                 origin: origin.into(),
                 note: Some(note),
@@ -164,6 +220,7 @@ impl League {
             games_total: 0,
             play_secs: 0.0,
             elo: BTreeMap::new(),
+            benchmark_roster: BENCHMARK_ROSTER.iter().map(|s| s.to_string()).collect(),
         };
         league.record_games(dir, &logs)?;
         league.save(dir)?;
@@ -175,6 +232,44 @@ impl League {
         let tmp = dir.join("league.json.tmp");
         std::fs::write(&tmp, serde_json::to_vec(self).unwrap()).map_err(|e| e.to_string())?;
         std::fs::rename(&tmp, Self::path(dir)).map_err(|e| e.to_string())
+    }
+
+    /// Fills `name`, `parents` and `beat` for generations saved before they existed.
+    fn backfill_lineage(&mut self) {
+        for i in 0..self.generations.len() {
+            if !self.generations[i].name.is_empty() {
+                continue;
+            }
+            let g = &self.generations[i];
+            let beat = g.parent.clone();
+            let parent_brain = beat
+                .as_ref()
+                .and_then(|p| self.generations.iter().find(|x| &x.id == p))
+                .map(|x| x.params.brain.clone());
+            let crossed = g.note.as_deref().and_then(|n| n.strip_prefix("with ")).map(String::from);
+            let parents: Vec<String> = match (g.origin.as_str(), &beat) {
+                ("mutation", Some(p)) => vec![p.clone()],
+                ("crossover", Some(p)) => std::iter::once(p.clone()).chain(crossed).collect(),
+                (_, Some(p)) if parent_brain.as_ref() == Some(&g.params.brain) => vec![p.clone()],
+                _ => vec![],
+            };
+            let name = lineage_name(g.gen, &g.params, &g.origin, &parents);
+            let g = &mut self.generations[i];
+            g.parents = parents;
+            g.beat = beat;
+            g.name = name;
+        }
+    }
+
+    /// Replays every generation's benchmark against [`BENCHMARK_ROSTER`].
+    pub fn rebenchmark(&mut self, dir: &Path) -> Result<(), String> {
+        let opponents = benchmark_entrants();
+        for g in &mut self.generations {
+            let entrant = Entrant { id: g.id.clone(), params: g.params.clone() };
+            g.benchmark = benchmark(&entrant, &opponents)?.0;
+        }
+        self.benchmark_roster = BENCHMARK_ROSTER.iter().map(|s| s.to_string()).collect();
+        self.save(dir)
     }
 
     pub fn champion(&self) -> &Generation {
@@ -250,8 +345,17 @@ impl League {
         let n = self.attempts_total + 1;
         let mut rng = Rng::new(self.started_at ^ n.wrapping_mul(0x9E37_79B9));
         let champion = self.champion_entrant();
-        let (origin, note, params) = match Self::take_submission(dir) {
-            Some(s) => (s.origin, s.note, s.params),
+        let (origin, note, mut params, parents) = match Self::take_submission(dir) {
+            Some(s) => {
+                let parents = s.parents.unwrap_or_else(|| {
+                    if s.params.brain == champion.params.brain {
+                        vec![champion.id.clone()]
+                    } else {
+                        vec![]
+                    }
+                });
+                (s.origin, s.note, s.params, parents)
+            }
             None if self.generations.len() > 2 && rng.chance(0.2) => {
                 let other = &self.generations[rng.below(self.generations.len() - 1)];
                 let child = mutate::crossover(&champion.params, &other.params, &mut rng);
@@ -259,10 +363,17 @@ impl League {
                     "crossover".into(),
                     Some(format!("with {}", other.id)),
                     child,
+                    vec![champion.id.clone(), other.id.clone()],
                 )
             }
-            None => ("mutation".into(), None, mutate::mutate(&champion.params, &mut rng)),
+            None => (
+                "mutation".into(),
+                None,
+                mutate::mutate(&champion.params, &mut rng),
+                vec![champion.id.clone()],
+            ),
         };
+        brains::complete_knobs(&mut params)?;
         let challenger = Entrant {
             id: format!("c{n}"),
             params,
@@ -280,13 +391,16 @@ impl League {
                 id: id.clone(),
                 params: challenger.params.clone(),
             };
-            let (bench, bench_logs) = benchmark(&entrant, &roster_entrants())?;
+            let (bench, bench_logs) = benchmark(&entrant, &benchmark_entrants())?;
             let elo = self.elo.get(&challenger.id).copied().unwrap_or(START_ELO);
             self.elo.insert(id.clone(), elo);
             self.generations.push(Generation {
                 gen,
+                name: lineage_name(gen, &challenger.params, &origin, &parents),
                 id,
-                parent: Some(champion.id.clone()),
+                parents,
+                beat: Some(champion.id.clone()),
+                parent: None,
                 origin: origin.clone(),
                 note: note.clone(),
                 created_at: now_ms(),
@@ -358,6 +472,28 @@ pub fn apply_elo(elo: &mut BTreeMap<String, f64>, log: &GameLog) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn names_spell_out_lineage() {
+        let relay = BotParams { brain: "relay".into(), ..BotParams::default() };
+        let base = BotParams::default();
+        let ids = |v: &[&str]| v.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+        assert_eq!(lineage_name(0, &base, "carryover", &[]), "Expander g0 (carried over)");
+        assert_eq!(lineage_name(2, &relay, "agent:tempo", &[]), "Relay g2 (new brain by agent tempo)");
+        assert_eq!(lineage_name(3, &relay, "mutation", &ids(&["g2"])), "Relay g3 ← g2");
+        assert_eq!(lineage_name(4, &relay, "crossover", &ids(&["g3", "g2"])), "Relay g4 ← g3 × g2");
+        assert_eq!(lineage_name(5, &relay, "agent:tempo", &ids(&["g4"])), "Relay g5 ← g4 (tuned by agent tempo)");
+    }
+
+    #[test]
+    fn brain_knobs_are_filled_in_so_they_can_mutate() {
+        let mut p = BotParams { brain: "relay".into(), ..BotParams::default() };
+        p.knobs.insert("patience".into(), 7);
+        brains::complete_knobs(&mut p).unwrap();
+        assert!(p.knobs.len() > 5);
+        assert_eq!(p.knobs["patience"], 7);
+        assert_eq!(p.knobs["margin_pct"], 150);
+    }
 
     #[test]
     fn elo_rewards_better_placement_and_is_zero_sum_for_distinct_seats() {

@@ -147,8 +147,12 @@ function Changes({ changes }: { changes: string[] }) {
 function GenerationRow({ g, elo, champion, onPlay, playing }: { g: Generation; elo: number; champion: boolean; onPlay: () => void; playing: boolean }) {
   return (
     <TableRow className="hover:bg-muted/30">
-      <TableCell className="font-semibold tabular-nums">
-        <div className="flex items-center gap-1.5">{g.id}{champion && <Sparkles className="size-3.5 text-amber-300" />}</div>
+      <TableCell className="min-w-[11rem] whitespace-normal">
+        <div className="flex items-center gap-1.5 font-semibold">{g.name || g.id}{champion && <Sparkles className="size-3.5 shrink-0 text-amber-300" />}</div>
+        <div className="mt-0.5 text-xs text-muted-foreground">
+          {g.parents === undefined ? null : g.parents.length ? `Parents: ${g.parents.join(' × ')}` : 'No parents: written from scratch'}
+          {g.beat && <> · beat {g.beat}</>}
+        </div>
       </TableCell>
       <TableCell className="hidden sm:table-cell"><OriginBadge origin={g.origin} /></TableCell>
       <TableCell className="max-w-[22rem] whitespace-normal">
@@ -282,7 +286,7 @@ export function LeaguePage({ onBack, onOpen }: { onBack: () => void; onOpen: (id
         {league && view && (
           <>
             <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-              <Stat icon={Sparkles} label="Champion" value={view.champ.id} hint={`benchmark AVP ${view.champ.benchmark.avp.toFixed(2)} · Elo ${Math.round(view.eloOf(view.champ))}`} />
+              <Stat icon={Sparkles} label="Champion" value={view.champ.id} hint={`${view.champ.name ? `${view.champ.name} · ` : ''}benchmark AVP ${view.champ.benchmark.avp.toFixed(2)} · Elo ${Math.round(view.eloOf(view.champ))}`} />
               <Stat icon={Dna} label="Generations" value={String(view.gens.length - 1)} hint={`promoted from ${league.attempts_total} challengers`} />
               <Stat icon={FlaskConical} label="Games played" value={league.games_total.toLocaleString()} hint={`8-player lobbies · ${duration(league.play_secs)} of play`} />
               <Stat icon={Gauge} label="Throughput" value={`${view.rate.toFixed(1)}/s`} hint={`games per second · updated ${ago(league.updated_at)}`} />
@@ -346,13 +350,13 @@ export function LeaguePage({ onBack, onOpen }: { onBack: () => void; onOpen: (id
             <Card>
               <CardHeader>
                 <CardTitle>Generations</CardTitle>
-                <CardDescription>Every promoted genome, newest first, with the genes it changed from its parent. Closes is the share of benchmark games it won by eliminating everyone before the cutoff. Play any of them against the roster in an 8-player game and watch the replay.</CardDescription>
+                <CardDescription>Every promoted genome, newest first, named by brain and lineage: "← g2" lists its parents, and a new brain written from scratch has none. Changes are the genes that differ from the champion it beat. Closes is the share of benchmark games it won by eliminating everyone before the cutoff. Play any of them against the roster in an 8-player game and watch the replay.</CardDescription>
               </CardHeader>
               <CardContent>
                 <Table>
                   <TableHeader>
                     <TableRow className="hover:bg-transparent">
-                      <TableHead>Gen</TableHead>
+                      <TableHead>Generation and lineage</TableHead>
                       <TableHead className="hidden sm:table-cell">Origin</TableHead>
                       <TableHead>Changes</TableHead>
                       <TableHead className="hidden text-right md:table-cell">Gate gain</TableHead>

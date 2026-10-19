@@ -5,6 +5,7 @@ pub mod brains;
 
 pub use hexarena_protocol::*;
 use serde::{Deserialize, Serialize};
+use std::cell::RefCell;
 use std::collections::{BTreeMap, HashMap, VecDeque};
 
 pub trait Bot {
@@ -85,9 +86,20 @@ fn is_default_brain(b: &str) -> bool {
     b == brains::DEFAULT
 }
 
+thread_local! {
+    /// While set, records every knob a brain reads with its default; see
+    /// [`brains::complete_knobs`].
+    static KNOB_LOG: RefCell<Option<BTreeMap<String, i64>>> = const { RefCell::new(None) };
+}
+
 impl BotParams {
     /// A brain-specific knob, or `default` when this genome doesn't set it.
     pub fn knob(&self, name: &str, default: i64) -> i64 {
+        KNOB_LOG.with(|log| {
+            if let Some(seen) = log.borrow_mut().as_mut() {
+                seen.entry(name.to_string()).or_insert(default);
+            }
+        });
         self.knobs.get(name).copied().unwrap_or(default)
     }
 }

@@ -28,12 +28,13 @@ pub fn resolve(id: &str, league: Option<&League>) -> Option<Style> {
     };
     Some(Style {
         id: g.id.clone(),
-        name: format!("League {}", g.id),
-        blurb: format!(
-            "Generation {} of the league, evolved from {}.",
-            g.gen,
-            g.parent.as_deref().unwrap_or("the hand-written Expander")
-        ),
+        name: if g.name.is_empty() { format!("League {}", g.id) } else { g.name.clone() },
+        blurb: match (g.parents.as_slice(), &g.beat) {
+            ([], Some(beat)) => format!("Generation {}, a new brain that beat champion {beat}.", g.gen),
+            ([], None) => format!("Generation {}, the league's starting genome.", g.gen),
+            (ps, Some(beat)) => format!("Generation {}, bred from {}; beat champion {beat}.", g.gen, ps.join(" × ")),
+            (ps, None) => format!("Generation {}, bred from {}.", g.gen, ps.join(" × ")),
+        },
         params: g.params.clone(),
     })
 }
@@ -51,7 +52,7 @@ pub fn bots(league: Option<&League>) -> Vec<serde_json::Value> {
         let c = l.champion();
         out.push(serde_json::json!({
             "id": "champion",
-            "name": format!("League champion ({})", c.id),
+            "name": format!("League champion: {}", if c.name.is_empty() { &c.id } else { &c.name }),
             "blurb": format!("The strongest genome the league has evolved so far: generation {}.", c.gen),
         }));
     }

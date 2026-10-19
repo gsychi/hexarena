@@ -45,7 +45,7 @@ fn seat_style(id: &str, f: &HashMap<String, String>) -> Result<Style, String> {
     } else {
         l.generations.iter().find(|g| g.id == id).ok_or_else(|| format!("unknown bot '{id}'"))?
     };
-    Ok(Style { id: g.id.clone(), name: format!("League {}", g.id), blurb: String::new(), params: g.params.clone() })
+    Ok(Style { id: g.id.clone(), name: if g.name.is_empty() { format!("League {}", g.id) } else { g.name.clone() }, blurb: String::new(), params: g.params.clone() })
 }
 
 fn styles(f: &HashMap<String, String>) -> Result<Vec<Style>, String> {
