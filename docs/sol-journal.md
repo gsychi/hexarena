@@ -629,3 +629,11 @@ compares wall-only, lattice, Village, and Quarry economies.
 - Economy: Village-only through tick 3800 plus up to 100 early contact Walls; conservative
   compact Relay.
 - Result and replay lesson: pending 50-game sample.
+
+### rhino-v1 — Rhino
+
+- Hypothesis: Walls are more useful as a late ratchet than an opening tax: establish a
+  bounded two-Quarry lattice first, then wall every active contact while an aggressive
+  Relay pushes from tick 3000 onward.
+- Economy: 96-site Quarry lattice plus late dense Walls; high forwarding and enemy value.
+- Result and replay lesson: pending 50-game sample.
