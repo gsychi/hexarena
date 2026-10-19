@@ -5,10 +5,11 @@
 //! style are not compared with each other. A seat's rating change is
 //! `K / (N - 1) * sum(actual - expected)` over its opponents, and a style with
 //! several seats in one game takes the average of their changes. A style's first
-//! [`PROVISIONAL_GAMES`] games use [`PROVISIONAL_K`] times K, and a game that ended
-//! before the cutoff counts [`ENDED_WEIGHT`] times. Ratings move only
-//! after the whole game is scored, and games are applied oldest first.
+//! [`PROVISIONAL_GAMES`] games use [`PROVISIONAL_K`] times K, and every game is weighted
+//! by [`game_weight`]: one ended before the cutoff counts N times a cutoff game. Ratings
+//! move only after the whole game is scored, and games are applied oldest first.
 
+pub use hexarena_league::game_weight;
 use serde::Serialize;
 use std::collections::BTreeMap;
 
@@ -18,9 +19,6 @@ pub const K: f64 = 32.0;
 /// its real level before it can be retired for its ranking.
 pub const PROVISIONAL_K: f64 = 3.0;
 pub const PROVISIONAL_GAMES: u32 = 20;
-/// A game that ends before the cutoff moves every rating this many times as far, so
-/// finishing rivals off is worth much more than coasting to the cutoff.
-pub const ENDED_WEIGHT: f64 = 2.0;
 /// Games before a rating counts as settled. One 8-player place varies by about 2.2
 /// places, so 50 games pin the average to about +-0.3 places (one standard error),
 /// enough to tell apart bots half a place to a place apart.
@@ -112,7 +110,7 @@ pub fn standings(games: &[Vec<SeatResult>], name: impl Fn(&str) -> String) -> Ve
                 d += actual - expected(rating[i], rating[j]);
             }
             let k = if rows[a.bot].games < PROVISIONAL_GAMES { K * PROVISIONAL_K } else { K };
-            let k = if a.ended { k * ENDED_WEIGHT } else { k };
+            let k = k * game_weight(a.ended, n);
             let e = delta.entry(a.bot).or_insert((0.0, 0));
             e.0 += k / (n - 1) as f64 * d;
             e.1 += 1;
@@ -222,6 +220,23 @@ mod tests {
         for r in &t {
             assert!((r.elo - START_ELO).abs() < 1e-9);
         }
+    }
+
+    #[test]
+    fn closing_a_game_out_moves_ratings_lobby_size_times_as_far() {
+        let lobby = |ended: bool| -> Vec<SeatResult<'static>> {
+            ["a", "b", "c", "d", "e", "f", "g", "h"]
+                .iter()
+                .enumerate()
+                .map(|(i, b)| SeatResult { players: 8, ended, ..seat(b, i as f64 + 1.0) })
+                .collect()
+        };
+        let gain = |ended: bool| {
+            let t = standings(&[lobby(ended)], |s| s.to_string());
+            t.iter().find(|r| r.bot == "a").unwrap().elo - START_ELO
+        };
+        assert!(gain(false) > 0.0);
+        assert!((gain(true) / gain(false) - 8.0).abs() < 1e-9);
     }
 
     #[test]

@@ -182,6 +182,11 @@ pub struct QuarryRules {
     pub discount_radius: i32,
     pub troop_discount_pct: u32,
     pub resource_discount: u32,
+    /// Extra troops per tick for every friendly Village directly adjacent to the Quarry
+    /// (v0.6 onward). Quarries stand `min_friendly_distance` apart, so a Village touches
+    /// at most one at the default spacing of 3.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub village_bonus: u32,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -201,6 +206,11 @@ pub struct RulesConfig {
     pub min_players: u16,
     pub max_players: u16,
     pub map_radius_factor: f64,
+    /// Board radius is `map_radius_factor * players ^ map_radius_exponent`. At 0.5 (up to
+    /// v0.5) area grows with the player count, so every lobby size has the same land per
+    /// player; lower exponents pack big lobbies tighter.
+    #[serde(default = "sqrt_exponent", skip_serializing_if = "is_sqrt_exponent")]
+    pub map_radius_exponent: f64,
     pub impassable_min_pct: u32,
     pub impassable_target_pct: u32,
     pub impassable_max_pct: u32,
@@ -210,7 +220,8 @@ pub struct RulesConfig {
     pub base_income: u32,
     pub start_resource: u32,
     pub tick_rate_hz: u32,
-    /// Hard cutoff; survivors are ranked by land, troops, resource, buildings.
+    /// Hard cutoff; survivors are ranked by land (troops, resource, buildings only break
+    /// exact land ties), below them eliminated players with the latest elimination first.
     pub max_ticks: u32,
     /// End only when one player owns every traversable hex (v0.1). When false, the
     /// match ends as soon as one player is left standing (v0 and v0.2 onward).
@@ -262,13 +273,22 @@ fn is_zero(v: &u32) -> bool {
     *v == 0
 }
 
+fn sqrt_exponent() -> f64 {
+    0.5
+}
+
+fn is_sqrt_exponent(v: &f64) -> bool {
+    *v == 0.5
+}
+
 impl Default for RulesConfig {
     fn default() -> Self {
         RulesConfig {
-            version: "v0.5".into(),
+            version: "v0.6".into(),
             min_players: 2,
             max_players: 8,
-            map_radius_factor: 7.5,
+            map_radius_factor: 9.25,
+            map_radius_exponent: 0.25,
             impassable_min_pct: 15,
             impassable_target_pct: 20,
             impassable_max_pct: 25,
@@ -316,6 +336,7 @@ impl Default for RulesConfig {
                 discount_radius: 1,
                 troop_discount_pct: 40,
                 resource_discount: 0,
+                village_bonus: 1,
             },
             wall: WallRules {
                 troop_cost: 33,
@@ -343,7 +364,7 @@ pub struct BuildCost {
 
 impl RulesConfig {
     pub fn radius_for_players(&self, players: u16) -> i32 {
-        (self.map_radius_factor * (players as f64).sqrt()).round() as i32
+        (self.map_radius_factor * (players as f64).powf(self.map_radius_exponent)).round() as i32
     }
 
     /// Stable 64-bit FNV-1a hash of the serialized rules, hex encoded.
