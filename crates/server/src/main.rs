@@ -849,10 +849,14 @@ fn board(app: &AppState, catalog: &Catalog) -> Board {
     Board { games: games.len(), rows, retired_rows, times, match_ids }
 }
 
-/// Retires every bot that has had a fair trial and sits outside the top [`ACTIVE_TOP`]
-/// of the standings: arena entrants and roster CPUs.
+/// Retires every arena entrant that has had a fair trial and sits outside the top
+/// [`ACTIVE_TOP`] entrants of the standings. Roster CPUs are benchmarks and never retire.
 fn retire_outside_top(app: &AppState, catalog: &Catalog) {
-    let rows: Vec<_> = board(app, catalog).rows.into_iter().filter(|r| !is_anchor(&r.bot)).collect();
+    let rows: Vec<_> = board(app, catalog)
+        .rows
+        .into_iter()
+        .filter(|r| catalog.entrants.iter().any(|e| e.id == r.bot))
+        .collect();
     let cut = rows.get(ACTIVE_TOP - 1).map(|r| r.elo);
     for (i, row) in rows.iter().enumerate() {
         if !row.rated || i < ACTIVE_TOP {

@@ -13,11 +13,12 @@ use serde::Serialize;
 use std::collections::BTreeMap;
 
 pub const START_ELO: f64 = 1500.0;
-/// Reference bots whose rating never moves: the original hand-written Ridgeline and
-/// Relay. One plays in every self-play game, so ratings measure strength against a
-/// fixed yardstick and rise as bots get better, instead of only ranking the current
-/// field against itself.
-pub const ANCHORS: [&str; 2] = ["ridgeline", "relay"];
+/// The first CPUs ever written, the yardstick every rating is measured against. Their
+/// average stays at [`START_ELO`]: after each game the anchors' net change is taken
+/// back evenly from all of them, so they still spread out against each other but the
+/// group never drifts. One plays in every self-play game, so ratings rise as bots get
+/// better instead of only ranking the field against itself.
+pub const ANCHORS: [&str; 4] = ["expander", "homesteader", "raider", "warden"];
 
 pub fn is_anchor(bot: &str) -> bool {
     ANCHORS.contains(&bot)
@@ -163,9 +164,15 @@ pub fn standings(games: &[Vec<SeatResult>], name: impl Fn(&str) -> String) -> Ve
             e.0 += k / (n - 1) as f64 * d;
             e.1 += 1;
         }
+        let anchored: Vec<String> = rows.keys().filter(|b| is_anchor(b)).cloned().collect();
+        let drift = delta.iter().filter(|(b, _)| is_anchor(b)).map(|(_, (sum, seats))| sum / *seats as f64).sum::<f64>()
+            / anchored.len().max(1) as f64;
+        for b in anchored.iter().filter(|b| !delta.contains_key(b.as_str())) {
+            rows.get_mut(b).unwrap().elo -= drift;
+        }
         for (bot, (sum, seats)) in delta {
             let r = rows.get_mut(bot).unwrap();
-            r.elo_change = if is_anchor(bot) { 0.0 } else { sum / seats as f64 };
+            r.elo_change = sum / seats as f64 - if is_anchor(bot) { drift } else { 0.0 };
             r.elo += r.elo_change;
             r.peak_elo = r.peak_elo.max(r.elo);
             r.games += 1;
@@ -257,12 +264,21 @@ mod tests {
     }
 
     #[test]
-    fn anchors_never_move_so_beating_them_raises_the_scale() {
-        let games: Vec<_> = (0..30).map(|_| vec![seat("a", 1.0), seat("b", 2.0), seat("ridgeline", 3.0)]).collect();
+    fn anchors_average_stays_put_so_beating_them_raises_the_scale() {
+        let games: Vec<_> = (0..30)
+            .flat_map(|_| {
+                [
+                    vec![seat("a", 1.0), seat("b", 2.0), seat("warden", 3.0)],
+                    vec![seat("a", 1.0), seat("b", 2.0), seat("expander", 3.0)],
+                    vec![seat("expander", 1.0), seat("warden", 2.0)],
+                ]
+            })
+            .collect();
         let t = standings(&games, |s| s.to_string());
-        let by = |b: &str| t.iter().find(|r| r.bot == b).unwrap();
-        assert_eq!(by("ridgeline").elo, START_ELO);
-        assert!(by("a").elo > START_ELO && by("b").elo > START_ELO);
+        let by = |b: &str| t.iter().find(|r| r.bot == b).unwrap().elo;
+        assert!(((by("warden") + by("expander")) / 2.0 - START_ELO).abs() < 1e-9);
+        assert!(by("expander") > by("warden"));
+        assert!(by("a") > START_ELO && by("b") > START_ELO);
     }
 
     #[test]
