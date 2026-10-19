@@ -620,3 +620,12 @@ compares wall-only, lattice, Village, and Quarry economies.
 - Economy: sparse lattice through tick 3200 plus 80 contact Walls through tick 7500;
   moderately aggressive Relay.
 - Result and replay lesson: pending 50-game sample.
+
+### hedgehog-v1 — Hedgehog
+
+- Hypothesis: Aurochs's one observed win justifies a lower-action Village bank when each
+  front is simultaneously hardened; 28 Villages should fund a dense linked shell without
+  the Farm lattice's setup burden.
+- Economy: Village-only through tick 3800 plus up to 100 early contact Walls; conservative
+  compact Relay.
+- Result and replay lesson: pending 50-game sample.
