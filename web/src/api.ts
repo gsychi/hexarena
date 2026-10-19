@@ -63,7 +63,7 @@ export interface GateResult {
   secs: number
 }
 
-export interface Benchmark { games: number; avp: number; win_rate: number; top_half_rate: number }
+export interface Benchmark { games: number; avp: number; win_rate: number; top_half_rate: number; close_rate?: number; avg_close_tick?: number | null }
 
 export interface Generation {
   gen: number
@@ -95,7 +95,7 @@ export interface League {
   rules_version: string
   started_at: number
   updated_at: number
-  gate_config: { min_pairs: number; max_pairs: number; batch_pairs: number; min_gain: number; z_accept: number }
+  gate_config: { min_pairs: number; max_pairs: number; batch_pairs: number; min_gain: number; z_accept: number; close_bonus?: number; close_speed_bonus?: number }
   generations: Generation[]
   attempts: Attempt[]
   attempts_total: number

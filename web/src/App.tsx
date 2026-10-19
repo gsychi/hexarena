@@ -271,7 +271,7 @@ function MatchOver({ rep, onReplay, onClose }: { rep: ViewerReplay; onReplay: ()
     winner.land === passable
       ? `Conquered all ${passable} hexes at tick ${tick}.`
       : survivors <= 1 && !rep.rules.end_on_total_conquest
-        ? 'Last player standing.'
+        ? `Last player standing at tick ${tick}.`
         : `Cut off at tick ${tick} before anyone took all the land. Survivors ranked by land, then troops.`
   const place = (p: Placement) => (p.place_start === p.place_end ? `#${p.place_start}` : `#${p.place_start}–${p.place_end}`)
   return (

@@ -29,7 +29,7 @@ cd web && pnpm install && pnpm dev           # start page on http://127.0.0.1:47
 
 Open the start page, pick 2 to 8 CPU seats and an optional seed, and create one game or a batch of up to 20 (consecutive seeds). Games run in the background on the Rust engine; when one finishes, click **Watch**. The leaderboard aggregates every finished game played under the current rules version by CPU style. Games persist in `data/matches/` (override with `HEXARENA_DATA`; port with `HEXARENA_PORT`). If the server isn't running, the start page says so and the bundled sample match still plays.
 
-Server API: `GET /api/bots`, `GET|POST /api/matches` (`{"bots": ["raider", "warden"], "seed": 7, "count": 5}`); every game runs to total conquest or the 3000-tick cutoff, `GET /api/matches/{id}`, `GET /api/matches/{id}/viewer`, `GET /api/matches/{id}/replay`, `GET /api/leaderboard`, `GET /api/league`.
+Server API: `GET /api/bots`, `GET|POST /api/matches` (`{"bots": ["raider", "warden"], "seed": 7, "count": 5}`); every game runs until one player is left or the 3000-tick cutoff, `GET /api/matches/{id}`, `GET /api/matches/{id}/viewer`, `GET /api/matches/{id}/replay`, `GET /api/leaderboard`, `GET /api/league`.
 
 ```bash
 cargo test                                   # engine, scoring, fog-leak, arena determinism tests
@@ -39,7 +39,7 @@ cargo run --release -p hexarena-cli -- verify /tmp/r.json
 cargo run --release -p hexarena-cli -- export /tmp/r.json web/public/sample-replay.json
 ```
 
-A match ends when one player owns every traversable hex (total conquest). Otherwise it is cut off at 3000 ticks (Rules v0.1), and survivors are ranked by land, then troops. Rules v0 replays, which ended when one player was left and ran for 1500 ticks, still verify. The viewer opens at `?tick=end` or `?tick=N`, and `?zoom=N` starts zoomed in. Viewer exports store delta-encoded frames (`frame_encoding: "delta-v2"`), so a 1500-tick match is roughly 1–2 MB.
+A match ends on the tick only one player still owns land (Rules v0.2). Otherwise it is cut off at 3000 ticks, and survivors are ranked by land, then troops. Older replays still verify: Rules v0.1 games ran until one player owned every traversable hex, and Rules v0 games had a 1500-tick cutoff. The viewer opens at `?tick=end` or `?tick=N`, and `?zoom=N` starts zoomed in. Viewer exports store delta-encoded frames (`frame_encoding: "delta-v2"`), so a 1500-tick match is roughly 1–2 MB.
 
 ### How the built-in CPUs play
 
@@ -50,7 +50,7 @@ Every CPU shares one strategy, tuned per style (attack margin, enemy bonus, buil
 - **Grabs.** Every third tick, the best affordable capture from any hex goes first. Captures that touch more of the CPU's own land score higher, which keeps growth compact and closes off enclosed pockets.
 - **Buildings.** Built on the style's schedule, with Farm–Village and Wall links managed automatically.
 
-With the current roster, 20 seeds per lineup ended by total conquest about 90% of the time with 2 players, 85% with 3, 50% with 4, 25% with 5, 20% with 6, and 0% with 8. Bigger lobbies get bigger maps, and one action per tick limits how fast anyone can claim land.
+Under Rules v0.1, which required owning every hex, the hand-written roster finished before the cutoff in about 90% of 2-player games, 85% of 3-player, 50% of 4-player, 25% of 5-player, 20% of 6-player and none of the 8-player ones. Ending at the last player standing cuts the 180–360 ticks the winner used to spend mopping up neutral land. Bigger lobbies get bigger maps, and one action per tick limits how fast anyone can claim land.
 
 ## League: CPUs that improve themselves
 
@@ -64,11 +64,13 @@ cargo run --release -p hexarena-cli -- league submit --params cand.json --origin
 ```
 
 - **Challengers.** Each attempt takes the champion and either mutates one to three genes, crosses it with an earlier generation, or takes the next genome from `data/league/inbox/` (written by `league submit`, so people and agents can propose ideas).
-- **Gate.** Challenger and champion play mirrored pairs of 8-player lobbies on the same seeds: three seats each plus two sparring seats from earlier generations and the hand-written roster, then the same seeds again with challenger and champion swapped. Places are scored as **AVP on the 8-player scale**: `1 + (place − 1) · 7 / (N − 1)`, so 1 is always first and 8 is always last whatever the lobby size, and ties share the middle of their places. The challenger is promoted when it averages at least 0.05 places better than the champion *and* the gain is more than two standard errors. Gates stop early once the answer is clear (16 to 96 games), so a hopeless mutation costs a few seconds.
+- **Gate.** Challenger and champion play mirrored pairs of 8-player lobbies on the same seeds: three seats each plus two sparring seats from earlier generations and the hand-written roster, then the same seeds again with challenger and champion swapped. Places are scored as **AVP on the 8-player scale**: `1 + (place − 1) · 7 / (N − 1)`, so 1 is always first and 8 is always last whatever the lobby size, and ties share the middle of their places. **Closing the game out is worth more:** a player who ends the game before the cutoff gets 0.5 places taken off its score, plus up to 1 more the earlier it ends (ending at tick 1500 is worth 1.0 places), so genomes that finish rivals off beat ones that coast to the cutoff. The challenger is promoted when it averages at least 0.05 places better than the champion *and* the gain is more than two standard errors. Gates stop early once the answer is clear (16 to 96 games), so a hopeless mutation costs a few seconds.
 - **Progress.** Every generation is benchmarked on 32 fixed seeds (two seats against six roster CPUs), and every league game updates a multiplayer Elo (K = 32, start 1500). The roster's Elo is the fixed yardstick.
 - **Watch it.** The start page links to **League progression** (`#/league`): benchmark AVP and Elo by generation, every gate result, and the gene changes of each generation. **Play** next to any generation runs it against the roster in an 8-player game you can watch. Generations are also playable CPUs in the API (`"champion"`, or an id like `"g3"`).
 
-The league lives in `data/league/` (`league.json`, `games.jsonl` with every game, `inbox/`); the server reads it from `HEXARENA_LEAGUE`. All the games use the same Rust engine and rules as everything else. The standings on the start page report AVP on the same 8-player scale.
+**Brains.** A genome's `brain` field picks the strategy that plays it (`sdk/rust/src/brains/`; the default is `expander`). A new strategy is a new brain module that reads its own tunable `knobs`, which the league mutates like any other gene. `simulate` and `report` accept league generations and genome files as seats (`--bots champion,g2,raider,cand.json`), so you can record replays of any matchup to study.
+
+When the rules version changes, the old league is archived to `data/league/archive/<version>/` and a new one starts with the old champion as its g0. The league lives in `data/league/` (`league.json`, `games.jsonl` with every game, `inbox/`); the server reads it from `HEXARENA_LEAGUE`. All the games use the same Rust engine and rules as everything else. The standings on the start page report AVP on the same 8-player scale.
 
 ## Deploy
 

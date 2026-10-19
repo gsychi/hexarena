@@ -2,6 +2,7 @@
 
 use crate::rng::Rng;
 use hexarena_arena::play_result;
+use hexarena_protocol::RulesConfig;
 use hexarena_sdk::{BotParams, Style};
 use serde::{Deserialize, Serialize};
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -36,6 +37,11 @@ pub struct GameLog {
     /// When the game finished (ms since the epoch); 0 in logs written before it was recorded.
     #[serde(default)]
     pub at: u64,
+    #[serde(default)]
+    pub final_tick: u32,
+    /// The seat that ended the game before the cutoff by being the last one standing.
+    #[serde(default)]
+    pub closer: Option<usize>,
 }
 
 pub fn play_lobby(seed: u64, seats: &[Entrant]) -> Result<GameLog, String> {
@@ -49,6 +55,7 @@ pub fn play_lobby(seed: u64, seats: &[Entrant]) -> Result<GameLog, String> {
         })
         .collect();
     let result = play_result(seed, &styles, u32::MAX)?;
+    let cutoff = RulesConfig::default().max_ticks;
     let mut avp = vec![0.0; seats.len()];
     for p in &result.placements {
         avp[p.player as usize] = avp8(p.place_start, p.place_end, seats.len());
@@ -58,6 +65,8 @@ pub fn play_lobby(seed: u64, seats: &[Entrant]) -> Result<GameLog, String> {
         ids: seats.iter().map(|e| e.id.clone()).collect(),
         avp,
         at: crate::now_ms(),
+        final_tick: result.final_tick,
+        closer: (result.final_tick < cutoff).then(|| result.winner()).flatten().map(|p| p as usize),
     })
 }
 
@@ -85,13 +94,22 @@ pub fn play_all(lobbies: &[(u64, Vec<Entrant>)]) -> Result<Vec<GameLog>, String>
     out.into_inner().unwrap().into_iter().map(|r| r.unwrap()).collect()
 }
 
-fn mean_place(log: &GameLog, id: &str) -> f64 {
-    let v: Vec<f64> = log
-        .ids
-        .iter()
-        .zip(&log.avp)
-        .filter(|(i, _)| *i == id)
-        .map(|(_, a)| *a)
+/// A seat's gate score: its 8-player AVP, minus the closing bonus if it ended the game
+/// early. Lower is better.
+pub fn seat_score(log: &GameLog, seat: usize, cfg: &GateConfig) -> f64 {
+    let mut s = log.avp[seat];
+    if log.closer == Some(seat) {
+        let cutoff = RulesConfig::default().max_ticks as f64;
+        let early = (cutoff - log.final_tick as f64).max(0.0) / cutoff;
+        s -= cfg.close_bonus + cfg.close_speed_bonus * early;
+    }
+    s
+}
+
+fn mean_score(log: &GameLog, id: &str, cfg: &GateConfig) -> f64 {
+    let v: Vec<f64> = (0..log.ids.len())
+        .filter(|&i| log.ids[i] == id)
+        .map(|i| seat_score(log, i, cfg))
         .collect();
     v.iter().sum::<f64>() / v.len().max(1) as f64
 }
@@ -99,6 +117,7 @@ fn mean_place(log: &GameLog, id: &str) -> f64 {
 /// How promotion is decided. Games come in mirrored pairs on the same map, with the
 /// challenger and champion seats swapped, so spawn luck cancels out.
 #[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(default)]
 pub struct GateConfig {
     pub min_pairs: usize,
     pub max_pairs: usize,
@@ -107,6 +126,10 @@ pub struct GateConfig {
     pub min_gain: f64,
     /// Standard errors of improvement required at the end of the gate.
     pub z_accept: f64,
+    /// Places knocked off the score of a player who ends the game before the cutoff...
+    pub close_bonus: f64,
+    /// ...plus up to this many more, scaled by how early it ended (all of it at tick 0).
+    pub close_speed_bonus: f64,
 }
 
 impl Default for GateConfig {
@@ -117,6 +140,8 @@ impl Default for GateConfig {
             batch_pairs: 8,
             min_gain: 0.05,
             z_accept: 2.0,
+            close_bonus: 0.5,
+            close_speed_bonus: 1.0,
         }
     }
 }
@@ -124,6 +149,7 @@ impl Default for GateConfig {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct GateResult {
     pub games: usize,
+    /// Mean scores: 8-player AVP minus any closing bonus.
     pub challenger_avp: f64,
     pub champion_avp: f64,
     /// Mean per-pair AVP gain of the challenger over the champion (positive = better).
@@ -178,8 +204,8 @@ pub fn gate(
         let batch = play_all(&lobbies)?;
         for pair in batch.chunks(2) {
             let (c, h) = (
-                (mean_place(&pair[0], &challenger.id) + mean_place(&pair[1], &challenger.id)) / 2.0,
-                (mean_place(&pair[0], &champion.id) + mean_place(&pair[1], &champion.id)) / 2.0,
+                (mean_score(&pair[0], &challenger.id, cfg) + mean_score(&pair[1], &challenger.id, cfg)) / 2.0,
+                (mean_score(&pair[0], &champion.id, cfg) + mean_score(&pair[1], &champion.id, cfg)) / 2.0,
             );
             c_sum += c;
             h_sum += h;
@@ -230,6 +256,12 @@ pub struct Benchmark {
     pub avp: f64,
     pub win_rate: f64,
     pub top_half_rate: f64,
+    /// Share of benchmark games this entrant ended before the cutoff.
+    #[serde(default)]
+    pub close_rate: f64,
+    /// Average tick of those early endings.
+    #[serde(default)]
+    pub avg_close_tick: Option<f64>,
 }
 
 pub const BENCH_GAMES: u64 = 32;
@@ -252,12 +284,19 @@ pub fn benchmark(entrant: &Entrant, roster: &[Entrant]) -> Result<(Benchmark, Ve
         .flat_map(|l| l.ids.iter().zip(&l.avp).filter(|(i, _)| **i == entrant.id).map(|(_, a)| *a))
         .collect();
     let n = mine.len() as f64;
+    let closes: Vec<f64> = logs
+        .iter()
+        .filter(|l| l.closer.is_some_and(|s| l.ids[s] == entrant.id))
+        .map(|l| l.final_tick as f64)
+        .collect();
     Ok((
         Benchmark {
             games: logs.len(),
             avp: mine.iter().sum::<f64>() / n,
             win_rate: mine.iter().filter(|a| **a <= 1.0).count() as f64 / n,
             top_half_rate: mine.iter().filter(|a| **a <= 4.5).count() as f64 / n,
+            close_rate: closes.len() as f64 / logs.len() as f64,
+            avg_close_tick: (!closes.is_empty()).then(|| closes.iter().sum::<f64>() / closes.len() as f64),
         },
         logs,
     ))
@@ -274,5 +313,25 @@ mod tests {
         assert_eq!(avp8(2, 2, 2), 8.0);
         assert_eq!(avp8(3, 4, 8), 3.5);
         assert_eq!(avp8(3, 3, 5), 4.5);
+    }
+
+    #[test]
+    fn ending_the_game_early_is_worth_more() {
+        let cfg = GateConfig::default();
+        let log = |final_tick, closer| GameLog {
+            seed: 0,
+            ids: vec!["a".into(), "b".into()],
+            avp: vec![1.0, 8.0],
+            at: 0,
+            final_tick,
+            closer,
+        };
+        let cutoff = RulesConfig::default().max_ticks;
+        assert_eq!(seat_score(&log(cutoff, None), 0, &cfg), 1.0);
+        let late = seat_score(&log(cutoff - 1, Some(0)), 0, &cfg);
+        let early = seat_score(&log(cutoff / 2, Some(0)), 0, &cfg);
+        assert!(late < 1.0 && early < late);
+        assert!((early - (1.0 - cfg.close_bonus - cfg.close_speed_bonus / 2.0)).abs() < 1e-9);
+        assert_eq!(seat_score(&log(cutoff / 2, Some(0)), 1, &cfg), 8.0);
     }
 }
