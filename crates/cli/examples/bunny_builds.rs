@@ -18,11 +18,15 @@ struct Counts {
 fn main() {
     let paths: Vec<String> = std::env::args().skip(1).collect();
     let summary_only = paths.iter().any(|p| p == "--summary-only");
+    let all_players = paths.iter().any(|p| p == "--all");
     if !summary_only {
         println!("replay,player,builds,farms,villages,quarries,walls,final_tick,place");
     }
     let mut summary: BTreeMap<String, (u32, Counts)> = BTreeMap::new();
-    for path in paths.iter().filter(|p| p.as_str() != "--summary-only") {
+    for path in paths
+        .iter()
+        .filter(|p| p.as_str() != "--summary-only" && p.as_str() != "--all")
+    {
         let bytes = std::fs::read(&path).expect("read replay");
         let replay: Replay = serde_json::from_slice(&bytes).expect("parse replay");
         let mut counts: BTreeMap<u16, Counts> = BTreeMap::new();
@@ -42,12 +46,13 @@ fn main() {
             }
         }
         for player in &replay.players {
-            if !player.name.starts_with("Snowshoe") {
+            if !all_players && !player.name.contains("Snowshoe") {
                 continue;
             }
             let c = counts.entry(player.id).or_default();
             let place = replay.result.place_f64(player.id);
-            let total = summary.entry(player.name.clone()).or_default();
+            let normalized_name = player.name.strip_prefix("GPT-").unwrap_or(&player.name);
+            let total = summary.entry(normalized_name.to_string()).or_default();
             total.0 += 1;
             total.1.total += c.total;
             total.1.farms += c.farms;
