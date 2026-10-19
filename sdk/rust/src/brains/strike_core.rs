@@ -140,11 +140,14 @@ struct Regions {
     enemy: Vec<u32>,
     /// Of those, hexes we own (nonzero only when the capturer is a rival).
     mine: Vec<u32>,
+    /// Troops last seen on the sealed hexes we don't own: they change sides with them.
+    troops: Vec<u32>,
     disc: Vec<u32>,
     low: Vec<u32>,
     sub_land: Vec<u32>,
     sub_enemy: Vec<u32>,
     sub_mine: Vec<u32>,
+    sub_troops: Vec<u32>,
     parent: Vec<usize>,
     stack: Vec<(usize, usize)>,
 }
@@ -267,6 +270,14 @@ struct Knobs {
     blitz_alive: u32,
     /// Finish the victim once we hold this % of the board's passable hexes (0 = never).
     blitz_share_pct: u32,
+    /// In 1v1 lobbies, the late phase starts at this tick instead (0 = same as 8-player).
+    duel_late_from: u32,
+    /// In 1v1 lobbies, play the late sprint (0/1).
+    duel_late_sprint: bool,
+    /// % of the troops a seal hands over counted in its score, at the troop price.
+    region_troops_pct: i64,
+    /// Whether the duel overrides have been applied.
+    duel_set: bool,
 }
 
 impl Knobs {
@@ -331,6 +342,10 @@ impl Knobs {
             neck_rr: k("neck_rr", 0) > 0,
             blitz_alive: k("blitz_alive", 0) as u32,
             blitz_share_pct: k("blitz_share_pct", 0) as u32,
+            duel_late_from: k("duel_late_from", 0) as u32,
+            duel_late_sprint: k("duel_late_sprint", 0) > 0,
+            region_troops_pct: k("region_troops_pct", 0),
+            duel_set: false,
         }
     }
 
@@ -529,6 +544,8 @@ impl StrikeCore {
             &mut r.sub_land,
             &mut r.sub_enemy,
             &mut r.sub_mine,
+            &mut r.troops,
+            &mut r.sub_troops,
         ] {
             v.clear();
             v.resize(slots, 0);
@@ -536,7 +553,8 @@ impl StrikeCore {
         r.parent.clear();
         r.parent.resize(slots, usize::MAX);
         r.stack.clear();
-        let Regions { land, enemy, mine, disc, low, sub_land, sub_enemy, sub_mine, parent, stack } = r;
+        let Regions { land, enemy, mine, troops, disc, low, sub_land, sub_enemy, sub_mine, sub_troops, parent, stack } =
+            r;
         // The outside node has discovery time 1; every edge hex hangs off it.
         let mut timer = 1u32;
         for root in 0..slots {
@@ -574,6 +592,9 @@ impl StrikeCore {
                         Some(_) => sub_enemy[v] += 1,
                         None => {}
                     }
+                    if owner(v) != Some(me) {
+                        sub_troops[v] += self.seen[v].map_or(0, |c| c.troops);
+                    }
                 }
                 let p = parent[v];
                 if p == usize::MAX {
@@ -583,10 +604,12 @@ impl StrikeCore {
                 sub_land[p] += sub_land[v];
                 sub_enemy[p] += sub_enemy[v];
                 sub_mine[p] += sub_mine[v];
+                sub_troops[p] += sub_troops[v];
                 if low[v] >= disc[p] {
                     land[p] += sub_land[v];
                     enemy[p] += sub_enemy[v];
                     mine[p] += sub_mine[v];
+                    troops[p] += sub_troops[v];
                 }
             }
         }
@@ -732,9 +755,6 @@ impl StrikeCore {
         seal: Option<&Seal>,
         regions: Option<&Regions>,
     ) -> (Option<Capture>, Option<Capture>) {
-        let sealed = |t: usize| {
-            regions.map_or(0, |r| self.k.region * r.land[t] as i64 + self.k.region_enemy * r.enemy[t] as i64)
-        };
         let mut best: Option<Capture> = None;
         // Best capture the pad can't afford yet; `send` holds the troops it is short.
         let mut blocked: Option<Capture> = None;
@@ -746,6 +766,13 @@ impl StrikeCore {
             0 => full,
             w => full * w / (w + per_hex),
         } as i64;
+        let sealed = |t: usize| {
+            regions.map_or(0, |r| {
+                self.k.region * r.land[t] as i64
+                    + self.k.region_enemy * r.enemy[t] as i64
+                    + r.troops[t] as i64 * cost_milli / 1000 * self.k.region_troops_pct / 100
+            })
+        };
         for &s in mine {
             let src = self.seen[s].unwrap();
             if src.troops < 2 {
@@ -1131,6 +1158,15 @@ impl Bot for StrikeCore {
             self.rules = r.clone();
         }
         self.win = self.rules.attacker_win_milli(view.tick);
+        if !self.k.duel_set {
+            self.k.duel_set = true;
+            if view.public_players.len() == 2 {
+                if self.k.duel_late_from > 0 && self.k.late_from > 0 {
+                    self.k.late_from = self.k.duel_late_from;
+                }
+                self.k.late_sprint |= self.k.duel_late_sprint;
+            }
+        }
         if self.k.late_from > 0 && view.tick >= self.k.late_from {
             self.k.go_late();
         }
