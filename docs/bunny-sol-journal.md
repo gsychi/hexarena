@@ -1,7 +1,8 @@
 # Bunny Lab (Sol) arena journal
 
-Clean-room work for Hexarena rules v0.3. All strategies use only the fog-filtered `View`.
+Clean-room work for Hexarena. All strategies use only the fog-filtered `View`.
 
+## Rules v0.3 archive
 | Version | Hypothesis | Local / gate observation | Lesson |
 |---|---|---|---|
 | snowshoe-v1 — Frost Fences | Add one resource farm to Ridgeline, then put linked walls on hot borders. | 5.55 builds/game over 49 seats; gate remained queued. | The planner must deliberately Gather toward its first build; ordinary Ridgeline garrisons never naturally reach building cost. |
@@ -18,4 +19,9 @@ Clean-room work for Hexarena rules v0.3. All strategies use only the fog-filtere
 | snowshoe-v12 — Jackalope Last Stand | Fund three Walls with one Village, then sprint. | 4.42 builds/game over 48 seats. Gate rejected vs g12: -0.7083 ± 0.1598 over 16 games. | Combining economy, walls and sprint accumulated costs instead of synergies. |
 | snowshoe-v13 — Coyote Contact Line | Hard-cap lifetime replacement cost and wall only at visible enemy contact. | 4.73 builds/game over 26 seats; arena-retired. Gate rejected vs g12: -0.4792 ± 0.1525 over 16 games. | Refusing neutral-border walls did not improve results. |
 | snowshoe-v14 — Pine Marten Dividend | Keep v2's economy to exactly the Farm's three supported Village sockets. | 3.65 builds/game over 48 seats. Gate rejected vs g12: -0.9167 ± 0.0891 over 16 games. | The three-socket cap was much worse against the promoted g12; v2's extra Villages were not merely waste. |
+
+## Rules v0.4 storm league
+| Version | Hypothesis | Local / gate observation | Lesson |
+|---|---|---|---|
+| snowshoe-v15 — Marmot Citadel | Seed central Farm/Village clusters with cheap Quarries, then relay outer stacks inward two rings before the storm. | Smoke: 16 builds (2 Quarries, 5 Farms, 9 Villages), 4th against seven Ridgelines. Gate queued. | Centre capture weight above 2/hex blocked opening growth; infrastructure needs concentration because every smoke-test building was eventually captured. |
 

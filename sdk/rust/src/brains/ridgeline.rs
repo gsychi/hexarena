@@ -153,6 +153,23 @@ struct Knobs {
     max_walls: usize,
     lifetime_build_cap: usize,
     wall_enemy_only: bool,
+    /// Score penalty per hex of distance from the board centre when building.
+    build_center: i64,
+    /// Never build farther than this from the centre (0 = no limit).
+    build_radius: i32,
+    /// Bonus for putting a discounted building next to a Quarry.
+    quarry_bonus: i64,
+    /// Whether Villages require an adjacent Farm.
+    farm_required: bool,
+    /// Score penalty per hex of distance from the centre when capturing.
+    capture_center: i64,
+    /// Tick at which storm migration begins (0 = disabled).
+    migrate_start: u32,
+    migrate_every: u32,
+    /// Rings inside the current safe radius that migration evacuates preemptively.
+    storm_buffer: i32,
+    /// Tick at which captures stop preserving safety and send only sure winning forces.
+    rush_start: u32,
 }
 
 impl Knobs {
@@ -194,6 +211,15 @@ impl Knobs {
             max_walls: k("max_walls", 5) as usize,
             lifetime_build_cap: k("lifetime_build_cap", 0) as usize,
             wall_enemy_only: k("wall_enemy_only", 0) > 0,
+            build_center: k("build_center", 0),
+            build_radius: k("build_radius", 0) as i32,
+            quarry_bonus: k("quarry_bonus", 0),
+            farm_required: k("farm_required", 1) > 0,
+            capture_center: k("capture_center", 0),
+            migrate_start: k("migrate_start", 0) as u32,
+            migrate_every: k("migrate_every", 6) as u32,
+            storm_buffer: k("storm_buffer", 1) as i32,
+            rush_start: k("rush_start", 0) as u32,
         }
     }
 }
@@ -209,6 +235,7 @@ pub struct Ridgeline {
     seen: Vec<Option<Cell>>,
     last_build: u32,
     builds_made: usize,
+    storm_radius: Option<i32>,
 }
 
 impl Ridgeline {
@@ -222,6 +249,7 @@ impl Ridgeline {
             seen: vec![],
             last_build: 0,
             builds_made: 0,
+            storm_radius: None,
         }
     }
 
@@ -527,7 +555,11 @@ impl Ridgeline {
     ) -> i64 {
         let hugged = geo.nbrs[t].iter().filter(|&&n| self.owned(n, me)).count() as i64;
         let exposed = geo.nbrs[t].len() as i64 - hugged;
-        let mut gain = self.k.land;
+        let centre_distance = geo.hexes[t].distance(Hex::new(0, 0));
+        let mut gain = self.k.land - self.k.capture_center * centre_distance as i64;
+        if self.storm_radius.is_some_and(|r| centre_distance > r) {
+            gain -= 1_000_000;
+        }
         if tc.owner.is_some() {
             gain += self.k.enemy + self.k.enclose * self.enclosure_gain(geo, t, me);
         }
@@ -703,18 +735,19 @@ impl Ridgeline {
             if !under_kind_cap {
                 continue;
             }
-            // A Village needs an existing Farm, while a wall-line strategy first bootstraps
-            // one Farm to earn the Resource its walls consume.
-            if kind == Building::Village && counts[0] == 0 {
-                continue;
-            }
-            if kind == Building::Wall && counts[0] == 0 && view.own_economy.resource == 0 {
+            if kind == Building::Village && self.k.farm_required && counts[0] == 0 {
                 continue;
             }
             let mut best: Option<(i64, usize)> = None;
             for &i in mine {
                 let c = self.seen[i]?;
                 if c.building.is_some() || !self.rules.terrain_allowed(kind, geo.height[i]) {
+                    continue;
+                }
+                let centre_distance = geo.hexes[i].distance(Hex::new(0, 0));
+                if (self.k.build_radius > 0 && centre_distance > self.k.build_radius)
+                    || self.storm_radius.is_some_and(|r| centre_distance > r)
+                {
                     continue;
                 }
                 let near_quarry = geo.nbrs[i].iter().any(|&n| {
@@ -749,7 +782,7 @@ impl Ridgeline {
                     .count() as i64;
                 let valid_site = match kind {
                     Building::Farm => true,
-                    Building::Village => adjacent_farm > 0,
+                    Building::Village => !self.k.farm_required || adjacent_farm > 0,
                     Building::Quarry => !mine.iter().any(|&q| {
                         self.seen[q].is_some_and(|c| c.building == Some(Building::Quarry))
                             && geo.hexes[q].distance(geo.hexes[i])
@@ -774,7 +807,8 @@ impl Ridgeline {
                             + 180 * adjacent_wall
                             + 25 * geo.height[i] as i64
                     }
-                };
+                } - self.k.build_center * centre_distance as i64
+                    + if near_quarry { self.k.quarry_bonus } else { 0 };
                 if c.troops as u64 <= cost.troops as u64 + keep {
                     if kind != Building::Wall
                         && staging.map_or(true, |old| {
@@ -805,6 +839,61 @@ impl Ridgeline {
             Action::Gather {
                 target: geo.hexes[at],
             }
+        })
+    }
+
+    /// Evacuates one outer stack along friendly land toward our most central hex. One
+    /// stack per action preserves the still-useful inner border, unlike Gather, while
+    /// moving a whole threatened ring inward before the storm reaches it.
+    fn migrate(&self, view: &View, geo: &Geometry, me: PlayerId, mine: &[usize]) -> Option<Action> {
+        if self.k.migrate_start == 0
+            || view.tick < self.k.migrate_start
+            || self.k.migrate_every == 0
+            || mine.len() < 2
+        {
+            return None;
+        }
+        let safe = view.storm_radius.unwrap_or(geo.radius);
+        let threshold = (safe - self.k.storm_buffer).max(0);
+        let target = *mine
+            .iter()
+            .min_by_key(|&&i| (geo.hexes[i].distance(Hex::new(0, 0)), i))?;
+        let mut toward = vec![usize::MAX; geo.passable.len()];
+        toward[target] = target;
+        let mut queue = VecDeque::from([target]);
+        while let Some(c) = queue.pop_front() {
+            for &n in &geo.nbrs[c] {
+                if toward[n] == usize::MAX && self.owned(n, me) {
+                    toward[n] = c;
+                    queue.push_back(n);
+                }
+            }
+        }
+        let mut best: Option<(i64, usize)> = None;
+        for &i in mine {
+            let distance = geo.hexes[i].distance(Hex::new(0, 0));
+            let troops = self.seen[i].unwrap().troops;
+            if i == target || distance <= threshold || troops < 2 || toward[i] == usize::MAX {
+                continue;
+            }
+            let urgent = distance > safe;
+            if !urgent && view.tick % self.k.migrate_every != 0 {
+                continue;
+            }
+            let score = (distance - threshold) as i64 * 1_000_000
+                + troops as i64
+                + if urgent { 10_000_000 } else { 0 };
+            if best.map_or(true, |old| {
+                (score, std::cmp::Reverse(i)) > (old.0, std::cmp::Reverse(old.1))
+            }) {
+                best = Some((score, i));
+            }
+        }
+        let (_, from) = best?;
+        Some(Action::Move {
+            from: geo.hexes[from],
+            to: geo.hexes[toward[from]],
+            troops: self.seen[from].unwrap().troops - 1,
         })
     }
 
@@ -918,6 +1007,7 @@ impl Bot for Ridgeline {
 
     fn act(&mut self, view: &View) -> PlayerCommand {
         self.win = self.rules.attacker_win_milli(view.tick);
+        self.storm_radius = view.storm_radius;
         let geo = self.geo.take().unwrap_or_else(|| Geometry::new(view));
         let management = self.management(view);
         if self.seen.is_empty() {
@@ -937,17 +1027,19 @@ impl Bot for Ridgeline {
                 mine.push(i);
             }
         }
-        let sprinting = view.tick + self.k.sprint >= self.rules.max_ticks;
+        let rushing = view.tick + self.k.sprint >= self.rules.max_ticks
+            || (self.k.rush_start > 0 && view.tick >= self.k.rush_start);
         let seal = (self.k.seal > 0 || self.k.backyard > 0).then(|| self.seal(&geo, me));
+        let migration = self.migrate(view, &geo, me, &mine);
         let build = self.build(view, &geo, me, &mine);
         let supply = self.supply(&geo, me, &mine);
-        let (capture, blocked) = self.best_capture(&geo, me, &mine, sprinting, seal.as_ref());
-        let capture = capture.filter(|c| sprinting || c.score >= self.k.min_score);
+        let (capture, blocked) = self.best_capture(&geo, me, &mine, rushing, seal.as_ref());
+        let capture = capture.filter(|c| rushing || c.score >= self.k.min_score);
         let supply_tick =
-            !sprinting && self.k.supply_every > 0 && view.tick % self.k.supply_every == 0;
+            !rushing && self.k.supply_every > 0 && view.tick % self.k.supply_every == 0;
         let floor = capture.map_or(self.k.min_score, |c| c.score);
         let staging = blocked
-            .filter(|b| !sprinting && mine.len() > 1 && b.score >= floor + self.k.stage)
+            .filter(|b| !rushing && mine.len() > 1 && b.score >= floor + self.k.stage)
             .and_then(|b| {
                 let contact = mine
                     .iter()
@@ -959,9 +1051,10 @@ impl Bot for Ridgeline {
                     !contact && view.tick < self.k.gather_until,
                 )
             });
-        let action = match build {
-            Some(action) => action,
-            None => match (supply, capture) {
+        let action = match (migration, build) {
+            (Some(action), _) => action,
+            (None, Some(action)) => action,
+            (None, None) => match (supply, capture) {
                 (Some((gain, a)), _) if supply_tick && gain >= self.k.supply_min => a,
                 _ if staging.is_some() => staging.unwrap(),
                 (_, Some(c)) => Action::Move {
