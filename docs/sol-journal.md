@@ -687,3 +687,18 @@ unfinished. Batch 7 limits Walls to 16–30 and varies economy scale and timing.
   most valuable contacts.
 - Economy: 72-site single-Quarry lattice and 20 midgame Walls; aggressive Relay.
 - Result and replay lesson: pending 50-game sample.
+
+## Batch 8 — Survivor lock
+
+Bounded Walls restored action throughput, but representative seconds still traded
+thousands of hexes with one rival until cutoff. Grazer now activates a focused finisher
+only after the live survivor count falls below a knobbed threshold. It locks onto the
+contacted rival with the least visible land, attacks that rival when an affordable capture
+exists, and retains extra source troops when a third party touches the launch hex.
+
+### falcon-v1 — Falcon
+
+- Hypothesis: once four players remain, a balanced 80-site economy can remove the weakest
+  contact sequentially instead of spending the endgame in symmetric leader churn.
+- Economy: Badger-sized lattice, 24 late Walls, focused finisher from tick 4500.
+- Result and replay lesson: pending 50-game sample.

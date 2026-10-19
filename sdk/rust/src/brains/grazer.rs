@@ -9,9 +9,10 @@
 use super::relay::Relay;
 use crate::{Bot, Style};
 use hexarena_protocol::{
-    Action, Building, Hex, ManagementCommand, PlayerCommand, RulesConfig, View, VisibleHex,
+    Action, Building, Hex, ManagementCommand, PlayerCommand, PlayerId, RulesConfig, View,
+    VisibleHex,
 };
-use std::collections::VecDeque;
+use std::collections::{BTreeMap, VecDeque};
 
 fn visible(view: &View, hex: Hex) -> Option<&VisibleHex> {
     view.visible_hexes.iter().find(|cell| cell.hex == hex)
@@ -47,6 +48,13 @@ struct Knobs {
     wall_cap: usize,
     wall_keep: u32,
     wall_contact_only: bool,
+    finisher_start: u32,
+    finisher_alive_max: usize,
+    finisher_land_min: usize,
+    finisher_margin_pct: u64,
+    finisher_forward_pct: u64,
+    finisher_keep: u64,
+    finisher_garrison: u64,
 }
 
 impl Knobs {
@@ -68,6 +76,13 @@ impl Knobs {
             wall_cap: k("wall_cap", 0) as usize,
             wall_keep: k("wall_keep", 30) as u32,
             wall_contact_only: k("wall_contact_only", 1) != 0,
+            finisher_start: k("finisher_start", 4500) as u32,
+            finisher_alive_max: k("finisher_alive_max", 0) as usize,
+            finisher_land_min: k("finisher_land_min", 100) as usize,
+            finisher_margin_pct: k("finisher_margin_pct", 140) as u64,
+            finisher_forward_pct: k("finisher_forward_pct", 70).min(100) as u64,
+            finisher_keep: k("finisher_keep", 30) as u64,
+            finisher_garrison: k("finisher_garrison", 20) as u64,
         }
     }
 }
@@ -81,6 +96,7 @@ pub struct Grazer {
     builds: usize,
     last_wall: Option<u32>,
     walls: usize,
+    hunt_target: Option<PlayerId>,
 }
 
 impl Grazer {
@@ -94,7 +110,137 @@ impl Grazer {
             builds: 0,
             last_wall: None,
             walls: 0,
+            hunt_target: None,
         }
+    }
+
+    fn finisher(&mut self, view: &View) -> Option<Action> {
+        let alive = view
+            .public_players
+            .iter()
+            .filter(|player| player.alive)
+            .count();
+        let own_land = view
+            .visible_hexes
+            .iter()
+            .filter(|cell| cell.owner == Some(view.you))
+            .count();
+        if self.k.finisher_alive_max == 0
+            || view.tick < self.k.finisher_start
+            || alive > self.k.finisher_alive_max
+            || own_land < self.k.finisher_land_min
+        {
+            return None;
+        }
+        if self.hunt_target.is_some_and(|target| {
+            !view
+                .public_players
+                .iter()
+                .any(|player| player.id == target && player.alive)
+        }) {
+            self.hunt_target = None;
+        }
+        let mut visible_land = BTreeMap::<PlayerId, usize>::new();
+        let mut contacts = BTreeMap::<PlayerId, usize>::new();
+        for cell in &view.visible_hexes {
+            let Some(owner) = cell.owner.filter(|owner| *owner != view.you) else {
+                continue;
+            };
+            *visible_land.entry(owner).or_default() += 1;
+        }
+        for cell in &view.visible_hexes {
+            if cell.owner != Some(view.you) {
+                continue;
+            }
+            for neighbor in cell.hex.neighbors() {
+                if let Some(owner) =
+                    visible(view, neighbor).and_then(|other| other.owner.filter(|p| *p != view.you))
+                {
+                    *contacts.entry(owner).or_default() += 1;
+                }
+            }
+        }
+        if self
+            .hunt_target
+            .is_none_or(|target| !contacts.contains_key(&target))
+        {
+            self.hunt_target = contacts.keys().copied().min_by_key(|target| {
+                (
+                    visible_land.get(target).copied().unwrap_or(usize::MAX),
+                    std::cmp::Reverse(contacts.get(target).copied().unwrap_or(0)),
+                    *target,
+                )
+            });
+        }
+        let target = self.hunt_target?;
+        let win = self.rules.attacker_win_milli(view.tick) as u64;
+        let mut best: Option<(u64, Action)> = None;
+        for source in &view.visible_hexes {
+            if source.owner != Some(view.you) {
+                continue;
+            }
+            for destination_hex in source.hex.neighbors() {
+                let Some(destination) =
+                    visible(view, destination_hex).filter(|cell| cell.owner == Some(target))
+                else {
+                    continue;
+                };
+                let height = self.rules.height_multiplier_milli(
+                    terrain_height(view, source.hex),
+                    terrain_height(view, destination_hex),
+                ) as u64;
+                let defense = (height * destination.wall_milli as u64 / 1000)
+                    .min(self.rules.maximum_total_defense_milli as u64);
+                let loss = destination.troops as u64 * defense * (1000 - win) / win / 1000;
+                let touches_third_party = source.hex.neighbors().into_iter().any(|neighbor| {
+                    visible(view, neighbor).is_some_and(|cell| {
+                        cell.owner
+                            .is_some_and(|owner| owner != view.you && owner != target)
+                    })
+                });
+                let keep = if touches_third_party {
+                    self.k.finisher_keep
+                } else {
+                    1
+                };
+                let minimum =
+                    loss * self.k.finisher_margin_pct / 100 + self.k.finisher_garrison + 1;
+                let available = source.troops as u64;
+                if available <= keep + minimum {
+                    continue;
+                }
+                let surplus = available - keep - minimum;
+                let send = minimum + surplus * self.k.finisher_forward_pct / 100;
+                let own_neighbors = destination_hex
+                    .neighbors()
+                    .into_iter()
+                    .filter(|neighbor| {
+                        visible(view, *neighbor).is_some_and(|cell| cell.owner == Some(view.you))
+                    })
+                    .count() as u64;
+                let score = 10_000
+                    + own_neighbors * 500
+                    + destination
+                        .building
+                        .as_ref()
+                        .map_or(0, |building| match building.kind {
+                            Building::Village => 1_000,
+                            Building::Farm => 400,
+                            Building::Quarry => 700,
+                            Building::Wall => 200,
+                        })
+                    + send.saturating_sub(loss);
+                let action = Action::Move {
+                    from: source.hex,
+                    to: destination_hex,
+                    troops: send.min(u32::MAX as u64) as u32,
+                };
+                if best.as_ref().is_none_or(|current| score > current.0) {
+                    best = Some((score, action));
+                }
+            }
+        }
+        best.map(|(_, action)| action)
     }
 
     fn wall_site(&self, view: &View, busy: Option<Hex>) -> Option<Hex> {
@@ -380,7 +526,9 @@ impl Bot for Grazer {
             Action::NoOp => None,
             Action::Gather { .. } | Action::Build { .. } => return command,
         };
-        if let Some(at) = self.wall_site(view, busy) {
+        if let Some(action) = self.finisher(view) {
+            command.action = action;
+        } else if let Some(at) = self.wall_site(view, busy) {
             command.action = Action::Build {
                 at,
                 building: Building::Wall,
