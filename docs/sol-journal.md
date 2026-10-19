@@ -637,3 +637,11 @@ compares wall-only, lattice, Village, and Quarry economies.
   Relay pushes from tick 3000 onward.
 - Economy: 96-site Quarry lattice plus late dense Walls; high forwarding and enemy value.
 - Result and replay lesson: pending 50-game sample.
+
+### stoat-v1 — Stoat
+
+- Hypothesis: Jackal needs a more explicit closeout: stop a 40-site lattice before
+  overtime, forward 75%, strongly price enemy pockets, then turn captures into durable
+  ground with rapid contact Walls only after tick 4200.
+- Economy: tiny early lattice and very late 120-Wall cap; leanest Relay attack settings.
+- Result and replay lesson: pending 50-game sample.
