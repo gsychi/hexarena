@@ -2,6 +2,7 @@
 //! Shared by the CLI and the server so both produce identical artifacts.
 
 pub mod entrants;
+pub mod eval;
 
 use hexarena_engine::{build_replay, State};
 use hexarena_protocol::*;
