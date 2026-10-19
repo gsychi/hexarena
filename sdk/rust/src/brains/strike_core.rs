@@ -257,6 +257,9 @@ struct Knobs {
     reinforce: u32,
     /// Safety gain (milli) a move of spare troops into a fresh hex must buy to take the tick.
     reinforce_min: i64,
+    /// Demolish a Village, Farm or Quarry on a hex we took once the biggest enemy stack
+    /// next to it would kill this % of its garrison (0 = never): it falls back bare.
+    demolish_pct: u64,
 }
 
 impl Knobs {
@@ -317,6 +320,7 @@ impl Knobs {
             neck_cap: k("neck_cap", 30) as u32,
             reinforce: k("reinforce", 0) as u32,
             reinforce_min: k("reinforce_min", 300),
+            demolish_pct: k("demolish_pct", 0) as u64,
         }
     }
 
@@ -999,6 +1003,26 @@ impl StrikeCore {
         Some((gain, Action::Move { from: geo.hexes[n], to: geo.hexes[f], troops: spare as u32 }))
     }
 
+    /// A captured economic building on a hex the enemy next to it is about to retake.
+    fn doomed_building(&self, geo: &Geometry, me: PlayerId, mine: &[usize]) -> Option<Action> {
+        mine.iter()
+            .copied()
+            .filter(|&h| self.flipped[h] > 0)
+            .filter(|&h| {
+                let c = self.seen[h].unwrap();
+                matches!(c.building, Some(Building::Village | Building::Farm | Building::Quarry))
+                    && geo.nbrs[h].iter().any(|&n| {
+                        self.enemy(n, me) && {
+                            let stack = self.seen[n].unwrap().troops.saturating_sub(1) as u64;
+                            let k = self.kills(stack, self.defense(geo, n, h, c.wall_milli));
+                            k * 100 >= c.troops as u64 * self.k.demolish_pct
+                        }
+                    })
+            })
+            .min()
+            .map(|h| Action::Demolish { at: geo.hexes[h] })
+    }
+
     /// Nothing worth taking: pull troops toward the border hex facing the cheapest target.
     fn regroup(&self, geo: &Geometry, me: PlayerId, mine: &[usize], tick: u32) -> Option<Action> {
         if mine.len() < 2 {
@@ -1122,7 +1146,9 @@ impl Bot for StrikeCore {
             .then(|| self.reinforce(&geo, me, &mine))
             .flatten()
             .filter(|r| r.0 >= self.k.reinforce_min);
+        let doomed = (self.k.demolish_pct > 0).then(|| self.doomed_building(&geo, me, &mine)).flatten();
         let action = match (supply, capture) {
+            _ if doomed.is_some() => doomed.unwrap(),
             (Some((gain, a)), _) if supply_tick && gain >= self.k.supply_min => a,
             _ if reinforce.is_some() => reinforce.unwrap().1,
             _ if staging.is_some() => staging.unwrap(),
