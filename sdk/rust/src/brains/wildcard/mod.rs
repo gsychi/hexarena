@@ -192,7 +192,8 @@ pub struct Wildcard {
     /// Tick the delegate hands this format's game to the ring core (0 = never).
     handover: u32,
     inner_style: Style,
-    /// In a free-for-all, switch to the 1v1 knobs once this few players are alive (0 = never).
+    /// In a free-for-all, switch to the 1v1 knobs (with `end_` knobs on top) once this few
+    /// players are alive (0 = never).
     duel_when: usize,
     /// ... or once we own this many per mille of the passable board (0 = never).
     duel_share: u64,
@@ -252,7 +253,7 @@ enum Site {
 impl Wildcard {
     pub fn new(style: Style) -> Wildcard {
         // Every knob a format can override is read here once, so the league sees them all.
-        for prefix in ["duel_", "ffa_"] {
+        for prefix in ["duel_", "ffa_", "end_"] {
             Self::for_format(&style, prefix);
         }
         Wildcard {
@@ -728,6 +729,9 @@ impl Bot for Wildcard {
         let start = thread_cpu_ns();
         let cmd = self.decide(view);
         let took = thread_cpu_ns().saturating_sub(start);
+        if took > 3_000_000 {
+            eprintln!("slow t{} {:.3} ms delegate {}", view.tick, took as f64 / 1e6, self.delegate.is_some());
+        }
         self.cpu = Some((n + 1, total + took, worst.max(took)));
         cmd
     }
@@ -758,7 +762,8 @@ impl Wildcard {
             self.k = Knobs::read(&s);
             self.duel_when = if duel { 0 } else { s.params.knob("duel_when", 0).max(0) as usize };
             self.duel_share = if duel { 0 } else { s.params.knob("duel_share", 0).max(0) as u64 };
-            self.duel_style = (self.duel_when > 0 || self.duel_share > 0).then(|| Self::for_format(&style, "duel_"));
+            self.duel_style = (self.duel_when > 0 || self.duel_share > 0)
+                .then(|| Self::for_format(&Self::for_format(&style, "duel_"), "end_"));
             if s.params.knob("portfolio", 0) > 0 {
                 self.delegate = Some(Box::new(KeystoneBot::new(Self::for_format(&s, "ks_"))));
                 self.handover = s.params.knob("handover", 0).max(0) as u32;
