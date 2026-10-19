@@ -553,3 +553,12 @@ Relay's proven capture garrisons and spare-stack routing.
 - Economy: balanced lattice from tick 550 to 4500; Gather disabled; standard Relay
   capture margins with slightly stronger border safety.
 - Result and replay lesson: pending 50-game sample.
+
+### mole-v1 — Mole
+
+- Hypothesis: four well-spaced hill Quarries within a depth-three lattice repay both
+  through discounted builds and their live-rule Village adjacency income, while Relay's
+  thick garrisons protect the investment.
+- Economy: 120-site Quarry lattice from tick 600 to 6000, retaining 24 troops on every
+  build site and using conservative Relay safety.
+- Result and replay lesson: pending 50-game sample.
