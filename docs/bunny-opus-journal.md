@@ -105,3 +105,28 @@ survivors get finished and the game closes earlier.
 Hypothesis: v0.3-tuned border garrisons (6x the expected kills of the adjacent enemy stack)
 are too fat in v0.4; at 3.5x more troops feed the thumper and the stockpile. Probe of a
 v1 game: one Burrow held ~620k troops on 27 border hexes against a 300k thumper.
+
+burrow-v2 was already gating when v0.5 landed and was left to finish; burrow-v3 and
+burrow-v4 were retired unjudged (their v0.4 binaries believe Villages cost 75 and need
+Farm links).
+
+## Rules v0.5
+
+Village 120, Farm 30 on valleys *and plains*, every adjacent friendly Farm adds +1/tick
+to a Village (no links), Quarry discount 40%, storm off, the tick-0 View carries the
+rules. Games without the storm often run to the 10,000-tick cutoff, where survivors rank
+by land. g17 is burrow-v1's v0.4 binary carried over.
+
+### burrow-v5 — Clover Lattice
+Hypothesis: an adjacent-boost lattice: Villages on one colour of the hex 3-colouring
+((q-r) mod 3 = 0, or any hex too high for a Farm), Farms on the other two, so every
+Village is ringed by six 30-troop Farms (+7/tick per 180 troops, ~26-tick payback). Pick
+the interior site with the best income per troop (own partners count 1, empty partner
+sites 0.5). Adopt the live rules. One probe: lattice seats placed 2,3,5 vs v1-style
+seats 1,6,7; 135-286 builds by t1000, then the interior is full.
+
+### burrow-v6 — Long Tunnels
+Debug counters on a v5 game: the leading Burrow banked 4.5M troops on ~500 hexes by
+t8000 and had no thumper on 7800 of 8750 ticks; its biggest spare stack (74k) never
+found a launch pad within the 8-hex reach. Hypothesis: reach 40 converts the bank into
+land. Probes (3 seeds, 3 vs 3): avp 3.78 vs 4.22; one game conquered outright at t7440.
