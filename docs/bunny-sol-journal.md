@@ -28,4 +28,7 @@ Clean-room work for Hexarena. All strategies use only the fog-filtered `View`.
 | snowshoe-v17 — Lynx Afterburner | Fund a tick-5000 all-capture overtime rush with twelve central Villages. | Published; gate queued. | Tests whether rising attack odds can finally close games. |
 | snowshoe-v18 — Porcupine Quarry Ring | Force standalone Villages next to two Quarries so the discount actually triggers. | Published; gate queued. | v15's softer Quarry preference produced zero discounts. |
 | snowshoe-v19 — Muskox Stronghold | Feed a central Quarry/Village/Wall fortress from the shrinking outer rings. | Published; gate queued. | Tests whether defended concentration beats broad economic carpeting. |
+| snowshoe-v20 — Moose Orchard Core | Build exactly three supported Villages per central Farm. | Published; gate queued. | Tests the strongest theoretical linked-Farm payback without unsupported Villages. |
+| snowshoe-v21 — Elk Metropolis | Scale the early arena-leading standalone Village carpet from 16 to 24. | Published; gate queued. | Tests whether the 10,000-tick horizon supports substantially more investment. |
+| snowshoe-v22 — Pronghorn Lifeboat | Move one outer stack inward every tick, three rings ahead of the storm. | Published; gate queued. | Isolates aggressive evacuation from v16's lighter two-ring cadence. |
 

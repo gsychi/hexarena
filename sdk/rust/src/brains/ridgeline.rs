@@ -161,6 +161,8 @@ struct Knobs {
     quarry_bonus: i64,
     /// Whether Villages require an adjacent Farm.
     farm_required: bool,
+    /// Build at most this many Villages per current Farm before starting another Farm.
+    villages_per_farm: usize,
     /// Score penalty per hex of distance from the centre when capturing.
     capture_center: i64,
     /// Tick at which storm migration begins (0 = disabled).
@@ -215,6 +217,7 @@ impl Knobs {
             build_radius: k("build_radius", 0) as i32,
             quarry_bonus: k("quarry_bonus", 0),
             farm_required: k("farm_required", 1) > 0,
+            villages_per_farm: k("villages_per_farm", 0) as usize,
             capture_center: k("capture_center", 0),
             migrate_start: k("migrate_start", 0) as u32,
             migrate_every: k("migrate_every", 6) as u32,
@@ -728,7 +731,11 @@ impl Ridgeline {
         for kind in kinds {
             let under_kind_cap = match kind {
                 Building::Farm => counts[0] < self.k.max_farms,
-                Building::Village => counts[1] < self.k.max_villages,
+                Building::Village => {
+                    counts[1] < self.k.max_villages
+                        && (self.k.villages_per_farm == 0
+                            || counts[1] < counts[0] * self.k.villages_per_farm)
+                }
                 Building::Quarry => counts[2] < self.k.max_quarries,
                 Building::Wall => counts[3] < self.k.max_walls,
             };
