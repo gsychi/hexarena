@@ -74,7 +74,13 @@ export interface ArenaEntrant {
   games: number
   brain: string
   own_build: boolean
+  /** Its mirrored gate against the league champion, once the arena has sent it. */
+  gate: ArenaGate | null
 }
+
+export type ArenaGate =
+  | { status: 'queued'; at: number }
+  | { status: 'promoted' | 'rejected'; at: number; games: number; gain: number; gain_se: number; avp: number; champion_avp: number; champion: string; became: string | null }
 
 /** The self-playing arena: published bot versions and the retirement rule. */
 export interface ArenaInfo { autoplay: boolean; top: number; trial_games: number; entrants: ArenaEntrant[]; retired: Record<string, string> }

@@ -84,7 +84,7 @@ impl Catalog {
                 (ps, None) => format!("Generation {}, bred from {}.", g.gen, ps.join(" × ")),
             },
             params: g.params.clone(),
-            program: None,
+            program: g.program.clone(),
         })
     }
 

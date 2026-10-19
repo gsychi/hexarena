@@ -32,7 +32,9 @@ const AUTOPLAY_ENTRANTS: usize = 4;
 /// Arena entrants stay scheduled while they rank in this many places of the standings.
 const ACTIVE_TOP: usize = 20;
 /// Games an entrant plays before it can be retired for its ranking.
-const TRIAL_GAMES: u32 = 12;
+const TRIAL_GAMES: u32 = 20;
+/// Self-play games kept running at once.
+const AUTOPLAY_PARALLEL: usize = 2;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -388,11 +390,13 @@ fn autoplay_lineup(app: &AppState, catalog: &Catalog, seed: u64) -> Vec<Style> {
     seats
 }
 
-/// The self-playing arena: whenever no match is running, start an 8-player game.
+/// The self-playing arena: keeps [`AUTOPLAY_PARALLEL`] 8-player games going, and sends
+/// every new active entrant to the league for a gate against the champion.
 async fn autoplay(app: Shared) {
     loop {
         tokio::time::sleep(std::time::Duration::from_secs(2)).await;
-        if app.running() > 0 {
+        queue_gates(&app, &app.catalog());
+        if app.running() >= AUTOPLAY_PARALLEL {
             continue;
         }
         retire_outside_top(&app, &app.catalog());
@@ -403,8 +407,59 @@ async fn autoplay(app: Shared) {
     }
 }
 
+/// When each entrant was sent to the league's gate, from `gates.json` in the arena dir.
+fn gates_sent(app: &AppState) -> BTreeMap<String, u64> {
+    std::fs::read(app.arena_dir.join("gates.json"))
+        .ok()
+        .and_then(|b| serde_json::from_slice(&b).ok())
+        .unwrap_or_default()
+}
+
+/// Drops each active entrant that hasn't had one into the league inbox, so it gets the
+/// same mirrored gate as the league's own challengers. One that wins becomes the next
+/// league generation, and champion.
+fn queue_gates(app: &AppState, catalog: &Catalog) {
+    let mut sent = gates_sent(app);
+    let mut changed = false;
+    let fresh: Vec<_> = catalog.active_entrants().filter(|e| !sent.contains_key(&e.id)).collect();
+    for e in fresh {
+        let origin = if e.author.starts_with("agent:") { e.author.clone() } else { format!("agent:{}", e.author) };
+        let sub = hexarena_league::Submission {
+            origin: origin.clone(),
+            note: Some(format!("Arena version {}: {}", e.id, e.note.as_deref().unwrap_or(&e.name))),
+            params: e.params.clone(),
+            parents: None,
+            program: e.program.clone(),
+            arena: Some(e.id.clone()),
+        };
+        let at = now_ms();
+        let inbox = app.league_dir.join("inbox");
+        let path = inbox.join(format!("{at}-arena-{}.json", e.id));
+        let written = std::fs::create_dir_all(&inbox)
+            .and_then(|_| std::fs::write(&path, serde_json::to_vec_pretty(&sub).unwrap()));
+        match written {
+            Ok(()) => {
+                println!("sent {} to the league gate", e.id);
+                sent.insert(e.id.clone(), at);
+                changed = true;
+            }
+            Err(err) => eprintln!("couldn't queue {} for a gate: {err}", e.id),
+        }
+    }
+    if changed {
+        let _ = std::fs::write(app.arena_dir.join("gates.json"), serde_json::to_vec_pretty(&sent).unwrap());
+    }
+}
+
 async fn arena_info(State(app): State<Shared>) -> Json<serde_json::Value> {
     let catalog = app.catalog();
+    let sent = gates_sent(&app);
+    let gated: BTreeMap<&str, &hexarena_league::Attempt> = catalog
+        .league
+        .iter()
+        .flat_map(|l| l.attempts.iter())
+        .filter_map(|a| Some((a.arena.as_deref()?, a)))
+        .collect();
     let matches = app.matches.lock().unwrap();
     let entrants: Vec<serde_json::Value> = catalog
         .entrants
@@ -419,6 +474,16 @@ async fn arena_info(State(app): State<Shared>) -> Json<serde_json::Value> {
                 "created_at": e.created_at, "retired": e.retired, "retired_reason": e.retired_reason, "games": games,
                 "brain": if e.params.brain.is_empty() { "expander" } else { e.params.brain.as_str() },
                 "own_build": e.program.is_some(),
+                "gate": match (gated.get(e.id.as_str()), sent.get(&e.id)) {
+                    (Some(a), _) => serde_json::json!({
+                        "status": if a.became.is_some() { "promoted" } else { "rejected" },
+                        "at": a.at, "games": a.gate.games, "gain": a.gate.gain, "gain_se": a.gate.gain_se,
+                        "avp": a.gate.challenger_avp, "champion_avp": a.gate.champion_avp,
+                        "champion": a.parent, "became": a.became.map(|g| format!("g{g}")),
+                    }),
+                    (None, Some(at)) => serde_json::json!({ "status": "queued", "at": at }),
+                    (None, None) => serde_json::Value::Null,
+                },
             })
         })
         .collect();

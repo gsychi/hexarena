@@ -4,7 +4,7 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
-import type { ArenaInfo, Attempt, Generation, League, Leaderboard } from './api'
+import type { ArenaGate, ArenaInfo, Attempt, Generation, League, Leaderboard } from './api'
 import { api } from './api'
 import { EloScatter } from './EloScatter'
 
@@ -148,6 +148,69 @@ function GenerationRow({ g, elo, champion, onPlay, playing }: { g: Generation; e
   )
 }
 
+/** Arena versions next to their league gate: the same mirrored test the league's own challengers take. */
+function ArenaGates({ arena, board }: { arena: ArenaInfo; board: Leaderboard | null }) {
+  const rows = arena.entrants.filter((e) => e.gate || !e.retired).sort((a, b) => b.created_at - a.created_at)
+  const elo = new Map([...(board?.bots ?? []), ...(board?.retired_bots ?? [])].map((r) => [r.bot, r.elo]))
+  const promoted = rows.filter((e) => e.gate?.status === 'promoted').length
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Arena versions vs the champion</CardTitle>
+        <CardDescription>
+          Every new arena version is sent to the league for a mirrored gate against the current champion, the same test the league's own challengers take. A version that wins becomes the next generation and champion.
+          {rows.length > 0 && ` ${promoted} of ${rows.filter((e) => e.gate && e.gate.status !== 'queued').length} gated so far were promoted.`}
+        </CardDescription>
+      </CardHeader>
+      <CardContent>
+        {rows.length === 0 ? (
+          <p className="text-sm text-muted-foreground">No arena versions yet. Publish one with <code className="rounded bg-muted px-1.5 py-0.5 text-foreground">hexarena arena publish</code>.</p>
+        ) : (
+          <div className="divide-y rounded-lg border">
+            {rows.slice(0, 12).map((e) => (
+              <div key={e.id} className="flex flex-wrap items-center gap-x-3 gap-y-1 px-3 py-2 text-sm">
+                <span className={`min-w-0 flex-1 truncate ${e.retired ? 'text-muted-foreground' : ''}`} title={e.note ?? undefined}>
+                  <span className="font-medium">{e.name}</span>
+                  <span className="ml-2 text-xs text-muted-foreground">{e.author.replace(/^agent:/, 'agent ')}</span>
+                </span>
+                <span className="w-32 text-xs text-muted-foreground tabular-nums">{e.games} arena games{elo.has(e.id) ? ` · ${Math.round(elo.get(e.id)!)}` : ''}</span>
+                <GateCell gate={e.gate} />
+              </div>
+            ))}
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  )
+}
+
+function GateCell({ gate }: { gate: ArenaGate | null }) {
+  if (!gate) return <Badge variant="outline" className="text-muted-foreground">not sent</Badge>
+  switch (gate.status) {
+    case 'queued':
+      return <Badge variant="outline" className="gap-1 text-muted-foreground"><Loader2 className="size-3 animate-spin" />in the gate queue</Badge>
+    case 'promoted':
+    case 'rejected': {
+      const sign = gate.gain >= 0 ? '+' : ''
+      return (
+        <span className="flex items-center gap-2">
+          <span className={`tabular-nums ${gate.status === 'promoted' ? 'text-emerald-400' : gate.gain < 0 ? 'text-red-400' : 'text-muted-foreground'}`} title={`AVP ${gate.avp.toFixed(2)} vs champion ${gate.champion} ${gate.champion_avp.toFixed(2)}`}>
+            {sign}{gate.gain.toFixed(2)} ± {gate.gain_se.toFixed(2)} vs {gate.champion}
+          </span>
+          <span className="text-xs text-muted-foreground tabular-nums">{gate.games} games</span>
+          {gate.status === 'promoted'
+            ? <Badge className="bg-emerald-500/20 text-emerald-300">became {gate.became}</Badge>
+            : <Badge variant="outline" className="text-muted-foreground">rejected</Badge>}
+        </span>
+      )
+    }
+    default: {
+      const never: never = gate
+      return never
+    }
+  }
+}
+
 export function LeaguePage({ onBack, onOpen }: { onBack: () => void; onOpen: (id: string) => void }) {
   const [league, setLeague] = useState<League | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -261,7 +324,7 @@ export function LeaguePage({ onBack, onOpen }: { onBack: () => void; onOpen: (id
               <CardHeader>
                 <CardTitle>Elo over time</CardTitle>
                 <CardDescription>
-                  Every bot at the time it appeared and its current Elo (K = 32, start 1500). Amber: league generations. Violet: versions published to the arena, hollow once retired.
+                  Every bot at the time it appeared and its current Elo (K = 32, tripled for a bot's first 20 games so new versions settle fast; start 1500). Amber: league generations. Violet: versions published to the arena, hollow once retired.
                   Grey: rejected league challengers, rated on league games only. The green step line is the frontier, the best Elo anything has reached so far. Dashed lines are the roster CPUs.
                   Arena versions outside the top {arena?.top ?? board?.top ?? 20} are retired after {arena?.trial_games ?? 12} games (red line).
                 </CardDescription>
@@ -271,6 +334,8 @@ export function LeaguePage({ onBack, onOpen }: { onBack: () => void; onOpen: (id
                 <Legend items={[['#fbbf24', 'League generation'], ['#a78bfa', 'Arena version'], ['#64748b', 'Rejected challenger'], ['#4ade80', 'Frontier (best so far)']]} />
               </CardContent>
             </Card>
+
+            {arena && <ArenaGates arena={arena} board={board} />}
 
             <Card>
               <CardHeader>

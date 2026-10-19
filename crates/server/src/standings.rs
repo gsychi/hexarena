@@ -4,7 +4,8 @@
 //! game: the better place wins, an equal place is a draw. Seats with the same CPU
 //! style are not compared with each other. A seat's rating change is
 //! `K / (N - 1) * sum(actual - expected)` over its opponents, and a style with
-//! several seats in one game takes the average of their changes. Ratings move only
+//! several seats in one game takes the average of their changes. A style's first
+//! [`PROVISIONAL_GAMES`] games use [`PROVISIONAL_K`] times K. Ratings move only
 //! after the whole game is scored, and games are applied oldest first.
 
 use serde::Serialize;
@@ -12,6 +13,10 @@ use std::collections::BTreeMap;
 
 pub const START_ELO: f64 = 1500.0;
 pub const K: f64 = 32.0;
+/// A bot's first games move its rating this many times as far, so a new version reaches
+/// its real level before it can be retired for its ranking.
+pub const PROVISIONAL_K: f64 = 3.0;
+pub const PROVISIONAL_GAMES: u32 = 20;
 const HISTORY: usize = 60;
 
 /// One seat's outcome in one finished game.
@@ -90,8 +95,9 @@ pub fn standings(games: &[Vec<SeatResult>], name: impl Fn(&str) -> String) -> Ve
                 };
                 d += actual - expected(rating[i], rating[j]);
             }
+            let k = if rows[a.bot].games < PROVISIONAL_GAMES { K * PROVISIONAL_K } else { K };
             let e = delta.entry(a.bot).or_insert((0.0, 0));
-            e.0 += K / (n - 1) as f64 * d;
+            e.0 += k / (n - 1) as f64 * d;
             e.1 += 1;
         }
         for (bot, (sum, seats)) in delta {
