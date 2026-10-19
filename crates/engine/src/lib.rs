@@ -1,5 +1,6 @@
 //! Pure deterministic Hexarena rules engine. No I/O, clocks, or global state.
 
+pub mod europe;
 pub mod mapgen;
 pub mod rng;
 pub mod scoring;

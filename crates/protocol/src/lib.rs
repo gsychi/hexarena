@@ -273,6 +273,16 @@ pub struct RulesConfig {
     #[serde(default, skip_serializing_if = "is_false")]
     pub region_capture: bool,
     pub spawn_min_distance: i32,
+    /// A hand-drawn landmass instead of the procedural map; `None` is procedural.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub map: Option<MapPreset>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum MapPreset {
+    /// Mainland Europe from Lisbon to Kyiv, without the islands.
+    Europe,
 }
 
 fn is_false(b: &bool) -> bool {
@@ -359,6 +369,7 @@ impl Default for RulesConfig {
             impassable_breaks_encirclement: true,
             region_capture: true,
             spawn_min_distance: 8,
+            map: None,
         }
     }
 }

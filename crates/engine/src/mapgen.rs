@@ -1,8 +1,9 @@
 //! Procedural asymmetric map generation with topology validation.
 
+use crate::europe;
 use crate::rng::{fbm, splitmix, Rng};
 use crate::Board;
-use hexarena_protocol::{Building, Hex, MatchSettings, Terrain, TerrainKind};
+use hexarena_protocol::{Building, Hex, MapPreset, MatchSettings, Terrain, TerrainKind};
 use std::collections::VecDeque;
 
 #[derive(Clone, Debug)]
@@ -16,7 +17,7 @@ pub struct GeneratedMap {
 
 const HEIGHT_QUANTILES_PCT: [usize; 5] = [15, 20, 30, 20, 15];
 
-fn planar(h: Hex) -> (f64, f64) {
+pub(crate) fn planar(h: Hex) -> (f64, f64) {
     (h.q as f64 + h.r as f64 * 0.5, h.r as f64 * 0.866_025_4)
 }
 
@@ -101,7 +102,7 @@ pub fn passable(board: &Board, terrain: &[Option<Terrain>], h: Hex) -> bool {
         .unwrap_or(false)
 }
 
-fn keep_largest_component(board: &Board, terrain: &mut [Option<Terrain>]) {
+pub(crate) fn keep_largest_component(board: &Board, terrain: &mut [Option<Terrain>]) {
     let hexes = board.hexes();
     let mut comp = vec![usize::MAX; board.slots()];
     let mut sizes = vec![];
@@ -182,7 +183,7 @@ pub fn has_two_independent_routes(board: &Board, terrain: &[Option<Terrain>], sp
     route(board, terrain, spawn, 6, &interior).is_some()
 }
 
-fn open_within(board: &Board, terrain: &[Option<Terrain>], c: Hex, r: i32) -> usize {
+pub(crate) fn open_within(board: &Board, terrain: &[Option<Terrain>], c: Hex, r: i32) -> usize {
     let mut n = 0;
     for dq in -r..=r {
         for dr in (-r).max(-dq - r)..=r.min(-dq + r) {
@@ -261,6 +262,10 @@ pub fn generate(s: &MatchSettings) -> Result<GeneratedMap, String> {
             "player count {} outside {}..={}",
             s.players, rules.min_players, rules.max_players
         ));
+    }
+    match rules.map {
+        Some(MapPreset::Europe) => return europe::generate(s),
+        None => {}
     }
     let radius = rules.radius_for_players(s.players);
     let board = Board::new(radius);

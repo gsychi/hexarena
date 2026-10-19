@@ -1273,3 +1273,89 @@ fn tick_limit_ranks_survivors() {
     assert_eq!(r.final_tick, 3);
     assert!((0..2).all(|p| r.placement(p).eliminated_at.is_none()));
 }
+
+fn europe(players: u16, seed: u64) -> MatchSettings {
+    let mut s = settings(players, seed);
+    s.rules.map = Some(MapPreset::Europe);
+    s
+}
+
+fn open_components(st: &State) -> usize {
+    let mut seen = vec![false; st.board.slots()];
+    let mut parts = 0;
+    for h in st.board.hexes() {
+        let i = st.board.index(h).unwrap();
+        if seen[i] || !passable(&st.board, &st.terrain, h) {
+            continue;
+        }
+        parts += 1;
+        let mut stack = vec![h];
+        seen[i] = true;
+        while let Some(c) = stack.pop() {
+            for nb in c.neighbors() {
+                if let Some(j) = st.board.index(nb) {
+                    if !seen[j] && passable(&st.board, &st.terrain, nb) {
+                        seen[j] = true;
+                        stack.push(nb);
+                    }
+                }
+            }
+        }
+    }
+    parts
+}
+
+#[test]
+fn europe_is_one_landmass_with_a_start_for_every_lobby_size() {
+    for players in 2..=8u16 {
+        for seed in 0..4 {
+            let st = State::new(europe(players, seed), vec![]).unwrap();
+            assert_eq!(open_components(&st), 1, "{players} players, seed {seed}");
+            let owned = (0..players).filter(|&p| st.hex_counts()[p as usize] == 1).count();
+            assert_eq!(owned, players as usize);
+            let open = st.terrain.iter().flatten().filter(|t| t.passable()).count();
+            let water = st.terrain.iter().flatten().filter(|t| t.kind == TerrainKind::Water).count();
+            assert!(water * 4 > st.board.hexes().len(), "the sea should be a big part of the board");
+            assert!(open * 10 >= europe::radius(&europe(players, seed)) as usize, "land exists");
+        }
+    }
+}
+
+#[test]
+fn europe_has_farmland_and_quarry_hills() {
+    let st = State::new(europe(6, 9), vec![]).unwrap();
+    let open: Vec<i8> = st.terrain.iter().flatten().filter(|t| t.passable()).map(|t| t.height).collect();
+    assert!(open.iter().filter(|&&h| h <= 0).count() * 2 > open.len());
+    assert!(open.iter().filter(|&&h| h >= 1).count() * 5 > open.len());
+}
+
+#[test]
+fn europe_places_land_in_the_right_countries() {
+    let s = europe(4, 1);
+    let st = State::new(s.clone(), vec![]).unwrap();
+    let places = europe::places(st.board.radius);
+    let at = |name: &str| places.iter().find(|p| p.0 == name).unwrap().1;
+    let (paris, berlin, madrid, rome) = (at("Paris"), at("Berlin"), at("Madrid"), at("Rome"));
+    let x = |h: Hex| h.q as f64 + h.r as f64 / 2.0;
+    assert!(x(madrid) < x(paris) && x(paris) < x(berlin));
+    assert!(rome.r > paris.r && madrid.r > paris.r);
+    if std::env::var("EUROPE_ASCII").is_ok() {
+        let r = st.board.radius;
+        for row in -r..=r {
+            let mut line = " ".repeat(row.unsigned_abs() as usize);
+            for q in -r..=r {
+                let h = Hex::new(q, row);
+                let Some(t) = st.board.index(h).and_then(|i| st.terrain[i]) else { continue };
+                let c = match (t.kind, st.cell(h).unwrap().owner) {
+                    (_, Some(_)) => '@',
+                    (TerrainKind::Water, _) => '.',
+                    (TerrainKind::Mountain, _) => '^',
+                    (TerrainKind::Open, _) => match t.height { -2 => '_', -1 => '-', 0 => '=', 1 => 'n', _ => 'N' },
+                };
+                line.push(c);
+                line.push(' ');
+            }
+            println!("{line}");
+        }
+    }
+}
