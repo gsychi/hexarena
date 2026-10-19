@@ -766,3 +766,10 @@ or Predator as the tactical executor.
   industry and earlier 20-Wall shell than from Tiger's larger plain lattice.
 - Economy: 72-site one-Quarry lattice and 20 midgame Walls over Predator.
 - Result and replay lesson: pending 50-game sample.
+
+### shark-v1 — Shark
+
+- Hypothesis: Predator alone supplies enough cleanup pressure, so every available build
+  should compound a depth-three 140-site lattice rather than fortify.
+- Economy: maximum deep Farm/Village lattice, no Walls, Predator executor.
+- Result and replay lesson: pending 50-game sample.
