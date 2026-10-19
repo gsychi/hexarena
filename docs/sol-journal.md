@@ -578,3 +578,11 @@ Relay's proven capture garrisons and spare-stack routing.
   conquest rather than another cutoff.
 - Economy: shallow lattice from tick 500 to 3000, then lean aggressive Relay.
 - Result and replay lesson: pending 50-game sample.
+
+### heron-v1 — Heron
+
+- Hypothesis: delaying until 75 land, requiring depth three, and guarding every capture
+  heavily lets a maximum Quarry lattice survive long enough to dominate the no-storm
+  late game.
+- Economy: five-Quarry 160-site lattice through tick 7000; compact, low-forward Relay.
+- Result and replay lesson: pending 50-game sample.
