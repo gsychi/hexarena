@@ -185,6 +185,7 @@ version = "0.1.0"
 dependencies = [
  "hexarena-protocol",
  "serde",
+ "serde_json",
 ]
 
 [[package]]

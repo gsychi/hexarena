@@ -1,6 +1,8 @@
 //! Runs CPU matches on the engine and converts replays into the viewer format.
 //! Shared by the CLI and the server so both produce identical artifacts.
 
+pub mod entrants;
+
 use hexarena_engine::{build_replay, State};
 use hexarena_protocol::*;
 use hexarena_sdk::{brains, Bot, Style};
