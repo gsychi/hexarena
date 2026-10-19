@@ -25,7 +25,7 @@ eight-player scale, so lower is better.
   discounts combat losses, and gives a large bid bonus to finishing that rival. It favors
   compact borders over unexplored space.
 - Published params: `docs/arena-genomes/mosaic-v2.json`.
-- Result after 16 games: Elo 1528, AVP8 4.12, win rate 12.5%, top-half 56.2%.
+- Result after 66 games: Elo 1592, AVP8 3.67, win rate 18.2%, top-half 68.2%.
 - Replay lesson: best first-cohort policy. It commonly issued 2,700–2,980 moves, produced
   100–430 surrendered hexes, and took two early wins, but later crowded games pulled its
   average down. Prey focus reliably spent actions instead of waiting.
@@ -151,8 +151,11 @@ eight-player scale, so lower is better.
   exposed for eight ticks. Doctrine 6 adds a 300-point counter-bid while retaining its
   weak-rival/runaway/aggression portfolio.
 - Published params: `docs/arena-genomes/mosaic-v11.json`.
-- Result: pending live arena trial.
-- Replay lesson: pending.
+- Result after 13 games: Elo 1522, AVP8 4.08, win rate 7.7%, top-half 46.2%.
+- Replay lesson: one 358-land win and three consecutive 193–266-land podiums show that
+  source-vacancy modeling can find real openings. The floor remained poor: a late loss
+  gathered 1,881 times after its front became unaffordable. Counter-bids improve target
+  timing but do not solve logistics after losing critical border land.
 
 ## mosaic-v12 — Tidal Clock
 
@@ -163,5 +166,8 @@ eight-player scale, so lower is better.
   its best launch pad for the first four ticks of each 40-tick cycle, then resumes
   low-reserve, low-margin prey cleanup.
 - Published params: `docs/arena-genomes/mosaic-v12.json`.
-- Result: pending live arena trial.
-- Replay lesson: pending.
+- Result after 13 games: Elo 1448, AVP8 5.69, win rate 0.0%, top-half 7.7%; retired by hand.
+- Replay lesson: periodic concentration was actively harmful. Charge actions often appeared
+  as friendly `Move`s rather than `Gather`s, so raw action count hid the tempo loss. It
+  captured many repeatedly contested hexes (up to 2,386 capture events) but converted that
+  churn into little final land. Continuous target choice beats a fixed attack clock.
