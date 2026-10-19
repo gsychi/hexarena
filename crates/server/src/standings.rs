@@ -9,7 +9,6 @@
 //! by [`game_weight`]: one ended before the cutoff counts N times a cutoff game. Ratings
 //! move only after the whole game is scored, and games are applied oldest first.
 
-pub use hexarena_league::game_weight;
 use serde::Serialize;
 use std::collections::BTreeMap;
 
@@ -24,6 +23,15 @@ pub const PROVISIONAL_GAMES: u32 = 20;
 /// enough to tell apart bots half a place to a place apart.
 pub const RATED_GAMES: u32 = 50;
 const HISTORY: usize = 60;
+
+/// How far a finished game moves ratings, as a multiple of K. A game someone ended
+/// before the cutoff counts as many times as a cutoff game as there were players, so
+/// closing out an 8-player lobby is worth 8 times coasting to the cutoff in one. The
+/// ended weight stays at 2, so ratings are as steady as before when most games end.
+pub fn game_weight(ended: bool, players: usize) -> f64 {
+    const ENDED: f64 = 2.0;
+    if ended { ENDED } else { ENDED / players.max(1) as f64 }
+}
 
 /// One seat's outcome in one finished game.
 pub struct SeatResult<'a> {

@@ -1,10 +1,10 @@
-import { ArrowLeft, Gauge, Hash, Loader2, Play, Swords, Trophy, TriangleAlert } from 'lucide-react'
+import { ArrowLeft, Gauge, Hash, Loader2, Play, Sprout, Swords, Trophy, TriangleAlert } from 'lucide-react'
 import { useCallback, useEffect, useState } from 'react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
-import type { BotProfile, EloCurve, ProfileGame } from './api'
+import type { BotProfile, EloCurve, Kin, ProfileGame } from './api'
 import { api } from './api'
 import { BotAvatar } from './BotAvatar'
 
@@ -102,7 +102,35 @@ function EloChart({ curves, start }: { curves: EloCurve[]; start: number }) {
   )
 }
 
-export function BotPage({ id, onBack, onOpen }: { id: string; onBack: () => void; onOpen: (match: string) => void }) {
+function KinList({ title, hint, kin, empty, onBot }: { title: string; hint: string; kin: Kin[]; empty: string; onBot: (id: string) => void }) {
+  return (
+    <div className="min-w-0 space-y-2">
+      <div>
+        <div className="text-sm font-medium">{title}</div>
+        <div className="text-xs text-muted-foreground">{hint}</div>
+      </div>
+      {kin.length === 0 ? (
+        <p className="rounded-lg border border-dashed px-3 py-4 text-center text-xs text-muted-foreground">{empty}</p>
+      ) : (
+        <div className="flex flex-wrap gap-2">
+          {kin.map((k, i) => (
+            <button key={k.id} type="button" onClick={() => onBot(k.id)}
+              className={`flex items-center gap-2 rounded-xl border bg-muted/30 py-1.5 pr-3 pl-1.5 text-left transition-colors hover:bg-muted ${k.retired ? 'opacity-60' : ''}`}
+              title={k.retired ? `${k.name} (retired)` : k.name}>
+              <BotAvatar id={k.id} name={k.name} size={36} />
+              <span className="min-w-0">
+                <span className="block truncate text-sm">{k.name}</span>
+                <span className="block font-mono text-[10px] text-muted-foreground">{k.id}{title === 'Parents' && i === 0 && kin.length > 1 ? ' · main' : ''}{k.retired ? ' · retired' : ''}</span>
+              </span>
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+export function BotPage({ id, onBack, onOpen, onBot }: { id: string; onBack: () => void; onOpen: (match: string) => void; onBot: (id: string) => void }) {
   const [profile, setProfile] = useState<BotProfile | null>(null)
   const [error, setError] = useState<string | null>(null)
   const load = useCallback(() => {
@@ -114,7 +142,7 @@ export function BotPage({ id, onBack, onOpen }: { id: string; onBack: () => void
     return () => clearInterval(t)
   }, [load])
 
-  const back = <Button variant="ghost" size="sm" onClick={onBack}><ArrowLeft />Arena</Button>
+  const back = <Button variant="ghost" size="sm" onClick={onBack}><ArrowLeft />Bots</Button>
   if (error && !profile) {
     return (
       <div className="mx-auto max-w-5xl space-y-4 p-4 sm:p-6">
@@ -147,7 +175,7 @@ export function BotPage({ id, onBack, onOpen }: { id: string; onBack: () => void
             <h1 className="text-2xl font-semibold tracking-tight">{bot.name}</h1>
             <div className="flex flex-wrap justify-center gap-1.5 sm:justify-start">
               <Badge variant="outline" className="font-mono">{bot.id}</Badge>
-              {bot.kind && <Badge variant="outline">{bot.kind === 'entrant' ? 'arena entrant' : bot.kind === 'league' ? 'league generation' : 'roster CPU'}</Badge>}
+              {bot.kind && <Badge variant="outline">{bot.kind === 'entrant' ? 'arena version' : 'roster CPU'}</Badge>}
               {author && <Badge className="bg-violet-500/20 text-violet-200">{author}</Badge>}
               {bot.brain && <Badge variant="outline">brain · {bot.brain}</Badge>}
               {bot.retired && <Badge variant="destructive" title={bot.retired}>retired</Badge>}
@@ -172,6 +200,18 @@ export function BotPage({ id, onBack, onOpen }: { id: string; onBack: () => void
 
         <Card>
           <CardHeader>
+            <CardTitle className="flex items-center gap-2"><Sprout className="size-4 text-emerald-400" />Family</CardTitle>
+            <CardDescription>Parents are the bots this one takes its policy from, as its author declared when publishing. Kids inherit their mascot from their parents: ears from the main parent, a mix of the rest, and one feature of their own.</CardDescription>
+          </CardHeader>
+          <CardContent className="grid gap-5 sm:grid-cols-2">
+            <KinList title="Parents" hint="Where its policy comes from, main parent first" kin={profile.parents} onBot={onBot}
+              empty={bot.kind === 'roster' ? 'A hand-written roster CPU: the first generation.' : 'Written from scratch, or its author hasn’t named its parents yet.'} />
+            <KinList title="Kids" hint="Versions that build on this one" kin={profile.children} onBot={onBot} empty="No versions build on this one yet." />
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
             <CardTitle>Elo over time</CardTitle>
             <CardDescription>Rating after every game under rules {profile.rules_version}, from the {profile.start_elo} everyone starts at. Earlier rules versions aren't shown: ratings restart when the rules change.</CardDescription>
           </CardHeader>
@@ -181,7 +221,7 @@ export function BotPage({ id, onBack, onOpen }: { id: string; onBack: () => void
         <Card>
           <CardHeader>
             <CardTitle>Game log</CardTitle>
-            <CardDescription>{profile.games.length === 0 ? `No arena games under rules ${profile.rules_version} yet.` : `${profile.games.length === 300 ? 'Newest 300' : profile.games.length} arena game${profile.games.length === 1 ? '' : 's'} under rules ${profile.rules_version}, newest first. League games count toward Elo but have no replay here.`}</CardDescription>
+            <CardDescription>{profile.games.length === 0 ? `No arena games under rules ${profile.rules_version} yet.` : `${profile.games.length === 300 ? 'Newest 300' : profile.games.length} arena game${profile.games.length === 1 ? '' : 's'} under rules ${profile.rules_version}, newest first.`}</CardDescription>
           </CardHeader>
           <CardContent>
             {profile.games.length === 0 ? (
