@@ -171,7 +171,7 @@ export function Home({ onOpen, onLeague }: { onOpen: (id: string) => void; onLea
             </div>
 
             <p className="text-[11px] text-muted-foreground">
-              Every game runs until one player owns every hex, with a cutoff at 3000 ticks. At the cutoff, survivors are ranked by land.
+              Every game ends the moment one player is left standing, with a cutoff at 3000 ticks. At the cutoff, survivors are ranked by land.
             </p>
 
             <div className="grid grid-cols-2 gap-4">

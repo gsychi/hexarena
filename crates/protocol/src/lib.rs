@@ -207,8 +207,8 @@ pub struct RulesConfig {
     pub tick_rate_hz: u32,
     /// Hard cutoff; survivors are ranked by land, troops, resource, buildings.
     pub max_ticks: u32,
-    /// End only when one player owns every traversable hex. When false, the match
-    /// ends as soon as one player is left standing (the only ending before v0.1).
+    /// End only when one player owns every traversable hex (v0.1). When false, the
+    /// match ends as soon as one player is left standing (v0 and v0.2 onward).
     #[serde(default, skip_serializing_if = "is_false")]
     pub end_on_total_conquest: bool,
     pub fog_radius: i32,
@@ -235,7 +235,7 @@ fn is_false(b: &bool) -> bool {
 impl Default for RulesConfig {
     fn default() -> Self {
         RulesConfig {
-            version: "v0.1".into(),
+            version: "v0.2".into(),
             min_players: 2,
             max_players: 8,
             map_radius_factor: 7.5,
@@ -249,7 +249,7 @@ impl Default for RulesConfig {
             start_resource: 0,
             tick_rate_hz: 2,
             max_ticks: 3000,
-            end_on_total_conquest: true,
+            end_on_total_conquest: false,
             fog_radius: 3,
             queue_limit: 1,
             public_terrain: true,

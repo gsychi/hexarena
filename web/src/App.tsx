@@ -1,5 +1,5 @@
 import { ArrowLeft, ChevronFirst, ChevronLast, Link2, Loader2, Mountain, Pause, Play, RotateCcw, SkipBack, SkipForward, Swords, Trophy } from 'lucide-react'
-import { useEffect, useMemo, useState } from 'react'
+import { memo, useEffect, useMemo, useState } from 'react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -13,7 +13,7 @@ import { Board, buildingPips } from './Board'
 import { BuildingIcon, Legend } from './Legend'
 import type { Cell, GameEvent, Placement, ViewerReplay } from './model'
 import {
-  BUILDING_KEYS, BUILDING_NAMES, HEIGHT_STYLE, PLAYER_COLORS, PLAYER_MARKS, buildPreview, decodeFrames, defenseMilli, frameCells, hexAt, hexIndex, visibleSet,
+  BUILDING_KEYS, BUILDING_NAMES, HEIGHT_STYLE, PLAYER_COLORS, PLAYER_MARKS, buildPreview, defenseMilli, frameCells, hexAt, hexIndex, loadViewer, visibleSet,
 } from './model'
 
 const SPEEDS = [1, 2, 4, 8, 16]
@@ -61,10 +61,10 @@ export function Viewer({ src, label, onBack }: { src: string; label: string; onB
     setRep(null); setError(null); setTick(0); setPlaying(false); setSelected(null)
     fetch(src)
       .then((r) => { if (!r.ok) throw new Error(`${r.status} ${r.statusText}`); return r.json() })
-      .then((raw: ViewerReplay & { frame_encoding?: string }) => {
-        const loaded = raw.frame_encoding === 'delta-v2' ? { ...raw, frames: decodeFrames(raw.frames) } : raw
+      .then((raw) => {
+        const loaded = loadViewer(raw)
         const want = new URLSearchParams(location.search).get('tick')
-        const lastTick = loaded.frames.length - 1
+        const lastTick = loaded.store.last
         if (want) setTick(want === 'end' ? lastTick : Math.min(lastTick, Math.max(0, Number(want) || 0)))
         setRep(loaded)
       })
@@ -73,14 +73,22 @@ export function Viewer({ src, label, onBack }: { src: string; label: string; onB
 
   useEffect(() => {
     if (!playing || !rep) return
-    const id = setInterval(() => setTick((t) => (t >= rep.frames.length - 1 ? (setPlaying(false), t) : t + 1)), 1000 / speed)
+    const id = setInterval(() => setTick((t) => (t >= rep.store.last ? (setPlaying(false), t) : t + 1)), 1000 / speed)
     return () => clearInterval(id)
   }, [playing, speed, rep])
 
-  useEffect(() => { if (rep && tick < rep.frames.length - 1) setHideEnd(false) }, [tick, rep])
+  useEffect(() => { if (rep && tick < rep.store.last) setHideEnd(false) }, [tick, rep])
 
   const cells = useMemo(() => (rep ? frameCells(rep, tick) : new Map<number, Cell>()), [rep, tick])
   const visible = useMemo(() => (rep && perspective >= 0 ? visibleSet(rep, cells, perspective) : null), [rep, cells, perspective])
+  const builtBy = useMemo(() => {
+    if (!rep) return []
+    const acc = [0, 0, 0, 0]
+    return rep.events.map((evs) => {
+      for (const e of evs) if (e.type === 'built') acc[kindOf(e.building) - 1]++
+      return acc.slice()
+    })
+  }, [rep])
 
   if (error) return (
     <div className="flex h-full flex-col items-center justify-center gap-3 p-6 text-center">
@@ -90,7 +98,7 @@ export function Viewer({ src, label, onBack }: { src: string; label: string; onB
   )
   if (!rep) return <div className="flex h-full items-center justify-center gap-2 text-muted-foreground"><Loader2 className="size-4 animate-spin" />Loading replay…</div>
 
-  const last = rep.frames.length - 1
+  const last = rep.store.last
   const r = rep.rules
   const stats = rep.names.map((_, p) => {
     let land = 0, troops = 0, income = 0
@@ -103,8 +111,7 @@ export function Viewer({ src, label, onBack }: { src: string; label: string; onB
     }
     return { land, troops, income, built }
   })
-  const builtSoFar = [0, 0, 0, 0]
-  for (let t = 0; t <= tick; t++) for (const e of rep.events[t]) if (e.type === 'built') builtSoFar[kindOf(e.building) - 1]++
+  const builtSoFar = builtBy[tick] ?? [0, 0, 0, 0]
   const feed: FeedItem[] = []
   for (let t = tick; t >= Math.max(1, tick - 60) && feed.length < 14; t--)
     for (const e of rep.events[t]) {
@@ -210,8 +217,8 @@ export function Viewer({ src, label, onBack }: { src: string; label: string; onB
           </Card>
         </TabsContent>
         <TabsContent value="hex"><HexPanel rep={rep} cells={cells} selected={selected} visible={visible} /></TabsContent>
-        <TabsContent value="legend"><Legend /></TabsContent>
-        <TabsContent value="stats"><Report rep={rep} /></TabsContent>
+        <TabsContent value="legend"><StaticLegend /></TabsContent>
+        <TabsContent value="stats"><MatchReport rep={rep} /></TabsContent>
       </Tabs>
     </div>
   )
@@ -264,7 +271,7 @@ function MatchOver({ rep, onReplay, onClose }: { rep: ViewerReplay; onReplay: ()
     winner.land === passable
       ? `Conquered all ${passable} hexes at tick ${tick}.`
       : survivors <= 1 && !rep.rules.end_on_total_conquest
-        ? 'Last player standing.'
+        ? `Last player standing at tick ${tick}.`
         : `Cut off at tick ${tick} before anyone took all the land. Survivors ranked by land, then troops.`
   const place = (p: Placement) => (p.place_start === p.place_end ? `#${p.place_start}` : `#${p.place_start}–${p.place_end}`)
   return (
@@ -398,7 +405,9 @@ function BuildingDetail({ rep, c, wallLinks }: { rep: ViewerReplay; c: Cell; wal
   )
 }
 
-function Report({ rep }: { rep: ViewerReplay }) {
+const StaticLegend = memo(Legend)
+
+const MatchReport = memo(function Report({ rep }: { rep: ViewerReplay }) {
   const rows = BUILDING_KEYS.map((k, i) => ({ k, name: BUILDING_NAMES[i], r: rep.building_report[k] }))
   const lines: [string, (x: ViewerReplay['building_report']['farm']) => string][] = [
     ['Built', (x) => String(x.constructed)],
@@ -431,4 +440,4 @@ function Report({ rep }: { rep: ViewerReplay }) {
       </CardContent>
     </Card>
   )
-}
+})

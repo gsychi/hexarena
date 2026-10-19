@@ -117,13 +117,29 @@ impl League {
     /// hand-written Expander.
     pub fn open(dir: &Path) -> Result<League, String> {
         std::fs::create_dir_all(dir.join("inbox")).map_err(|e| e.to_string())?;
-        if Self::path(dir).exists() {
-            return Self::load(dir);
+        if !Self::path(dir).exists() {
+            return Self::seed(dir, BotParams::default(), "seed", "The hand-written Expander".into());
         }
-        let seed = Entrant {
-            id: "g0".into(),
-            params: BotParams::default(),
-        };
+        let old = Self::load(dir)?;
+        if old.rules_version == RulesConfig::default().version {
+            return Ok(old);
+        }
+        // Ratings and benchmarks don't carry across rules, so the old league is archived
+        // and a new one starts from its champion.
+        let archive = dir.join("archive").join(&old.rules_version);
+        std::fs::create_dir_all(&archive).map_err(|e| e.to_string())?;
+        for file in ["league.json", "games.jsonl"] {
+            if dir.join(file).exists() {
+                std::fs::rename(dir.join(file), archive.join(file)).map_err(|e| e.to_string())?;
+            }
+        }
+        let c = old.champion();
+        let note = format!("Champion {} of the rules {} league, carried over", c.id, old.rules_version);
+        Self::seed(dir, c.params.clone(), "carryover", note)
+    }
+
+    fn seed(dir: &Path, params: BotParams, origin: &str, note: String) -> Result<League, String> {
+        let seed = Entrant { id: "g0".into(), params };
         let (bench, logs) = benchmark(&seed, &roster_entrants())?;
         let mut league = League {
             rules_version: RulesConfig::default().version,
@@ -134,8 +150,8 @@ impl League {
                 gen: 0,
                 id: seed.id,
                 parent: None,
-                origin: "seed".into(),
-                note: Some("The hand-written Expander".into()),
+                origin: origin.into(),
+                note: Some(note),
                 created_at: now_ms(),
                 params: seed.params,
                 changes: vec![],
@@ -351,6 +367,8 @@ mod tests {
             ids: vec!["a".into(), "b".into(), "c".into()],
             avp: vec![1.0, 4.5, 8.0],
             at: 0,
+            final_tick: 3000,
+            closer: None,
         };
         apply_elo(&mut elo, &log);
         assert!(elo["a"] > START_ELO && elo["c"] < START_ELO);

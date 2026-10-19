@@ -54,7 +54,9 @@ export interface ViewerReplay {
   rules: Rules
   terrain: Terrain[]
   neutral: number[]
+  /** Raw frames as served; read them through `store`. */
   frames: number[][]
+  store: FrameStore
   events: GameEvent[][]
   result: { rules_version: string; final_tick: number; placements: Placement[] }
   building_report: { matches: number; farm: KindReport; village: KindReport; quarry: KindReport; wall: KindReport }
@@ -103,57 +105,116 @@ export interface Cell {
 }
 
 const DELTA_REMOVED = 1 << 8
+/** Record fields (owner, troops, building, remaining, link×3, cooldown) the encoder predicts linearly. */
 const DELTA_PREDICTED = [1, 3, 7]
+const FIELDS = 8
+const KEYFRAME_EVERY = 64
 
-/** Expands `delta-v2` frames (see `frame_delta` in the CLI) into full stride-9 frames. */
-export function decodeFrames(raw: number[][]): number[][] {
-  const cur = new Map<number, number[]>()
-  const vel = new Map<number, number[]>()
-  const f0 = raw[0]
-  for (let i = 0; i < f0.length; i += 9) cur.set(f0[i], f0.slice(i + 1, i + 9))
-  const flatten = () => {
-    const out: number[] = []
-    for (const idx of [...cur.keys()].sort((a, b) => a - b)) out.push(idx, ...cur.get(idx)!)
-    return out
-  }
-  const frames = [flatten()]
-  for (let t = 1; t < raw.length; t++) {
-    const prev = new Map(cur)
-    for (const [idx, rec] of cur) {
-      const v = vel.get(idx) ?? [0, 0, 0]
-      const next = rec.slice()
-      DELTA_PREDICTED.forEach((k, j) => { next[k] += v[j] })
-      cur.set(idx, next)
+interface Snapshot { s: Int32Array; present: Uint8Array; vel: Int32Array }
+
+/**
+ * Random access to the frames of a `delta-v2` viewer document (see `frame_delta` in the
+ * arena crate) without expanding them all: one decoding pass stores a snapshot every
+ * 64 ticks, and any tick is rebuilt from the nearest snapshot or the last tick shown.
+ */
+export class FrameStore {
+  readonly last: number
+  private s: Int32Array
+  private present: Uint8Array
+  private vel: Int32Array
+  private old: Int32Array
+  private was: Uint8Array
+  private at = 0
+  private keys: Snapshot[] = []
+  private raw: number[][]
+  private size: number
+  private full: boolean
+
+  constructor(raw: number[][], size: number, full: boolean) {
+    this.raw = raw; this.size = size; this.full = full
+    this.last = raw.length - 1
+    this.s = new Int32Array(size * FIELDS)
+    this.present = new Uint8Array(size)
+    this.vel = new Int32Array(size * 3)
+    this.old = new Int32Array(size * 3)
+    this.was = new Uint8Array(size)
+    if (full) return
+    this.load(raw[0])
+    for (let t = 0; t <= this.last; t++) {
+      if (t > 0) this.step(raw[t])
+      if (t % KEYFRAME_EVERY === 0) this.keys.push({ s: this.s.slice(), present: this.present.slice(), vel: this.vel.slice() })
     }
-    const d = raw[t]
+    this.restore(0)
+  }
+
+  private load(f: number[]) {
+    this.s.fill(0); this.present.fill(0); this.vel.fill(0)
+    for (let i = 0; i < f.length; i += 9) {
+      const idx = f[i]
+      this.present[idx] = 1
+      for (let k = 0; k < FIELDS; k++) this.s[idx * FIELDS + k] = f[i + 1 + k]
+    }
+  }
+
+  private restore(t: number) {
+    const k = this.keys[Math.floor(t / KEYFRAME_EVERY)]
+    this.s.set(k.s); this.present.set(k.present); this.vel.set(k.vel)
+    this.at = Math.floor(t / KEYFRAME_EVERY) * KEYFRAME_EVERY
+  }
+
+  private step(d: number[]) {
+    const { s, present, vel, old, was, size } = this
+    for (let idx = 0; idx < size; idx++) {
+      if (!present[idx]) continue
+      was[idx] = 1
+      for (let j = 0; j < 3; j++) {
+        const at = idx * FIELDS + DELTA_PREDICTED[j]
+        old[idx * 3 + j] = s[at]
+        s[at] += vel[idx * 3 + j]
+      }
+    }
     let i = 0
     while (i < d.length) {
       const idx = d[i], mask = d[i + 1]
       i += 2
-      if (mask & DELTA_REMOVED) { cur.delete(idx); continue }
-      const rec = cur.get(idx) ?? new Array(8).fill(0)
-      for (let k = 0; k < 8; k++) if (mask & (1 << k)) rec[k] = d[i++]
-      cur.set(idx, rec)
+      if (mask & DELTA_REMOVED) { present[idx] = 0; continue }
+      if (!present[idx]) { s.fill(0, idx * FIELDS, idx * FIELDS + FIELDS); present[idx] = 1 }
+      for (let k = 0; k < FIELDS; k++) if (mask & (1 << k)) s[idx * FIELDS + k] = d[i++]
     }
-    vel.clear()
-    for (const [idx, rec] of cur) {
-      const old = prev.get(idx)
-      vel.set(idx, old ? DELTA_PREDICTED.map((k) => rec[k] - old[k]) : [0, 0, 0])
+    for (let idx = 0; idx < size; idx++) {
+      for (let j = 0; j < 3; j++)
+        vel[idx * 3 + j] = present[idx] && was[idx] ? s[idx * FIELDS + DELTA_PREDICTED[j]] - old[idx * 3 + j] : 0
+      was[idx] = 0
     }
-    frames.push(flatten())
   }
-  return frames
+
+  private seek(t: number) {
+    if (this.full) { this.load(this.raw[t]); return }
+    if (t < this.at || t - this.at > KEYFRAME_EVERY) this.restore(t)
+    while (this.at < t) this.step(this.raw[++this.at])
+  }
+
+  cells(tick: number): Map<number, Cell> {
+    this.seek(Math.max(0, Math.min(this.last, tick)))
+    const m = new Map<number, Cell>()
+    const s = this.s
+    for (let idx = 0; idx < this.size; idx++) {
+      if (!this.present[idx]) continue
+      const o = idx * FIELDS
+      m.set(idx, { owner: s[o], troops: s[o + 1], building: s[o + 2], remaining: s[o + 3], links: [s[o + 4], s[o + 5], s[o + 6]], cooldown: s[o + 7] })
+    }
+    return m
+  }
+}
+
+/** Wraps a fetched viewer document with random access to its frames. */
+export function loadViewer(raw: Omit<ViewerReplay, 'store'> & { frame_encoding?: string }): ViewerReplay {
+  const size = (2 * raw.radius + 1) ** 2
+  return { ...raw, store: new FrameStore(raw.frames, size, raw.frame_encoding !== 'delta-v2') }
 }
 
 export function frameCells(rep: ViewerReplay, tick: number): Map<number, Cell> {
-  const f = rep.frames[tick]
-  const m = new Map<number, Cell>()
-  for (let i = 0; i < f.length; i += 9)
-    m.set(f[i], {
-      owner: f[i + 1], troops: f[i + 2], building: f[i + 3], remaining: f[i + 4],
-      links: [f[i + 5], f[i + 6], f[i + 7]], cooldown: f[i + 8],
-    })
-  return m
+  return rep.store.cells(tick)
 }
 
 /** Display-side fog mask for rendering; mirrors the engine's vision rule. */

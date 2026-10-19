@@ -161,6 +161,10 @@ function GenerationRow({ g, elo, champion, onPlay, playing }: { g: Generation; e
       <TableCell className="text-right font-medium tabular-nums">{g.benchmark.avp.toFixed(2)}</TableCell>
       <TableCell className="hidden text-right tabular-nums sm:table-cell">{Math.round(g.benchmark.win_rate * 100)}%</TableCell>
       <TableCell className="hidden text-right tabular-nums lg:table-cell">{Math.round(g.benchmark.top_half_rate * 100)}%</TableCell>
+      <TableCell className="hidden text-right tabular-nums md:table-cell">
+        {g.benchmark.close_rate === undefined ? '—' : `${Math.round(g.benchmark.close_rate * 100)}%`}
+        {g.benchmark.avg_close_tick != null && <div className="text-[11px] text-muted-foreground">by t{Math.round(g.benchmark.avg_close_tick)}</div>}
+      </TableCell>
       <TableCell className="text-right tabular-nums">{Math.round(elo)}</TableCell>
       <TableCell className="hidden text-right text-xs text-muted-foreground lg:table-cell">{ago(g.created_at)}</TableCell>
       <TableCell className="text-right">
@@ -313,7 +317,7 @@ export function LeaguePage({ onBack, onOpen }: { onBack: () => void; onOpen: (id
               <CardHeader>
                 <CardTitle>Challengers</CardTitle>
                 <CardDescription>
-                  Gain is how many places better the challenger finished than the champion in the same lobbies (positive is better). A challenger is promoted at +{league.gate_config.min_gain} or more when the gain clears {league.gate_config.z_accept} standard errors.
+                  Gain is how many places better the challenger finished than the champion in the same lobbies (positive is better). Scores are 8-player places, minus a bonus for ending the game early ({league.gate_config.close_bonus ?? 0} places, plus up to {league.gate_config.close_speed_bonus ?? 0} more the earlier it ends). A challenger is promoted at +{league.gate_config.min_gain} or more when the gain clears {league.gate_config.z_accept} standard errors.
                   Gates stop early once the outcome is clear: {league.gate_config.min_pairs * 2}–{league.gate_config.max_pairs * 2} games each. {view.promotedCount} of the last {league.attempts.length} were promoted.
                 </CardDescription>
               </CardHeader>
@@ -342,7 +346,7 @@ export function LeaguePage({ onBack, onOpen }: { onBack: () => void; onOpen: (id
             <Card>
               <CardHeader>
                 <CardTitle>Generations</CardTitle>
-                <CardDescription>Every promoted genome, newest first, with the genes it changed from its parent. Play any of them against the roster in an 8-player game and watch the replay.</CardDescription>
+                <CardDescription>Every promoted genome, newest first, with the genes it changed from its parent. Closes is the share of benchmark games it won by eliminating everyone before the cutoff. Play any of them against the roster in an 8-player game and watch the replay.</CardDescription>
               </CardHeader>
               <CardContent>
                 <Table>
@@ -355,6 +359,7 @@ export function LeaguePage({ onBack, onOpen }: { onBack: () => void; onOpen: (id
                       <TableHead className="text-right">Bench AVP</TableHead>
                       <TableHead className="hidden text-right sm:table-cell">Win %</TableHead>
                       <TableHead className="hidden text-right lg:table-cell">Top half %</TableHead>
+                      <TableHead className="hidden text-right md:table-cell">Closes</TableHead>
                       <TableHead className="text-right">Elo</TableHead>
                       <TableHead className="hidden text-right lg:table-cell">Promoted</TableHead>
                       <TableHead />

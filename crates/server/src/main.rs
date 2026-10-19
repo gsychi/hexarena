@@ -41,7 +41,7 @@ enum Status {
 enum Ending {
     /// One player owns every traversable hex.
     Conquest,
-    /// Everyone else was eliminated (v0 rules only).
+    /// Everyone else was eliminated, with neutral land still unclaimed.
     LastStanding,
     /// The tick cutoff was reached first.
     Cutoff,
@@ -182,14 +182,17 @@ fn run_match(app: &AppState, mut summary: Summary, styles: Vec<Style>) -> Summar
             serde_json::to_vec(&viewer).unwrap(),
         )
         .map_err(|e| e.to_string())?;
-        let ending = if played.state.conqueror().is_some() {
-            if played.state.rules().end_on_total_conquest {
-                Ending::Conquest
-            } else {
-                Ending::LastStanding
+        let st = &played.state;
+        let ending = match st.conqueror() {
+            Some(p) => {
+                let passable = st.terrain.iter().flatten().filter(|t| t.passable()).count();
+                if st.hex_counts()[p as usize] as usize == passable {
+                    Ending::Conquest
+                } else {
+                    Ending::LastStanding
+                }
             }
-        } else {
-            Ending::Cutoff
+            None => Ending::Cutoff,
         };
         Ok((played.result(), ending))
     });

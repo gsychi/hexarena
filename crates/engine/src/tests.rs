@@ -969,8 +969,13 @@ fn last_one_standing(rules: RulesConfig) -> State {
 }
 
 #[test]
-fn match_continues_until_one_player_owns_all_land() {
-    let mut st = last_one_standing(RulesConfig::default());
+fn v0_1_rules_continue_until_one_player_owns_all_land() {
+    let rules = RulesConfig {
+        version: "v0.1".into(),
+        end_on_total_conquest: true,
+        ..RulesConfig::default()
+    };
+    let mut st = last_one_standing(rules);
     assert!(!st.is_over(), "neutral land is still unclaimed");
     for h in st.board.hexes() {
         if passable(&st.board, &st.terrain, h) {
@@ -984,12 +989,11 @@ fn match_continues_until_one_player_owns_all_land() {
 }
 
 #[test]
-fn legacy_rules_end_on_last_player_standing() {
-    let rules = RulesConfig {
-        end_on_total_conquest: false,
-        ..RulesConfig::default()
-    };
-    assert!(last_one_standing(rules).is_over());
+fn match_ends_when_one_player_is_left_standing() {
+    let st = last_one_standing(RulesConfig::default());
+    let r = st.result.clone().expect("the last player standing ends the match");
+    assert!(r.final_tick < RulesConfig::default().max_ticks);
+    assert_eq!(r.placements[0].player, 0);
 }
 
 #[test]
