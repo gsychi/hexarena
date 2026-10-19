@@ -237,6 +237,19 @@ impl State {
             .collect()
     }
 
+    /// Friendly Quarries directly adjacent to this Village, when Quarries boost Villages.
+    pub fn supporting_quarries(&self, village: Hex) -> Vec<Hex> {
+        let Some(owner) = self.cell(village).and_then(|c| c.owner) else { return vec![] };
+        if self.rules().quarry.village_bonus == 0 || !self.is_building(village, owner, Building::Village) {
+            return vec![];
+        }
+        village
+            .neighbors()
+            .into_iter()
+            .filter(|&q| self.is_building(q, owner, Building::Quarry))
+            .collect()
+    }
+
     pub fn supporting_farm(&self, village: Hex) -> Option<Hex> {
         self.supporting_farms(village).first().copied()
     }
@@ -248,6 +261,14 @@ impl State {
         match c.building {
             Some(Building::Village) => self.supporting_farms(h),
             Some(Building::Farm) if self.rules().farm.adjacent_boost => match c.owner {
+                Some(o) => h
+                    .neighbors()
+                    .into_iter()
+                    .filter(|&v| self.is_building(v, o, Building::Village))
+                    .collect(),
+                None => vec![],
+            },
+            Some(Building::Quarry) if self.rules().quarry.village_bonus > 0 => match c.owner {
                 Some(o) => h
                     .neighbors()
                     .into_iter()
@@ -283,7 +304,9 @@ impl State {
         let r = self.rules();
         let mut v = r.base_income;
         if c.building == Some(Building::Village) && c.built_tick < self.tick {
-            v += r.village.bonus + r.village.farm_bonus * self.supporting_farms(h).len() as u32;
+            v += r.village.bonus
+                + r.village.farm_bonus * self.supporting_farms(h).len() as u32
+                + r.quarry.village_bonus * self.supporting_quarries(h).len() as u32;
         }
         v
     }

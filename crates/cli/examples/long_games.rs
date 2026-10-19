@@ -2,6 +2,9 @@
 //! prints when (and whether) each game ended and the land curve of the leaders.
 //!
 //! `cargo run --release -p hexarena-cli --example long_games -- 10000 4 ridgeline,ridgeline,predator,relay,ridgeline,predator,relay,expander`
+//!
+//! `OVERTIME_MAX` and `OVERTIME_RATE` override the overtime cap and ramp (milli);
+//! `MAP_FACTOR` and `MAP_EXP` override the board radius formula.
 
 use hexarena_arena::{seat_names, settings};
 use hexarena_engine::State;
@@ -18,6 +21,20 @@ fn main() {
         let seed = 9_000 + g;
         let mut s = settings(styles.len() as u16, seed);
         s.rules.max_ticks = max_ticks;
+        let env = |k: &str| std::env::var(k).ok().and_then(|v| v.parse::<u32>().ok());
+        if let Some(v) = env("OVERTIME_MAX") {
+            s.rules.overtime_max_win_milli = v;
+        }
+        if let Some(v) = env("OVERTIME_RATE") {
+            s.rules.overtime_win_milli_per_1000 = v;
+        }
+        let envf = |k: &str| std::env::var(k).ok().and_then(|v| v.parse::<f64>().ok());
+        if let Some(v) = envf("MAP_FACTOR") {
+            s.rules.map_radius_factor = v;
+        }
+        if let Some(v) = envf("MAP_EXP") {
+            s.rules.map_radius_exponent = v;
+        }
         let mut st = State::new(s, seat_names(&styles)).unwrap();
         let mut bots: Vec<Box<dyn Bot>> = styles.iter().map(|s| brains::build(s.clone()).unwrap()).collect();
         let mut marks = vec![];
