@@ -158,6 +158,9 @@ async function json<T>(res: Response): Promise<T> {
 export const api = {
   bots: () => fetch('/api/bots').then((r) => json<BotInfo[]>(r)),
   matches: () => fetch('/api/matches').then((r) => json<MatchSummary[]>(r)),
+  /** The newest `limit` games plus how many games there are in all. */
+  recentMatches: (limit: number) =>
+    fetch(`/api/matches?limit=${limit}`).then(async (r) => ({ games: await json<MatchSummary[]>(r), total: Number(r.headers.get('x-total-count') ?? 0) })),
   match: (id: string) => fetch(`/api/matches/${id}`).then((r) => json<MatchSummary>(r)),
   leaderboard: () => fetch('/api/leaderboard').then((r) => json<Leaderboard>(r)),
   league: () => fetch('/api/league').then((r) => json<League>(r)),

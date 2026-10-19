@@ -13,7 +13,7 @@ import { Board, buildingPips } from './Board'
 import { BuildingIcon, Legend } from './Legend'
 import type { Cell, GameEvent, Placement, ViewerReplay } from './model'
 import {
-  BUILDING_KEYS, BUILDING_NAMES, HEIGHT_STYLE, PLAYER_COLORS, PLAYER_MARKS, buildPreview, defenseMilli, frameCells, hexAt, hexIndex, loadViewer, usesResource, visibleSet,
+  BUILDING_KEYS, BUILDING_NAMES, HEIGHT_STYLE, PLAYER_COLORS, PLAYER_MARKS, adjacentQuarries, buildPreview, defenseMilli, frameCells, hexAt, hexIndex, loadViewer, usesResource, visibleSet,
 } from './model'
 
 const SPEEDS = [1, 2, 4, 8, 16]
@@ -103,11 +103,11 @@ export function Viewer({ src, label, onBack }: { src: string; label: string; onB
   const stats = rep.names.map((_, p) => {
     let land = 0, troops = 0, income = 0
     const built = [0, 0, 0, 0]
-    for (const c of cells.values()) {
+    for (const [idx, c] of cells) {
       if (c.owner !== p) continue
       land++; troops += c.troops; income += r.base_income
       if (c.building > 0) built[c.building - 1]++
-      if (c.building === 2) income += r.village.bonus + c.links.filter((l) => l >= 0).length * r.village.farm_bonus
+      if (c.building === 2) income += r.village.bonus + c.links.filter((l) => l >= 0).length * r.village.farm_bonus + adjacentQuarries(rep, cells, idx) * (r.quarry.village_bonus ?? 0)
     }
     return { land, troops, income, built }
   })
@@ -341,7 +341,7 @@ function HexPanel({ rep, cells, selected, visible }: { rep: ViewerReplay; cells:
             <div>
               {c && c.owner >= 0 ? <span style={{ color: PLAYER_COLORS[c.owner % 8] }}>{rep.names[c.owner]}</span> : 'Neutral'} · {c ? c.troops : rep.neutral[selected]} troops
             </div>
-            {c && c.building > 0 && <BuildingDetail rep={rep} c={c} wallLinks={wallLinks} />}
+            {c && c.building > 0 && <BuildingDetail rep={rep} c={c} wallLinks={wallLinks} quarries={adjacentQuarries(rep, cells, selected)} />}
             <div className="space-y-1.5">
               <SectionLabel>Defense if attacked from height</SectionLabel>
               <div className="grid grid-cols-5 gap-1 text-center">
@@ -387,8 +387,9 @@ function HexPanel({ rep, cells, selected, visible }: { rep: ViewerReplay; cells:
   )
 }
 
-function BuildingDetail({ rep, c, wallLinks }: { rep: ViewerReplay; c: Cell; wallLinks: number | null }) {
+function BuildingDetail({ rep, c, wallLinks, quarries }: { rep: ViewerReplay; c: Cell; wallLinks: number | null; quarries: number }) {
   const r = rep.rules
+  const qb = r.quarry.village_bonus ?? 0
   const linked = c.links.filter((l) => l >= 0).length
   const cd = c.cooldown > 0 ? `relink in ${c.cooldown} ticks` : 'relink ready'
   return (
@@ -400,9 +401,9 @@ function BuildingDetail({ rep, c, wallLinks }: { rep: ViewerReplay; c: Cell; wal
           ? <div className="text-muted-foreground"><Link2 className="mr-1 inline size-3" />Boosting {linked} adjacent Village{linked === 1 ? '' : 's'} by +{r.village.farm_bonus}/tick each</div>
           : <div className="text-muted-foreground"><Link2 className="mr-1 inline size-3" />{linked}/{r.farm.sockets} Villages supported, +{r.village.farm_bonus}/tick each · {cd}{usesResource(r) && <><br />+1 Resource in {c.remaining} ticks</>}</div>)}
         {c.building === 2 && (r.farm.adjacent_boost
-          ? <div className="text-muted-foreground"><span className="text-foreground">{r.base_income + r.village.bonus + linked * r.village.farm_bonus}/tick</span> · {linked} adjacent Farm{linked === 1 ? '' : 's'}, each adds +{r.village.farm_bonus}</div>
+          ? <div className="text-muted-foreground"><span className="text-foreground">{r.base_income + r.village.bonus + linked * r.village.farm_bonus + quarries * qb}/tick</span> · {linked} adjacent Farm{linked === 1 ? '' : 's'}, each adds +{r.village.farm_bonus}{qb > 0 && <> · {quarries} adjacent Quarr{quarries === 1 ? 'y' : 'ies'}, each adds +{qb}</>}</div>
           : <div className="text-muted-foreground">{c.links[0] >= 0 ? <><span className="text-foreground">{r.base_income + r.village.bonus + r.village.farm_bonus}/tick</span> · supported by a Farm</> : <><span className="text-foreground">{r.base_income + r.village.bonus}/tick</span> · unsupported, a Farm link adds +{r.village.farm_bonus}</>}</div>)}
-        {c.building === 3 && <div className="text-muted-foreground">{usesResource(r) ? <>+1 Resource in {c.remaining} ticks<br />Adjacent builds: −{r.quarry.troop_discount_pct}% troops, −{r.quarry.resource_discount} Resource</> : <>Adjacent Farms, Villages and Walls cost {r.quarry.troop_discount_pct}% fewer troops</>}</div>}
+        {c.building === 3 && <div className="text-muted-foreground">{usesResource(r) ? <>+1 Resource in {c.remaining} ticks<br />Adjacent builds: −{r.quarry.troop_discount_pct}% troops, −{r.quarry.resource_discount} Resource</> : <>Adjacent Farms, Villages and Walls cost {r.quarry.troop_discount_pct}% fewer troops{qb > 0 && <><br />Boosting {linked} adjacent Village{linked === 1 ? '' : 's'} by +{qb}/tick each</>}</>}</div>}
         {c.building === 4 && <div className="text-muted-foreground">{wallLinks}/{r.wall.max_links} links · <span className="text-foreground">{(r.wall.defense_milli_by_links[wallLinks ?? 0] / 1000).toFixed(1)}× wall</span> · {cd}</div>}
       </div>
     </div>
