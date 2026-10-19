@@ -562,3 +562,11 @@ Relay's proven capture garrisons and spare-stack routing.
 - Economy: 120-site Quarry lattice from tick 600 to 6000, retaining 24 troops on every
   build site and using conservative Relay safety.
 - Result and replay lesson: pending 50-game sample.
+
+### aurochs-v1 — Aurochs
+
+- Hypothesis: a low-action economy of 32 durable interior Villages beats lattice setup
+  by returning nearly every tick to Relay's land acquisition and defense.
+- Economy: Village-only from tick 650 to 4000, paced every eight ticks; high build-site
+  reserve and conservative Relay capture margins.
+- Result and replay lesson: pending 50-game sample.
