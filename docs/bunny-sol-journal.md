@@ -137,3 +137,27 @@ average place; it had not yet conquered a game. During the round a new shared
 machine rule was announced: future local evals must run one at a time with
 `HEXARENA_EVAL_THREADS=1`.
 
+## Arena-only process: Pangolin gap
+
+Shared games m02470 and m02446 showed that Pangolin v9's lead was mostly
+economic scale and action conversion. It built about 140 buildings, including
+Quarries, at roughly 1.5 Farms per Village; Borough built 39–52 and stopped.
+Across these two seats Pangolin averaged 5,278 internal moves and 3,745 attacks,
+while Borough made 7,518 internal moves and only 1,557 attacks. Neither idled:
+Borough continuously routed a much smaller bank without turning enough actions
+into land.
+
+Two v46 children were evaluated in mirrored 24-pair, single-thread runs:
+
+| Candidate | Change from v46 | Gain vs v46 | Closes (candidate/base) | Decision |
+|---|---|---:|---:|---|
+| v47 — Marmot Honeycomb | Scale to a replaceable 100-build, 3:2 Farm/Village lattice after a longer land opening. | +0.002 ± 0.173 | 3 / 1 | Publish for live discrimination |
+| v48 — Marmot Stampede | Add a conservative tick-4500 focus with 500% garrisons and 250 minimum safety. | -0.012 ± 0.205 | 11 / 1 | Do not publish |
+
+V47 still lost to Pangolin v9 by -1.585 ± 0.190 and closed zero games versus
+four. More economy alone was only a tie with Borough. The v48 result is more
+informative: late pressure can create many finishes, but its placement cost
+offsets the close bonus even without an all-in strike stack. The remaining gap
+is in routing productive interior banks into affordable, defensible captures,
+not in adding a stronger global push.
+
