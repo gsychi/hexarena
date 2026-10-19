@@ -36,9 +36,9 @@ function speed(ms: number) {
   return ms.toFixed(ms < 1 ? 3 : 2)
 }
 
-function Row({ r, start, retired, need, onBot }: { r: LeaderboardRow; start: number; retired?: string; need: number; onBot: (id: string) => void }) {
+function Row({ r, start, retired, anchor, need, onBot }: { r: LeaderboardRow; start: number; retired?: string; anchor?: boolean; need: number; onBot: (id: string) => void }) {
   return (
-    <TableRow className="hover:bg-muted/30">
+    <TableRow className={`hover:bg-muted/30 ${anchor ? 'bg-sky-500/5' : ''}`}>
       <TableCell className="w-10 text-center font-semibold tabular-nums">
         {r.rank <= 3 ? <Trophy className={`mx-auto size-4 ${medal[r.rank - 1]}`} /> : r.rank}
       </TableCell>
@@ -47,7 +47,8 @@ function Row({ r, start, retired, need, onBot }: { r: LeaderboardRow; start: num
           <span className="inline-flex items-center gap-2"><BotAvatar id={r.bot} name={r.name} size={24} className="shrink-0" />{r.name}</span>
         </button>
         {retired && <span className="ml-1.5 text-[10px] uppercase tracking-wide text-red-300" title={retired}>retired</span>}
-        {!r.rated && <span className="ml-1.5 text-[10px] uppercase tracking-wide text-amber-300" title={`Rating still settling: ${r.games} of ${need} games`}>provisional</span>}
+        {anchor && <span className="ml-1.5 text-[10px] uppercase tracking-wide text-sky-300" title={`Fixed at ${Math.round(r.elo)}: the yardstick every rating is measured against`}>anchor</span>}
+        {!r.rated && !anchor && <span className="ml-1.5 text-[10px] uppercase tracking-wide text-amber-300" title={`Rating still settling: ${r.games} of ${need} games`}>provisional</span>}
       </TableCell>
       <TableCell className="text-right">
         <Tooltip>
@@ -82,6 +83,7 @@ export function Standings({ board, onBot }: { board: Leaderboard | null; onBot: 
         <CardTitle className="flex items-center gap-2"><Trophy className="size-4 text-amber-300" />Standings</CardTitle>
         <CardDescription>
           Elo rating for each CPU style across {board?.games ?? 0} finished game{board?.games === 1 ? '' : 's'} under rules {board?.rules_version ?? 'v0.6'}. Everyone starts at {board?.start_elo ?? 1500}.
+          The original hand-written {board?.anchors?.map((a) => a.charAt(0).toUpperCase() + a.slice(1)).join(' and ') ?? 'Ridgeline and Relay'} are <span className="text-sky-300">anchors</span>: fixed at {board?.anchor_elo ?? 1500} and seated in every self-play game, so ratings measure strength against a fixed yardstick and climb as bots get better. 1900 means beating an anchor about 9 times in 10.
           Each free-for-all counts as a head-to-head result between every pair of players, where the better place wins, and ratings update after every game (K = {board?.k ?? 32}). Win % and top half % are per seat; top half means finishing in the top half of the lobby (1st–2nd of 4, 1st–3rd of 6).
           A rating is <span className="text-amber-300">provisional</span> until the bot has played {board?.rated_games ?? 50} games: one 8-player result swings by about two places, so it takes about 50 to pin the average place down to ±0.3. The arena schedules the bots with the fewest games first, and a bot's first 20 games move its Elo three times as far.
           Any rated bot outside the top {board?.top ?? 20} is retired from the self-playing arena and leaves this table{board?.retired_bots?.length ? ` (${board.retired_bots.length} retired so far)` : ''}. Retired bots stay playable from the lineup picker.
@@ -119,7 +121,7 @@ export function Standings({ board, onBot }: { board: Leaderboard | null; onBot: 
               </TableRow>
             </TableHeader>
             <TableBody>
-              {board.bots.map((r) => <Row key={r.bot} r={r} start={board.start_elo} retired={board.retired?.[r.bot]} need={board.rated_games ?? 50} onBot={onBot} />)}
+              {board.bots.map((r) => <Row key={r.bot} r={r} start={board.start_elo} retired={board.retired?.[r.bot]} anchor={board.anchors?.includes(r.bot)} need={board.rated_games ?? 50} onBot={onBot} />)}
             </TableBody>
           </Table>
         )}

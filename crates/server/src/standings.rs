@@ -13,6 +13,15 @@ use serde::Serialize;
 use std::collections::BTreeMap;
 
 pub const START_ELO: f64 = 1500.0;
+/// Reference bots whose rating never moves: the original hand-written Ridgeline and
+/// Relay. One plays in every self-play game, so ratings measure strength against a
+/// fixed yardstick and rise as bots get better, instead of only ranking the current
+/// field against itself.
+pub const ANCHORS: [&str; 2] = ["ridgeline", "relay"];
+
+pub fn is_anchor(bot: &str) -> bool {
+    ANCHORS.contains(&bot)
+}
 pub const K: f64 = 32.0;
 /// A bot's first games move its rating this many times as far, so a new version reaches
 /// its real level before it can be retired for its ranking.
@@ -156,7 +165,7 @@ pub fn standings(games: &[Vec<SeatResult>], name: impl Fn(&str) -> String) -> Ve
         }
         for (bot, (sum, seats)) in delta {
             let r = rows.get_mut(bot).unwrap();
-            r.elo_change = sum / seats as f64;
+            r.elo_change = if is_anchor(bot) { 0.0 } else { sum / seats as f64 };
             r.elo += r.elo_change;
             r.peak_elo = r.peak_elo.max(r.elo);
             r.games += 1;
@@ -245,6 +254,15 @@ mod tests {
         assert!((total - 3.0 * START_ELO).abs() < 1e-9);
         assert_eq!(t[0].rank, 1);
         assert_eq!(t[0].bot, "a");
+    }
+
+    #[test]
+    fn anchors_never_move_so_beating_them_raises_the_scale() {
+        let games: Vec<_> = (0..30).map(|_| vec![seat("a", 1.0), seat("b", 2.0), seat("ridgeline", 3.0)]).collect();
+        let t = standings(&games, |s| s.to_string());
+        let by = |b: &str| t.iter().find(|r| r.bot == b).unwrap();
+        assert_eq!(by("ridgeline").elo, START_ELO);
+        assert!(by("a").elo > START_ELO && by("b").elo > START_ELO);
     }
 
     #[test]

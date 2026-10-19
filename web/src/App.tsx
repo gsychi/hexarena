@@ -45,11 +45,11 @@ const eventHex = (e: GameEvent) => ('at' in e ? e.at : null)
 interface SeatElo { before: number; after: number | null }
 
 /** `1532`, plus the change once the game is rated (`+12` / `−8`). */
-function EloTag({ elo, change }: { elo?: SeatElo | null; change: boolean }) {
+function EloTag({ elo, change, block }: { elo?: SeatElo | null; change: boolean; block?: boolean }) {
   if (!elo) return null
   const d = elo.after === null ? null : Math.round(elo.after - elo.before)
   return (
-    <span className="ml-1.5 whitespace-nowrap text-[11px] font-normal tabular-nums text-muted-foreground" title={elo.after === null ? 'Elo going into this game' : `Elo ${Math.round(elo.before)} before this game, ${Math.round(elo.after)} after`}>
+    <span className={`${block ? 'mt-0.5 block pl-6' : 'ml-1.5'} whitespace-nowrap text-[11px] font-normal tabular-nums text-muted-foreground`} title={elo.after === null ? 'Elo going into this game' : `Elo ${Math.round(elo.before)} before this game, ${Math.round(elo.after)} after`}>
       ({Math.round(elo.before)})
       {change && d !== null && (
         <span className={`ml-1 font-medium ${d > 0 ? 'text-emerald-400' : d < 0 ? 'text-rose-400' : 'text-muted-foreground'}`}>{d > 0 ? `+${d}` : d < 0 ? `−${-d}` : '±0'}</span>
@@ -193,8 +193,9 @@ export function Viewer({ src, match, label, onBack }: { src: string; match?: str
                 <TableRow key={p} className="hover:bg-transparent">
                   <TableCell className="py-1.5 font-medium">
                     <span className="mr-2 inline-block size-2 rounded-full" style={{ background: PLAYER_COLORS[p % 8] }} />
-                    <span className="mr-1 text-[10px]" style={{ color: PLAYER_COLORS[p % 8] }}>{PLAYER_MARKS[p % 8]}</span>{n}
-                    <EloTag elo={elo[p]} change={tick === last} />
+                    <span className="mr-1 text-[10px]" style={{ color: PLAYER_COLORS[p % 8] }}>{PLAYER_MARKS[p % 8]}</span>
+                    <span className="inline-block max-w-40 truncate align-bottom">{n}</span>
+                    <EloTag elo={elo[p]} change={tick === last} block />
                   </TableCell>
                   <TableCell className="py-1.5 text-right tabular-nums">{knows(p) ? stats[p].land : '—'}</TableCell>
                   <TableCell className="py-1.5 text-right tabular-nums">{knows(p) ? stats[p].troops : '—'}</TableCell>

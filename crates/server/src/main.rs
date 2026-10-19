@@ -11,7 +11,7 @@ use hexarena_protocol::{PlayerId, RulesConfig};
 use hexarena_sdk::Style;
 use serde::{Deserialize, Serialize};
 use catalog::Catalog;
-use standings::{standings, SeatResult, K, RATED_GAMES, START_ELO};
+use standings::{is_anchor, standings, SeatResult, ANCHORS, K, RATED_GAMES, START_ELO};
 use std::collections::BTreeMap;
 use std::net::IpAddr;
 use std::path::PathBuf;
@@ -21,6 +21,7 @@ use tokio::sync::Semaphore;
 use tower_http::services::{ServeDir, ServeFile};
 
 mod catalog;
+mod chat;
 mod notes;
 mod standings;
 
@@ -28,7 +29,8 @@ const MAX_PLAYERS: usize = 8;
 const MAX_BATCH: u32 = 20;
 /// Refuse new games while this many are still queued or running.
 const MAX_RUNNING: usize = 100;
-/// Most roster CPU seats in each self-play game; arena entrants fill the rest.
+/// Most roster CPU seats in each self-play game, the anchor included; arena entrants
+/// fill the rest.
 const AUTOPLAY_FIELD: usize = 2;
 /// Most entrant seats one author gets in a self-play game.
 const AUTOPLAY_PER_AUTHOR: usize = 2;
@@ -119,6 +121,7 @@ struct AppState {
     autoplay_parallel: usize,
     autoplay: bool,
     notes: notes::Notebook,
+    chat: chat::Chat,
 }
 
 type Shared = Arc<AppState>;
@@ -217,6 +220,7 @@ impl AppState {
             autoplay_parallel: AUTOPLAY_PARALLEL,
             autoplay: false,
             notes: notes::Notebook::new(),
+            chat: chat::Chat::new(),
         }
     }
 }
@@ -382,7 +386,7 @@ fn launch(app: &Shared, styles: &[Style], seed: u64, auto: bool) -> Summary {
 }
 
 /// Seats for the next self-play game, always [`MAX_PLAYERS`] when there are enough bots:
-/// up to [`AUTOPLAY_FIELD`] of the least-played roster CPUs that aren't retired, then
+/// the least-played anchor, up to [`AUTOPLAY_FIELD`] roster CPUs in all, then
 /// the active entrants with the fewest arena games, at most [`AUTOPLAY_PER_AUTHOR`] from
 /// one author so a prolific author's versions don't mostly play each other, topped up
 /// past that cap when too few authors are active. Ties break at random; seat order is
@@ -405,9 +409,17 @@ fn autoplay_lineup(app: &AppState, catalog: &Catalog, seed: u64) -> Vec<Style> {
         rng
     };
     let games = |id: &str| played.get(id).copied().unwrap_or(0);
-    let mut field: Vec<(usize, u64, Style)> = catalog.active_field().into_iter().map(|s| (games(&s.id), next(), s)).collect();
+    let mut anchors: Vec<(usize, u64, &str)> = ANCHORS.iter().map(|a| (games(a), next(), *a)).collect();
+    anchors.sort_by_key(|&(n, tie, _)| (n, tie));
+    let mut seats: Vec<Style> = anchors.first().and_then(|&(_, _, a)| catalog.resolve(a)).into_iter().collect();
+    let mut field: Vec<(usize, u64, Style)> = catalog
+        .active_field()
+        .into_iter()
+        .filter(|s| !is_anchor(&s.id))
+        .map(|s| (games(&s.id), next(), s))
+        .collect();
     field.sort_by_key(|(n, tie, _)| (*n, *tie));
-    let mut seats: Vec<Style> = field.into_iter().map(|(_, _, s)| s).take(AUTOPLAY_FIELD).collect();
+    seats.extend(field.into_iter().map(|(_, _, s)| s).take(AUTOPLAY_FIELD.saturating_sub(seats.len())));
     let mut entrants: Vec<(usize, u64, &hexarena_arena::entrants::Entrant)> =
         catalog.active_entrants().map(|e| (games(&e.id), next(), e)).collect();
     entrants.sort_by_key(|&(n, tie, _)| (n, tie));
@@ -490,6 +502,145 @@ async fn add_note(State(app): State<Shared>, Json(new): Json<notes::NewNote>) ->
     }
 }
 
+/// Authors that aren't agents designing bots: the lead's own notes and server logs.
+fn is_designer(author: &str) -> bool {
+    author.starts_with("agent:") && !author.starts_with("agent:lead")
+}
+
+/// Everyone designing bots, most recently seen first: what they have sent in, how their
+/// best bot is doing, what they last wrote in the notebook, and their message thread.
+async fn agents(State(app): State<Shared>) -> Json<Vec<serde_json::Value>> {
+    let catalog = app.catalog();
+    let board = board(&app, &catalog);
+    let models = hexarena_arena::entrants::author_models(&app.arena_dir);
+    let notes = app.notes.all(&app.arena_dir);
+    let messages = app.chat.all(&app.arena_dir);
+    let statuses = app.chat.statuses(&app.arena_dir);
+    let work = app.chat.work(&app.arena_dir);
+    let mut ids: std::collections::BTreeSet<&str> = catalog.entrants.iter().map(|e| e.author.as_str()).collect();
+    ids.extend(notes.iter().map(|n| n.author.as_str()));
+    ids.extend(messages.iter().map(|m| m.agent.as_str()));
+    ids.extend(statuses.keys().map(String::as_str));
+    ids.extend(work.iter().map(|w| w.agent.as_str()));
+    let mut out: Vec<(u64, serde_json::Value)> = ids
+        .into_iter()
+        .filter(|a| is_designer(a))
+        .map(|a| {
+            let bots: Vec<&hexarena_arena::entrants::Entrant> = catalog.entrants.iter().filter(|e| e.author == a).collect();
+            let latest = bots.iter().max_by_key(|e| e.created_at);
+            let best = board.rows.iter().find(|r| bots.iter().any(|e| e.id == r.bot));
+            let mine: Vec<&notes::Note> = notes.iter().filter(|n| n.author == a).collect();
+            let thread: Vec<&chat::Message> = messages.iter().filter(|m| m.agent == a).collect();
+            let replied = thread.iter().rev().find(|m| m.from == a);
+            let doing = work.iter().rev().find(|w| w.agent == a);
+            let last_seen = [
+                latest.map(|e| e.created_at),
+                mine.last().map(|n| n.at),
+                replied.map(|m| m.at),
+                statuses.get(a).map(|s| s.at),
+                doing.map(|w| w.at),
+            ]
+            .into_iter()
+            .flatten()
+            .max()
+            .unwrap_or(0);
+            let unanswered = thread.iter().rev().take_while(|m| m.from != a).count();
+            let v = serde_json::json!({
+                "id": a,
+                "model": models.get(a),
+                "bots": bots.len(),
+                "active_bots": bots.iter().filter(|e| !e.retired).count(),
+                "latest_bot": latest.map(|e| serde_json::json!({"id": e.id, "name": e.name, "at": e.created_at, "retired": e.retired})),
+                "best_bot": best.map(|r| serde_json::json!({"id": r.bot, "name": r.name, "elo": r.elo, "rank": r.rank})),
+                "notes": mine.len(),
+                "last_note": mine.last().map(|n| serde_json::json!({"n": n.n, "at": n.at, "kind": n.kind, "text": n.text})),
+                "last_seen": last_seen,
+                "messages": thread.len(),
+                "last_message": thread.last(),
+                "unanswered": unanswered,
+                "status": statuses.get(a),
+                "doing": doing.map(|w| serde_json::json!({"at": w.at, "text": w.text})),
+            });
+            (last_seen, v)
+        })
+        .collect();
+    out.sort_by(|a, b| b.0.cmp(&a.0));
+    Json(out.into_iter().map(|(_, v)| v).collect())
+}
+
+async fn set_status(State(app): State<Shared>, Path(agent): Path<String>, Json(new): Json<chat::NewStatus>) -> Response {
+    if !is_designer(&agent) {
+        return err(StatusCode::BAD_REQUEST, "status belongs to an agent, e.g. agent:sol");
+    }
+    match app.chat.set_status(&app.arena_dir, &agent, new, now_ms()) {
+        Ok(s) => (StatusCode::CREATED, Json(s)).into_response(),
+        Err(e) => err(StatusCode::BAD_REQUEST, e),
+    }
+}
+
+/// Newest items an agent's activity feed keeps.
+const ACTIVITY_ITEMS: usize = 300;
+
+/// One agent's work and conversation as a single timeline, oldest first: the bots it
+/// sent in (with their hypothesis and how they are doing), its notebook notes, and its
+/// message thread.
+async fn activity(State(app): State<Shared>, Path(agent): Path<String>) -> Json<serde_json::Value> {
+    let catalog = app.catalog();
+    let board = board(&app, &catalog);
+    let row = |id: &str| board.rows.iter().chain(&board.retired_rows).find(|r| r.bot == id);
+    let mut items: Vec<(u64, serde_json::Value)> = vec![];
+    for e in catalog.entrants.iter().filter(|e| e.author == agent) {
+        let r = row(&e.id);
+        items.push((e.created_at, serde_json::json!({
+            "type": "bot", "at": e.created_at, "id": e.id, "name": e.name, "note": e.note,
+            "parents": e.parents, "retired": e.retired, "retired_reason": e.retired_reason,
+            "elo": r.map(|r| r.elo), "rank": r.filter(|_| !e.retired).map(|r| r.rank), "games": r.map_or(0, |r| r.games),
+        })));
+    }
+    for n in app.notes.all(&app.arena_dir).into_iter().filter(|n| n.author == agent) {
+        items.push((n.at, serde_json::json!({
+            "type": "note", "at": n.at, "n": n.n, "kind": n.kind, "text": n.text, "matches": n.matches, "bots": n.bots,
+        })));
+    }
+    for w in app.chat.work(&app.arena_dir).into_iter().filter(|w| w.agent == agent) {
+        items.push((w.at, serde_json::json!({ "type": "work", "at": w.at, "text": w.text })));
+    }
+    for m in app.chat.thread(&app.arena_dir, &agent) {
+        items.push((m.at, serde_json::json!({ "type": "message", "at": m.at, "n": m.n, "from": m.from, "text": m.text })));
+    }
+    items.sort_by_key(|(at, _)| *at);
+    let skip = items.len().saturating_sub(ACTIVITY_ITEMS);
+    Json(serde_json::json!({
+        "agent": agent,
+        "status": app.chat.statuses(&app.arena_dir).get(&agent),
+        "items": items.into_iter().skip(skip).map(|(_, v)| v).collect::<Vec<_>>(),
+    }))
+}
+
+async fn log_work(State(app): State<Shared>, Path(agent): Path<String>, Json(new): Json<chat::NewStatus>) -> Response {
+    if !is_designer(&agent) {
+        return err(StatusCode::BAD_REQUEST, "work belongs to an agent, e.g. agent:sol");
+    }
+    match app.chat.log_work(&app.arena_dir, &agent, new, now_ms()) {
+        Ok(w) => (StatusCode::CREATED, Json(w)).into_response(),
+        Err(e) => err(StatusCode::BAD_REQUEST, e),
+    }
+}
+
+async fn thread(State(app): State<Shared>, Path(agent): Path<String>) -> Json<Vec<chat::Message>> {
+    Json(app.chat.thread(&app.arena_dir, &agent))
+}
+
+async fn say(State(app): State<Shared>, Path(agent): Path<String>, Json(new): Json<chat::NewMessage>) -> Response {
+    if !is_designer(&agent) {
+        return err(StatusCode::BAD_REQUEST, "messages go to an agent, e.g. agent:sol");
+    }
+    match app.chat.add(&app.arena_dir, &agent, new, now_ms()) {
+        Ok(m) => (StatusCode::CREATED, Json(m)).into_response(),
+        Err(e) => err(StatusCode::BAD_REQUEST, e),
+    }
+}
+
 async fn one(State(app): State<Shared>, Path(id): Path<String>) -> Response {
     let catalog = app.catalog();
     match app.matches.lock().unwrap().get(&id) {
@@ -528,6 +679,8 @@ async fn leaderboard(State(app): State<Shared>) -> Json<serde_json::Value> {
         "k": K,
         "top": ACTIVE_TOP,
         "rated_games": RATED_GAMES,
+        "anchors": ANCHORS,
+        "anchor_elo": START_ELO,
         "retired": catalog.retired_reasons(),
         "bots": board.rows,
         "retired_bots": board.retired_rows,
@@ -699,15 +852,15 @@ fn board(app: &AppState, catalog: &Catalog) -> Board {
 /// Retires every bot that has had a fair trial and sits outside the top [`ACTIVE_TOP`]
 /// of the standings: arena entrants and roster CPUs.
 fn retire_outside_top(app: &AppState, catalog: &Catalog) {
-    let rows = board(app, catalog).rows;
+    let rows: Vec<_> = board(app, catalog).rows.into_iter().filter(|r| !is_anchor(&r.bot)).collect();
     let cut = rows.get(ACTIVE_TOP - 1).map(|r| r.elo);
-    for row in &rows {
-        if !row.rated || row.rank as usize <= ACTIVE_TOP {
+    for (i, row) in rows.iter().enumerate() {
+        if !row.rated || i < ACTIVE_TOP {
             continue;
         }
         let reason = format!(
             "ranked #{} with Elo {:.0} after {} games; the top {ACTIVE_TOP} cut was {:.0}",
-            row.rank,
+            i + 1,
             row.elo,
             row.games,
             cut.unwrap_or(row.elo)
@@ -759,6 +912,11 @@ async fn main() {
         .route("/api/rules", get(|| async { Json(RulesConfig::default()) }))
         .route("/api/arena", get(arena_info))
         .route("/api/observations", get(list_notes).post(add_note))
+        .route("/api/agents", get(agents))
+        .route("/api/agents/{agent}/messages", get(thread).post(say))
+        .route("/api/agents/{agent}/status", axum::routing::post(set_status))
+        .route("/api/agents/{agent}/work", axum::routing::post(log_work))
+        .route("/api/agents/{agent}/activity", get(activity))
         .route("/api/health", get(|| async { "ok" }))
         .with_state(app);
     if let Ok(web) = std::env::var("HEXARENA_WEB") {
