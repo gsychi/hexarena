@@ -229,6 +229,13 @@ struct Knobs {
     /// Walk spare stacks toward a capture we can't afford yet when it would seal off at
     /// least this many hexes (0 = never).
     region_stage: u32,
+    /// Score lost for taking a hex that changed hands in the last `churn_ticks` ticks:
+    /// those are the border hexes that trade back and forth without moving the front.
+    churn_pen: i64,
+    churn_ticks: u32,
+    /// The churn penalty applies from this tick (before it, fresh enemy expansion is thin
+    /// land worth taking).
+    churn_from: u32,
 }
 
 impl Knobs {
@@ -281,6 +288,9 @@ impl Knobs {
             region: k("region", 0),
             region_enemy: k("region_enemy", 0),
             region_stage: k("region_stage", 0) as u32,
+            churn_pen: k("churn_pen", 0),
+            churn_ticks: k("churn_ticks", 20) as u32,
+            churn_from: k("churn_from", 3000) as u32,
         }
     }
 
@@ -313,6 +323,9 @@ pub struct StrikeCore {
     pub finishing: bool,
     /// Last tick the victim touched our land.
     victim_seen: u32,
+    /// Tick each slot was last seen changing owner.
+    flipped: Vec<u32>,
+    tick: u32,
 }
 
 impl StrikeCore {
@@ -328,6 +341,8 @@ impl StrikeCore {
             victim: None,
             finishing: false,
             victim_seen: 0,
+            flipped: vec![],
+            tick: 0,
         }
     }
 
@@ -697,6 +712,9 @@ impl StrikeCore {
             }
         }
         gain += self.k.hug * hugged - self.k.open * exposed + self.k.height * geo.height[t] as i64;
+        if self.k.churn_pen > 0 && self.tick >= self.k.churn_from && self.flipped.get(t).is_some_and(|&f| f > 0 && self.tick < f + self.k.churn_ticks) {
+            gain -= self.k.churn_pen;
+        }
         if let Some(seal) = seal {
             gain += self.k.seal * seal.cuts[t] as i64;
             if seal.pocket[t] {
@@ -931,8 +949,15 @@ impl Bot for StrikeCore {
         }
         let me = view.you;
         let mut mine = vec![];
+        self.tick = view.tick;
+        if self.flipped.is_empty() {
+            self.flipped = vec![0; geo.passable.len()];
+        }
         for c in &view.visible_hexes {
             let Some(i) = geo.slot(c.hex) else { continue };
+            if self.seen[i].is_some_and(|old| old.owner != c.owner) {
+                self.flipped[i] = view.tick;
+            }
             self.seen[i] = Some(Cell {
                 owner: c.owner,
                 troops: c.troops,
