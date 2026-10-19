@@ -138,6 +138,9 @@ struct Knobs {
     demolish_def: u32,
     /// Demolish Walls deep inside our land, on ticks no capture wants (0/1).
     clear_walls: bool,
+    /// Demolish a captured building off our lattice colouring when the lattice building
+    /// would add at least this many troops a tick (0 = never).
+    lattice_fix: u64,
 }
 
 impl Knobs {
@@ -173,6 +176,7 @@ impl Knobs {
             demolish_ban: k("demolish_ban", 300) as u32,
             demolish_def: k("demolish_def", 40) as u32,
             clear_walls: k("clear_walls", 0) > 0,
+            lattice_fix: k("lattice_fix", 0) as u64,
         }
     }
 }
@@ -339,6 +343,42 @@ impl Mason {
         }
         let near_quarry = |i: usize| m.nbrs[i].iter().any(|&n| site[n] == Site::Mine(Building::Quarry));
         let cost = |b: Building, i: usize| self.rules.build_cost(b, near_quarry(i)).troops;
+        if self.k.lattice_fix > 0 {
+            // Captured buildings off our lattice colouring: a Farm or Wall on a Village slot
+            // feeds nothing, a Wall on a Farm slot feeds nothing. Tear them down when the
+            // lattice building would add enough troops a tick; the build pass refills the
+            // slot on a later tick.
+            let adj = |i: usize, b: Building| m.nbrs[i].iter().filter(|&&n| site[n] == Site::Mine(b)).count() as u64;
+            let vb = self.rules.village.bonus as u64;
+            let fb = self.rules.village.farm_bonus as u64;
+            let mut fix: Option<(u64, usize)> = None;
+            for i in 0..slots {
+                let Site::Mine(have) = site[i] else { continue };
+                if depth[i] == u32::MAX || depth[i] < self.k.depth || troops[i] <= cost(Building::Village, i) {
+                    continue;
+                }
+                let gain = if m.colour(i) == vclass {
+                    let village = vb + fb * adj(i, Building::Farm) + self.k.quarry_village * adj(i, Building::Quarry);
+                    let now = match have {
+                        Building::Village => village,
+                        Building::Farm => fb * adj(i, Building::Village),
+                        Building::Quarry | Building::Wall => 0,
+                    };
+                    village.saturating_sub(now)
+                } else if have == Building::Wall && self.farmable(m, i) {
+                    fb * adj(i, Building::Village)
+                } else {
+                    0
+                };
+                if gain >= self.k.lattice_fix && fix.is_none_or(|f| (gain, std::cmp::Reverse(i)) > (f.0, std::cmp::Reverse(f.1))) {
+                    fix = Some((gain, i));
+                }
+            }
+            if let Some((gain, i)) = fix {
+                let roi = gain * 1000 / (2 * cost(Building::Village, i).max(1) as u64);
+                return Some((roi.max(self.k.min_roi), Action::Demolish { at: m.hexes[i] }));
+            }
+        }
         let fut = self.k.future_pct * 10;
         let mut best: Option<(u64, usize, Building)> = None;
         for i in 0..slots {
