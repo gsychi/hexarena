@@ -198,6 +198,11 @@ pub struct Wildcard {
     duel_when: usize,
     /// ... or once we own this many per mille of the passable board (0 = never).
     duel_share: u64,
+    /// The `duel_when` switch waits until we own this many per mille of the passable
+    /// board (0 = no wait) and is off from tick `gate_until` on (0 = never off), so the
+    /// blitz only starts when a conquest before the cutoff looks reachable.
+    gate_share: u64,
+    gate_until: u32,
     duel_style: Option<Style>,
     inner: Core,
     rules: RulesConfig,
@@ -229,9 +234,10 @@ pub struct Wildcard {
     phase: [u64; 3],
 }
 
-/// mason-v10's published genome (agent:mason), played by `portfolio` 2 as it is, so
-/// none of our own knobs leak into it.
+/// mason-v10's and mason-v13's published genomes (agent:mason), played by `portfolio` 2
+/// and 3 as they are, so none of our own knobs leak into them.
 const MASON_V10: &str = include_str!("mason_v10.json");
+const MASON_V13: &str = include_str!("mason_v13.json");
 
 /// CPU time this thread has used, in nanoseconds.
 fn thread_cpu_ns() -> u64 {
@@ -270,6 +276,8 @@ impl Wildcard {
             inner_style: style.clone(),
             duel_when: 0,
             duel_share: 0,
+            gate_share: 0,
+            gate_until: 0,
             duel_style: None,
             inner: Core::new(style.clone()),
             rules: RulesConfig::default(),
@@ -776,10 +784,10 @@ impl Wildcard {
         s
     }
 
-    /// `style` with mason-v10's genome in place of its params, and `mz_<knob>` on top.
-    fn mason_v10(style: &Style) -> Style {
+    /// `style` with one of Mason's genomes in place of its params, and `mz_<knob>` on top.
+    fn mason(style: &Style, genome: &str) -> Style {
         let mut s = style.clone();
-        s.params = serde_json::from_str(MASON_V10).expect("mason_v10.json is a genome");
+        s.params = serde_json::from_str(genome).expect("embedded Mason genome parses");
         for (k, v) in &style.params.knobs {
             if let Some(b) = k.strip_prefix("mz_") {
                 s.params.knobs.insert(b.to_string(), *v);
@@ -797,12 +805,15 @@ impl Wildcard {
             self.k = Knobs::read(&s);
             self.duel_when = if duel { 0 } else { s.params.knob("duel_when", 0).max(0) as usize };
             self.duel_share = if duel { 0 } else { s.params.knob("duel_share", 0).max(0) as u64 };
+            self.gate_share = s.params.knob("gate_share", 0).max(0) as u64;
+            self.gate_until = s.params.knob("gate_until", 0).max(0) as u32;
             self.duel_style = (self.duel_when > 0 || self.duel_share > 0)
                 .then(|| Self::for_format(&Self::for_format(&style, "duel_"), "end_"));
             let portfolio = s.params.knob("portfolio", 0);
             self.delegate = match portfolio {
                 1 => Some(Box::new(KeystoneBot::new(Self::for_format(&s, "ks_"))) as Box<dyn Bot>),
-                2 => Some(Box::new(MasonBot::new(Self::mason_v10(&s))) as Box<dyn Bot>),
+                2 => Some(Box::new(MasonBot::new(Self::mason(&s, MASON_V10))) as Box<dyn Bot>),
+                3 => Some(Box::new(MasonBot::new(Self::mason(&s, MASON_V13))) as Box<dyn Bot>),
                 _ => None,
             };
             if self.delegate.is_some() {
@@ -814,12 +825,16 @@ impl Wildcard {
             let s = self.inner_style.clone();
             self.inner = Core::new(s);
         }
-        let few = self.duel_when > 0 && view.public_players.iter().filter(|p| p.alive).count() <= self.duel_when;
-        let big = self.duel_style.is_some() && self.duel_share > 0 && {
+        let share = || {
             let mine = view.visible_hexes.iter().filter(|c| c.owner == Some(view.you)).count() as u64;
             let land = view.public_terrain.iter().flatten().filter(|t| t.passable()).count() as u64;
-            mine * 1000 >= self.duel_share * land.max(1)
+            mine * 1000 / land.max(1)
         };
+        let few = self.duel_when > 0
+            && view.public_players.iter().filter(|p| p.alive).count() <= self.duel_when
+            && (self.gate_until == 0 || view.tick < self.gate_until)
+            && (self.gate_share == 0 || share() >= self.gate_share);
+        let big = self.duel_style.is_some() && self.duel_share > 0 && share() >= self.duel_share;
         if few || big {
             if let Some(s) = self.duel_style.take() {
                 if self.delegate.take().is_some() {
