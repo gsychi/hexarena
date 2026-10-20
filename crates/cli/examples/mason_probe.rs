@@ -48,6 +48,9 @@ struct Tally {
     attacks: [[[[u64; 3]; 5]; 5]; 2],
     /// Villages lost by direct capture, and of those retaken within 50 / 200 ticks.
     village_back: [u64; 3],
+    /// Hexes lost to seals, by the pinch hex the rival took: its garrison bucket before the
+    /// capture, and how many of its neighbours we held (incl. the sealed ones).
+    seal_pinch: [[u64; 7]; 5],
 }
 
 fn gbucket(t: u32) -> usize {
@@ -361,6 +364,19 @@ fn play(seed: u64, seats: &[Style], tallies: &mut BTreeMap<String, Tally>, log: 
                 Event::Surrendered { capturer, from, hexes } => {
                     t[*capturer as usize].trade_won[1] += hexes.len() as u64;
                     t[*from as usize].trade_lost[1] += hexes.len() as u64;
+                    let pinch = st.last_events.iter().find_map(|x| match x {
+                        Event::Captured { player, at, previous_owner: Some(o), .. } if player == capturer && o == from => Some(*at),
+                        _ => None,
+                    });
+                    if let Some(at) = pinch {
+                        let g = before.get(&at).map_or(0, |b| gbucket(b.1));
+                        let held = at
+                            .neighbors()
+                            .iter()
+                            .filter(|&&n| hexes.contains(&n) || st.cell(n).is_some_and(|c| c.owner == Some(*from)))
+                            .count();
+                        t[*from as usize].seal_pinch[g][held] += hexes.len() as u64;
+                    }
                 }
                 _ => {}
             }
@@ -467,6 +483,11 @@ fn play(seed: u64, seats: &[Style], tallies: &mut BTreeMap<String, Tally>, log: 
         for k in 0..3 {
             e.land[k] += tp.land[k];
             e.village_back[k] += tp.village_back[k];
+        }
+        for g in 0..5 {
+            for h in 0..7 {
+                e.seal_pinch[g][h] += tp.seal_pinch[g][h];
+            }
         }
         for k in 0..2 {
             e.trade_won[k] += tp.trade_won[k];
@@ -657,6 +678,21 @@ fn main() {
             100.0 * e.village_back[1] as f64 / vb,
             100.0 * e.village_back[2] as f64 / vb
         );
+    }
+    println!("hexes lost to seals per seat-game (cand+base), by pinch hex: rows garrison 0 / 1-3 / 4-10 / 11-30 / 31+, cols own neighbours 0..6");
+    for g in 0..5 {
+        let mut seats = 0;
+        let mut row = [0u64; 7];
+        for id in ["cand", "base"] {
+            if let Some(e) = tallies.get(id) {
+                seats += e.seats;
+                for h in 0..7 {
+                    row[h] += e.seal_pinch[g][h];
+                }
+            }
+        }
+        let cells: Vec<String> = row.iter().map(|&x| format!("{:>6.1}", x as f64 / seats.max(1) as f64)).collect();
+        println!("  g{}  {}", g, cells.join(""));
     }
     println!("attacks (cand+base): rows height step from-to -2..2, cols garrison 0 / 1-3 / 4-10 / 11-30 / 31+: attempts/g, capture %, troops spent per capture");
     for (k, what) in [(0usize, "rival"), (1, "neutral")] {
