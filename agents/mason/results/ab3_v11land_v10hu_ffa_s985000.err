@@ -5,3 +5,8 @@ seed 985001 tick 10000 closer None: cand=2/w206l154/d35/2.5ms@5935 cand=4/w6l11/
 seed 985001 tick 10000 closer None: base=1/w150l176/d36/5.1ms@2000 base=5/w2l0/d4/0.7ms@1580 cand=3/w219l97/d27/0.8ms@3965 base=4/w2l6/d12/0.7ms@2891 homesteader=8/w0l1/d0/0.0ms@87 cand=6/w3l8/d0/0.8ms@1580 relay=7/w0l6/d0/0.1ms@0 cand=2/w87l162/d40/0.9ms@3425
 after 2 pairs: gain -0.25 ± 0.42
 seed 985002 tick 10000 closer None: cand=1/w182l189/d23/0.7ms@3321 homesteader=7/w0l9/d0/0.1ms@173 base=5/w20l22/d27/0.8ms@3544 cand=6/w11l8/d10/4.0ms@3229 cand=3/w62l47/d40/0.9ms@2829 base=4/w7l21/d15/0.7ms@2829 base=2/w188l167/d27/0.8ms@3660 homesteader=8/w0l2/d0/0.0ms@0
+seed 985002 tick 10000 closer None: base=3/w261l151/d22/0.9ms@4745 homesteader=7/w1l6/d0/0.1ms@197 cand=5/w14l18/d29/27.1ms@2324 base=6/w17l16/d6/1.3ms@485 base=1/w114l275/d57/0.8ms@2716 cand=2/w157l99/d16/1.0ms@2717 cand=4/w45l35/d15/0.9ms@1894 homesteader=8/w0l5/d0/0.0ms@125
+after 3 pairs: gain -0.17 ± 0.25
+seed 985003 tick 10000 closer None: cand=2/w91l180/d44/0.9ms@3368 base=4/w3l0/d2/0.7ms@2403 cand=1/w137l156/d21/4.0ms@5303 cand=3/w245l108/d37/1.0ms@3366 base=7/w0l1/d0/0.5ms@359 base=5/w11l24/d4/0.7ms@2403 predator=6/w8l20/d0/0.1ms@398 homesteader=8/w0l6/d0/0.0ms@78
+seed 985003 tick 10000 closer None: base=2/w163l147/d47/3.0ms@602 cand=4/w30l25/d19/3.4ms@802 base=3/w432l129/d12/0.8ms@1403 base=1/w104l398/d34/6.6ms@8534 cand=8/w0l2/d0/0.4ms@177 cand=5/w5l15/d3/0.8ms@1402 predator=6/w16l22/d0/0.1ms@558 homesteader=7/w0l8/d0/0.0ms@212
+after 4 pairs: gain -0.17 ± 0.18

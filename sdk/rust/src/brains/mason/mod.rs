@@ -90,6 +90,8 @@ impl Map {
 struct Knobs {
     /// No builds before this tick.
     build_from: u32,
+    /// `build_from` in a two-player game (0 = `build_from`).
+    duel_build_from: u32,
     /// No builds from this tick on (0 = build all game).
     build_until: u32,
     /// Fewest ticks between two builds.
@@ -197,6 +199,7 @@ impl Knobs {
         let k = |n: &str, d: i64| style.params.knob(n, d).max(0);
         Knobs {
             build_from: k("build_from", 200) as u32,
+            duel_build_from: k("duel_build_from", 0) as u32,
             build_until: k("build_until", 0) as u32,
             build_gap: k("build_gap", 2) as u32,
             depth: k("depth", 2) as u32,
@@ -899,7 +902,11 @@ impl Bot for Mason {
         if self.k.turtle > 0 && !self.turtling {
             self.update_turtle(view, &m);
         }
-        let open = view.tick >= self.k.build_from
+        let from = match (view.public_players.len(), self.k.duel_build_from) {
+            (2, d) if d > 0 => d,
+            _ => self.k.build_from,
+        };
+        let open = view.tick >= from
             && (self.k.build_until == 0 || view.tick < self.k.build_until)
             && self.last_build.is_none_or(|t| view.tick >= t + self.k.build_gap);
         let capture = match &cmd.action {

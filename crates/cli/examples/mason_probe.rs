@@ -12,6 +12,7 @@ use hexarena_protocol::*;
 use hexarena_sdk::brains::mason::rings::{Board, Loot, Tarjan};
 use hexarena_sdk::{brains, roster, style, BotParams, Style};
 use std::collections::{BTreeMap, HashMap};
+use std::sync::OnceLock;
 use std::time::{Duration, Instant};
 
 #[derive(Default, Clone)]
@@ -40,6 +41,9 @@ struct Tally {
     /// Land held at tick 1500 / 3000 / 6000 (summed over seats alive then).
     land: [u64; 3],
 }
+
+/// Real-world map every game is played on (`--map europe`, ...); procedural if unset.
+static MAP: OnceLock<Option<MapPreset>> = OnceLock::new();
 
 fn bslot(b: Building) -> usize {
     match b {
@@ -223,7 +227,9 @@ fn play(seed: u64, seats: &[Style], tallies: &mut BTreeMap<String, Tally>, log: 
         .map(|(i, s)| Style { name: format!("Player {}", i + 1), ..s.clone() })
         .collect();
     let n = styles.len();
-    let mut st = State::new(settings(n as u16, seed), seat_names(&styles)).unwrap();
+    let mut s = settings(n as u16, seed);
+    s.rules.map = MAP.get().copied().flatten();
+    let mut st = State::new(s, seat_names(&styles)).unwrap();
     let mut bots: Vec<_> = styles.iter().map(|s| brains::build(s.clone()).unwrap()).collect();
     let mut t: Vec<Tally> = vec![Tally::default(); n];
     log.clear();
@@ -427,6 +433,7 @@ fn main() {
     let cand = Style { id: "cand".into(), ..load(&f["cand"]) };
     let base = Style { id: "base".into(), ..load(&f["base"]) };
     let duel = f.get("duel").is_some_and(|v| v == "1");
+    MAP.set(f.get("map").map(|m| serde_json::from_str(&format!("\"{m}\"")).expect("unknown --map"))).unwrap();
     let pairs: u64 = f.get("pairs").map_or(4, |v| v.parse().unwrap());
     let seed0: u64 = f.get("seed").map_or(900_000, |v| v.parse().unwrap());
     let pool: Vec<Style> = match f.get("pool").map(|s| s.as_str()) {
