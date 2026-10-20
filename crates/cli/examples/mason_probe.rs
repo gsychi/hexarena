@@ -46,6 +46,9 @@ struct Layout {
     counts: [u64; 3],
     village_farms: [u64; 7],
     farm_villages: [u64; 7],
+    /// Villages touching no Farm, by their best neighbour: an empty own farmable hex, an
+    /// own farmable hex with another building, a farmable hex we don't own, no farmable hex.
+    no_farm: [u64; 4],
 }
 
 thread_local! {
@@ -84,6 +87,26 @@ fn sample_layout(st: &State, seats: &[Style]) {
                     Some(Building::Village) => {
                         a.counts[1] += 1;
                         a.village_farms[own(Building::Farm)] += 1;
+                        if own(Building::Farm) == 0 {
+                            // Why no Farm: the best a neighbour offers, in this order.
+                            let rules = &st.settings.rules;
+                            let why = h
+                                .neighbors()
+                                .iter()
+                                .filter_map(|&n| st.cell(n).map(|c| (n, c)))
+                                .map(|(n, c)| {
+                                    let farmable = rules.terrain_allowed(Building::Farm, st.height(n));
+                                    match (farmable, c.owner == Some(p), c.building) {
+                                        (true, true, None) => 0,
+                                        (true, true, Some(_)) => 1,
+                                        (true, false, _) => 2,
+                                        (false, _, _) => 3,
+                                    }
+                                })
+                                .min()
+                                .unwrap_or(3);
+                            a.no_farm[why] += 1;
+                        }
                     }
                     Some(Building::Quarry) => a.counts[2] += 1,
                     _ => {}
@@ -104,8 +127,9 @@ fn print_layout() {
             return;
         }
         println!(
-            "{:<14} {:>5} {:>5} {:>6} {:>6} {:>6} {:>5} {:>11}  {:<21}  {:<21}",
-            "layout", "tick", "seats", "land", "inc/hx", "inc/bh", "bh%", "F:V:Q", "farms/village 0..6", "villages/farm 0..6"
+            "{:<14} {:>5} {:>5} {:>6} {:>6} {:>6} {:>5} {:>11}  {:<21}  {:<21}  {}",
+            "layout", "tick", "seats", "land", "inc/hx", "inc/bh", "bh%", "F:V:Q", "farms/village 0..6", "villages/farm 0..6",
+            "no-farm V%: empty/built/unowned/hill"
         );
         let pct = |h: &[u64; 7]| {
             let t: u64 = h.iter().sum::<u64>().max(1);
@@ -114,7 +138,7 @@ fn print_layout() {
         for ((id, tick), a) in acc.iter() {
             let v = a.counts[1].max(1) as f64;
             println!(
-                "{:<14} {:>5} {:>5} {:>6.0} {:>6.2} {:>6.2} {:>4.0}% {:>4.2}:1:{:>4.2}  {:<21}  {:<21}",
+                "{:<14} {:>5} {:>5} {:>6.0} {:>6.2} {:>6.2} {:>4.0}% {:>4.2}:1:{:>4.2}  {:<21}  {:<21}  {}",
                 id,
                 tick,
                 a.seats,
@@ -125,7 +149,8 @@ fn print_layout() {
                 a.counts[0] as f64 / v,
                 a.counts[2] as f64 / v,
                 pct(&a.village_farms),
-                pct(&a.farm_villages)
+                pct(&a.farm_villages),
+                a.no_farm.iter().map(|&x| format!("{:.0}", x as f64 * 100.0 / v)).collect::<Vec<_>>().join("/")
             );
         }
     });
