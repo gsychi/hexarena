@@ -155,6 +155,9 @@ struct Knobs {
     /// tick a hex) instead of Villages ringed by Farms (3.33), at 90 rather than 60 troops
     /// a hex.
     farm_lattice: bool,
+    /// Fewest steps from land we don't own to a Farm site (Farms are cheap to lose, and a
+    /// border Farm still feeds the Villages behind it).
+    farm_depth: u32,
     /// Pockets a rival can swallow (bits, 0 = off): 1 = no builds on hexes a rival is
     /// about to take, 2 = also demolish the best Village in a pocket whose neck is about
     /// to fall (pockets only, unlike `demolish`).
@@ -204,6 +207,7 @@ impl Knobs {
             demolish_def: k("demolish_def", 40) as u32,
             clear_walls: k("clear_walls", 0) > 0,
             farm_lattice: k("farm_lattice", 0) > 0,
+            farm_depth: k("farm_depth", k("depth", 2)) as u32,
             pocket_guard: k("pocket_guard", 0) as u32,
             lattice_fix: k("lattice_fix", 0) as u64,
         }
@@ -431,8 +435,9 @@ impl Mason {
         let mut best_quarry: Option<(u64, usize)> = None;
         let mut best_ring_village: Option<(u64, usize)> = None;
         for i in 0..slots {
+            let min_depth = if fslot(i) { self.k.farm_depth } else { self.k.depth };
             if site[i] != Site::Empty
-                || depth[i] < self.k.depth
+                || depth[i] < min_depth
                 || depth[i] == u32::MAX
                 || self.danger.get(i).copied().unwrap_or(false)
                 || self.banned.get(i).is_some_and(|&t| view.tick < t)
