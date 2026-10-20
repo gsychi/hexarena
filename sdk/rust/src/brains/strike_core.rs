@@ -297,6 +297,12 @@ struct Knobs {
     /// Extra % of garrison an own hex facing an enemy wants when at most 2 of ours are
     /// around it.
     thin_want_pct: u64,
+    /// From this tick captures ignore the safety bar (0 = never): the game ends on hex
+    /// count, so a hex held at the cutoff is worth the risk.
+    cash_from: u32,
+    /// Hold the late switch while we own less than this many thousandths of the board's
+    /// passable hexes (0 = switch regardless): a small seat that goes reckless is eaten.
+    late_share_milli: usize,
     /// Whether the duel overrides have been applied.
     duel_set: bool,
 }
@@ -372,6 +378,8 @@ impl Knobs {
             notch: k("notch", 0),
             thin_pen: k("thin_pen", 0),
             thin_want_pct: k("thin_want_pct", 0) as u64,
+            cash_from: k("cash_from", 0) as u32,
+            late_share_milli: k("late_share_milli", 0) as usize,
             duel_set: false,
         }
     }
@@ -418,6 +426,9 @@ pub struct StrikeCore {
     /// Tick each slot was last seen changing owner.
     flipped: Vec<u32>,
     tick: u32,
+    /// Our hexes as of the last tick, and the board's passable hexes.
+    my_land: usize,
+    board_land: usize,
 }
 
 impl StrikeCore {
@@ -430,6 +441,8 @@ impl StrikeCore {
             geo: None,
             seen: vec![],
             land_of: vec![],
+            my_land: 0,
+            board_land: 0,
             victim: None,
             finishing: false,
             victim_seen: 0,
@@ -1229,12 +1242,19 @@ impl Bot for StrikeCore {
                 self.k.late_sprint |= self.k.duel_late_sprint;
             }
         }
-        if self.k.late_from > 0 && view.tick >= self.k.late_from {
+        let big = self.k.late_share_milli == 0 || self.my_land * 1000 >= self.k.late_share_milli * self.board_land;
+        if self.k.late_from > 0 && view.tick >= self.k.late_from && big {
             self.k.go_late();
+        }
+        if self.k.cash_from > 0 && view.tick >= self.k.cash_from {
+            self.k.safe_min = 0;
         }
         let geo = self.geo.take().unwrap_or_else(|| Geometry::new(view));
         if self.seen.is_empty() {
             self.seen = vec![None; geo.passable.len()];
+        }
+        if self.board_land == 0 {
+            self.board_land = geo.passable.iter().filter(|&&p| p).count().max(1);
         }
         let me = view.you;
         let mut mine = vec![];
@@ -1258,6 +1278,7 @@ impl Bot for StrikeCore {
                 mine.push(i);
             }
         }
+        self.my_land = mine.len();
         if self.k.focus > 0 || self.k.victim_from > 0 {
             self.land_of = vec![0; 16];
             for o in self.seen.iter().flatten().filter_map(|c| c.owner) {
