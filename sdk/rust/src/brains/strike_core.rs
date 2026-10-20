@@ -142,12 +142,15 @@ struct Regions {
     mine: Vec<u32>,
     /// Troops last seen on the sealed hexes we don't own: they change sides with them.
     troops: Vec<u32>,
+    /// Villages a rival owns among the sealed hexes: buildings change sides with them.
+    villages: Vec<u32>,
     disc: Vec<u32>,
     low: Vec<u32>,
     sub_land: Vec<u32>,
     sub_enemy: Vec<u32>,
     sub_mine: Vec<u32>,
     sub_troops: Vec<u32>,
+    sub_villages: Vec<u32>,
     parent: Vec<usize>,
     stack: Vec<(usize, usize)>,
 }
@@ -277,6 +280,8 @@ struct Knobs {
     duel_late_sprint: bool,
     /// % of the troops a seal hands over counted in its score, at the troop price.
     region_troops_pct: i64,
+    /// Extra score per rival Village a seal takes.
+    region_village: i64,
     /// While finishing, skip supply, staging and reinforcement everywhere (0/1).
     finish_rush: bool,
     /// Whether the duel overrides have been applied.
@@ -348,6 +353,7 @@ impl Knobs {
             duel_late_from: k("duel_late_from", 0) as u32,
             duel_late_sprint: k("duel_late_sprint", 0) > 0,
             region_troops_pct: k("region_troops_pct", 0),
+            region_village: k("region_village", 0),
             finish_rush: k("finish_rush", 1) > 0,
             duel_set: false,
         }
@@ -550,6 +556,8 @@ impl StrikeCore {
             &mut r.sub_mine,
             &mut r.troops,
             &mut r.sub_troops,
+            &mut r.villages,
+            &mut r.sub_villages,
         ] {
             v.clear();
             v.resize(slots, 0);
@@ -557,8 +565,22 @@ impl StrikeCore {
         r.parent.clear();
         r.parent.resize(slots, usize::MAX);
         r.stack.clear();
-        let Regions { land, enemy, mine, troops, disc, low, sub_land, sub_enemy, sub_mine, sub_troops, parent, stack } =
-            r;
+        let Regions {
+            land,
+            enemy,
+            mine,
+            troops,
+            villages,
+            disc,
+            low,
+            sub_land,
+            sub_enemy,
+            sub_mine,
+            sub_troops,
+            sub_villages,
+            parent,
+            stack,
+        } = r;
         // The outside node has discovery time 1; every edge hex hangs off it.
         let mut timer = 1u32;
         for root in 0..slots {
@@ -598,6 +620,9 @@ impl StrikeCore {
                     }
                     if owner(v) != Some(me) {
                         sub_troops[v] += self.seen[v].map_or(0, |c| c.troops);
+                        if owner(v).is_some() && self.seen[v].is_some_and(|c| c.building == Some(Building::Village)) {
+                            sub_villages[v] += 1;
+                        }
                     }
                 }
                 let p = parent[v];
@@ -609,11 +634,13 @@ impl StrikeCore {
                 sub_enemy[p] += sub_enemy[v];
                 sub_mine[p] += sub_mine[v];
                 sub_troops[p] += sub_troops[v];
+                sub_villages[p] += sub_villages[v];
                 if low[v] >= disc[p] {
                     land[p] += sub_land[v];
                     enemy[p] += sub_enemy[v];
                     mine[p] += sub_mine[v];
                     troops[p] += sub_troops[v];
+                    villages[p] += sub_villages[v];
                 }
             }
         }
@@ -765,6 +792,7 @@ impl StrikeCore {
                 self.k.region * r.land[t] as i64
                     + self.k.region_enemy * r.enemy[t] as i64
                     + r.troops[t] as i64 * cost_milli / 1000 * self.k.region_troops_pct / 100
+                    + self.k.region_village * r.villages[t] as i64
             })
         };
         for &s in mine {
