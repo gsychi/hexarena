@@ -34,6 +34,7 @@ pub mod rings;
 use self::core::Core;
 use self::rings::{Board, Tarjan};
 use super::keystone::Pangolin as KeystoneBot;
+use super::mason::Mason as MasonBot;
 use crate::{Action, Bot, Building, Hex, ManagementCommand, PlayerCommand, PlayerId, RulesConfig, Style, View};
 use std::collections::VecDeque;
 
@@ -227,6 +228,10 @@ pub struct Wildcard {
     /// Thread CPU time of the last move's phases when timing: ring core, danger, build.
     phase: [u64; 3],
 }
+
+/// mason-v10's published genome (agent:mason), played by `portfolio` 2 as it is, so
+/// none of our own knobs leak into it.
+const MASON_V10: &str = include_str!("mason_v10.json");
 
 /// CPU time this thread has used, in nanoseconds.
 fn thread_cpu_ns() -> u64 {
@@ -771,6 +776,18 @@ impl Wildcard {
         s
     }
 
+    /// `style` with mason-v10's genome in place of its params, and `mz_<knob>` on top.
+    fn mason_v10(style: &Style) -> Style {
+        let mut s = style.clone();
+        s.params = serde_json::from_str(MASON_V10).expect("mason_v10.json is a genome");
+        for (k, v) in &style.params.knobs {
+            if let Some(b) = k.strip_prefix("mz_") {
+                s.params.knobs.insert(b.to_string(), *v);
+            }
+        }
+        s
+    }
+
     fn decide(&mut self, view: &View) -> PlayerCommand {
         if let Some(style) = self.style.take() {
             let duel = view.public_players.len() == 2;
@@ -782,8 +799,13 @@ impl Wildcard {
             self.duel_share = if duel { 0 } else { s.params.knob("duel_share", 0).max(0) as u64 };
             self.duel_style = (self.duel_when > 0 || self.duel_share > 0)
                 .then(|| Self::for_format(&Self::for_format(&style, "duel_"), "end_"));
-            if s.params.knob("portfolio", 0) > 0 {
-                self.delegate = Some(Box::new(KeystoneBot::new(Self::for_format(&s, "ks_"))));
+            let portfolio = s.params.knob("portfolio", 0);
+            self.delegate = match portfolio {
+                1 => Some(Box::new(KeystoneBot::new(Self::for_format(&s, "ks_"))) as Box<dyn Bot>),
+                2 => Some(Box::new(MasonBot::new(Self::mason_v10(&s))) as Box<dyn Bot>),
+                _ => None,
+            };
+            if self.delegate.is_some() {
                 self.handover = s.params.knob("handover", 0).max(0) as u32;
             }
         }
