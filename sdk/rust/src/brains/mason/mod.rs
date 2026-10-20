@@ -168,8 +168,8 @@ struct Knobs {
     farm_depth: u32,
     /// With `farm_lattice`, Quarries on hills only on a lattice of hexes exactly 3 apart,
     /// every other hill hex a Village: each Quarry ringed by six (2.71 troops a tick a hex
-    /// against 2.0 for bare Villages) (0/1).
-    quarry_lattice: bool,
+    /// against 2.0 for bare Villages) (0 = off, 1 = on, 2 = only in a two-player game).
+    quarry_lattice: u32,
     /// With `farm_lattice`, build the village-centred honeycomb (best per troop) before this
     /// tick: Villages on colour `vclass + 1`, Farms on the other two. The lattice keeps the
     /// `vclass` Farms, so `upgrade` turns the honeycomb into it.
@@ -233,7 +233,7 @@ impl Knobs {
             clear_walls: k("clear_walls", 0) > 0,
             farm_lattice: k("farm_lattice", 0) > 0,
             farm_depth: k("farm_depth", k("depth", 2)) as u32,
-            quarry_lattice: k("quarry_lattice", 0) > 0,
+            quarry_lattice: k("quarry_lattice", 0) as u32,
             honey_until: k("honey_until", 0) as u32,
             local_class: k("local_class", 0) as i32,
             local_bias: k("local_bias", 2) as i32,
@@ -877,7 +877,8 @@ impl Bot for Mason {
         if self.vclass.is_none() {
             let start = view.visible_hexes.iter().find(|c| c.owner == Some(view.you)).and_then(|c| m.slot(c.hex));
             self.vclass = start.map(|s| self.pick_class(&m, s));
-            if self.k.farm_lattice && self.k.quarry_lattice {
+            let duel = view.public_players.len() == 2;
+            if self.k.farm_lattice && (self.k.quarry_lattice == 1 || (self.k.quarry_lattice == 2 && duel)) {
                 self.qclass = start.map(|s| {
                     let hill = |i: usize| m.passable[i] && !self.farmable(&m, i) && self.quarry_ok(&m, i);
                     (0..7)

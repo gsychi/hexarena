@@ -1,0 +1,7 @@
+seed 985000 tick 10000 closer None: homesteader=8/w1l1/d0/0.1ms@74 cand=6/w2l12/d17/0.9ms@2493 cand=1/w164l148/d31/0.9ms@6580 relay=7/w8l35/d0/0.1ms@0 base=3/w177l75/d12/22.7ms@7591 cand=2/w81l174/d24/1.0ms@7387 base=5/w10l4/d11/9.7ms@2707 base=4/w130l119/d13/0.8ms@7554
+seed 985000 tick 10000 closer None: homesteader=8/w0l1/d0/0.1ms@74 base=1/w284l236/d48/0.8ms@1433 base=7/w11l6/d0/0.5ms@925 relay=6/w20l86/d0/0.1ms@1289 cand=3/w49l41/d8/11.7ms@2459 base=2/w223l198/d21/4.6ms@849 cand=4/w11l19/d19/1.8ms@2544 cand=5/w13l17/d10/0.9ms@3448
+after 1 pairs: gain +0.17 ± NaN
+seed 985001 tick 10000 closer None: cand=2/w206l154/d35/2.5ms@5935 cand=4/w6l11/d5/12.1ms@334 base=3/w241l123/d31/0.9ms@3531 cand=6/w13l8/d13/0.8ms@2260 homesteader=8/w0l0/d0/0.0ms@215 base=5/w3l4/d0/2.2ms@457 relay=7/w0l3/d0/0.1ms@233 base=1/w78l233/d41/2.9ms@2073
+seed 985001 tick 10000 closer None: base=1/w150l176/d36/5.1ms@2000 base=5/w2l0/d4/0.7ms@1580 cand=3/w219l97/d27/0.8ms@3965 base=4/w2l6/d12/0.7ms@2891 homesteader=8/w0l1/d0/0.0ms@87 cand=6/w3l8/d0/0.8ms@1580 relay=7/w0l6/d0/0.1ms@0 cand=2/w87l162/d40/0.9ms@3425
+after 2 pairs: gain -0.25 ± 0.42
+seed 985002 tick 10000 closer None: cand=1/w182l189/d23/0.7ms@3321 homesteader=7/w0l9/d0/0.1ms@173 base=5/w20l22/d27/0.8ms@3544 cand=6/w11l8/d10/4.0ms@3229 cand=3/w62l47/d40/0.9ms@2829 base=4/w7l21/d15/0.7ms@2829 base=2/w188l167/d27/0.8ms@3660 homesteader=8/w0l2/d0/0.0ms@0
