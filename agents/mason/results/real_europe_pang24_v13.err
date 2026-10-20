@@ -1,3 +1,6 @@
 seed 993000 tick 10000 closer None: base=7/w2l4/d9/0.6ms@0 base=2/w220l251/d29/1.1ms@9307 cand=5/w2l2/d1/0.4ms@0 cand=4/w34l30/d15/0.3ms@4441 cand=3/w9l13/d16/0.3ms@4441 base=1/w242l192/d20/50.3ms@4112 ridgeline=6/w3l11/d0/0.2ms@0 homesteader=8/w0l0/d0/0.1ms@0
 seed 993000 tick 8626 closer Some("cand"): cand=4/w4l8/d10/0.2ms@626 cand=1/w188l188/d28/0.4ms@8458 base=7/w2l1/d1/0.6ms@0 base=5/w53l38/d14/0.7ms@3839 base=3/w41l49/d18/0.7ms@4270 cand=2/w151l148/d18/0.3ms@4270 ridgeline=6/w7l5/d0/0.2ms@0 homesteader=8/w0l0/d0/0.1ms@0
 after 1 pairs: gain +1.11 ± NaN
+seed 993001 tick 10000 closer None: raider=7/w0l0/d0/0.0ms@104 cand=5/w5l52/d4/0.3ms@1147 base=2/w144l191/d25/1.1ms@475 base=1/w187l71/d13/0.8ms@2041 cand=4/w136l136/d27/0.4ms@1147 base=8/w1l0/d0/0.9ms@249 cand=3/w192l195/d52/0.4ms@1148 homesteader=6/w1l20/d0/0.1ms@474
+seed 993001 tick 7512 closer Some("base"): raider=7/w0l0/d0/0.0ms@104 base=5/w4l13/d4/0.9ms@2535 cand=4/w54l32/d22/0.3ms@2535 cand=2/w170l269/d12/0.5ms@3483 base=3/w32l36/d28/1.0ms@1881 cand=8/w1l0/d0/0.1ms@269 base=1/w282l169/d56/0.8ms@2536 homesteader=6/w1l24/d0/0.1ms@1556
+after 2 pairs: gain -0.01 ± 1.12

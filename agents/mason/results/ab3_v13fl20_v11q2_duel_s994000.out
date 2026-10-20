@@ -1,0 +1,14 @@
+gain +0.000 ± 0.000 over 6 pairs (12 games)
+bot            seats  score    avp  rgn+/g  rgn-/g  demo  elim close cpu ms/mv  cpu max   ring ok wall max
+base              12   3.94   4.50   114.8   121.8   289     6     6    0.134    48.68  558/558      63.6
+cand              12   4.01   4.50   123.3   113.2   286     6     6    0.133     0.48  627/627      63.1
+buildings per seat-game (F/V/Q/W): lost by capture | lost by seal | won by capture; land held per seat at t1500/3000/6000
+base           lost 257.8/1208.2/75.2/18.6 seal 26.8/81.2/7.7/1.9  won 257.6/1217.1/75.6/19.2 land 169/124/15
+cand           lost 257.6/1217.1/75.6/19.2 seal 27.2/71.9/7.3/1.1  won 257.8/1208.2/75.2/18.6 land 148/114/38
+layout          tick seats   land inc/hx inc/bh   bh%       F:V:Q  farms/village 0..6     villages/farm 0..6     no-farm V%: empty/built/unowned/hill
+base            1500    12    169   2.99   3.07   96% 0.41:1:0.10   26 15 22 31  3  0  0    0  3  9 19 26 22 19  0/3/0/23
+base            3000     9    165   2.98   3.05   97% 0.41:1:0.10   29 13 23 30  4  0  0    0  2  8 23 28 19 16  0/3/1/26
+base            6000     2     88   2.77   2.85   96% 0.66:1:0.09   12 14 35 32  4  0  1    9  9 10 26 26  7  9  0/2/0/10
+cand            1500    12    148   2.99   3.06   96% 0.42:1:0.10   26 14 21 33  3  0  0    0  2 10 19 25 21 20  0/3/0/23
+cand            3000     9    152   3.02   3.09   97% 0.40:1:0.09   26 15 21 32  3  0  0    0  1  6 20 27 21 22  0/3/0/23
+cand            6000     2    230   3.01   3.05   98% 0.32:1:0.09   34 18 19 24  2  0  0    0  1  0 15 31 21 28  0/4/1/28
