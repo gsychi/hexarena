@@ -96,6 +96,7 @@ fn main() {
         let mut st = State::new(s, named.iter().map(|s| s.name.clone()).collect()).unwrap();
         let mut bots: Vec<_> = named.iter().map(|s| brains::build(s.clone()).unwrap()).collect();
         let (mut g_worst, mut g_tick) = (0u64, 0u32);
+        let slow: u64 = std::env::var("STRIKE_SLOW_MS").ok().and_then(|v| v.parse().ok()).unwrap_or(5) * 1_000_000;
         while !st.is_over() {
             let cmds: TickCommands = (0..8 as PlayerId)
                 .filter(|&p| !st.eliminated[p as usize])
@@ -106,7 +107,7 @@ fn main() {
                     let cmd = bots[p as usize].act(&view);
                     let (c, w) = (thread_cpu_ns() - c0, w0.elapsed().as_nanos() as u64);
                     let (u1, s1) = thread_rusage_us();
-                    if c > 5_000_000 {
+                    if c > slow {
                         eprintln!("  slow move at tick {}: cpu {:.3} ms (user {:.3} ms, system {:.3} ms)", st.tick, c as f64 / 1e6, (u1 - u0) as f64 / 1e3, (s1 - s0) as f64 / 1e3);
                     }
                     if is_timed[p as usize] {
@@ -117,14 +118,14 @@ fn main() {
                             g_worst = c;
                             g_tick = st.tick;
                         }
-                        if c > 5_000_000 {
+                        if c > slow {
                             over += 1;
                             let r0 = thread_cpu_ns();
                             let _ = bots[p as usize].act(&view);
                             let again = thread_cpu_ns() - r0;
                             eprintln!("    replayed: cpu {:.3} ms", again as f64 / 1e6);
                             worst_confirmed = worst_confirmed.max(again.min(c));
-                            if again > 5_000_000 {
+                            if again > slow {
                                 confirmed += 1;
                             }
                         } else {
@@ -141,7 +142,7 @@ fn main() {
         eprintln!("game {g} seed {seed}: final tick {} worst cpu {:.3} ms at tick {g_tick}", st.tick, g_worst as f64 / 1e6);
     }
     println!(
-        "{} moves: worst thread-cpu {:.3} ms, worst wall {:.3} ms, mean cpu {:.4} ms, moves over 5 ms (cpu) {over}",
+        "{} moves: worst thread-cpu {:.3} ms, worst wall {:.3} ms, mean cpu {:.4} ms, moves over the slow threshold (cpu) {over}",
         moves,
         worst_cpu as f64 / 1e6,
         worst_wall as f64 / 1e6,
@@ -149,7 +150,7 @@ fn main() {
     );
     println!("cpu histogram (0.5 ms bins): {hist:?}");
     println!(
-        "over 5 ms on the replay too: {confirmed}; worst move counting a fast replay as the move's cost: {:.3} ms",
+        "over the slow threshold on the replay too: {confirmed}; worst move counting a fast replay as the move's cost: {:.3} ms",
         worst_confirmed as f64 / 1e6
     );
 }

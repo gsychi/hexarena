@@ -289,6 +289,11 @@ struct Knobs {
     region_village: i64,
     /// While finishing, skip supply, staging and reinforcement everywhere (0/1).
     finish_rush: bool,
+    /// Score for a capture with at least 4 of our hexes around it: it fills a notch.
+    notch: i64,
+    /// Score lost for a capture facing an enemy that leaves the new hex with at most 2
+    /// of ours around it and short of its garrison: a tendril a rival pinches off.
+    thin_pen: i64,
     /// Whether the duel overrides have been applied.
     duel_set: bool,
 }
@@ -361,6 +366,8 @@ impl Knobs {
             region_troops_pct: k("region_troops_pct", 0),
             region_village: k("region_village", 0),
             finish_rush: k("finish_rush", 1) > 0,
+            notch: k("notch", 0),
+            thin_pen: k("thin_pen", 0),
             duel_set: false,
         }
     }
@@ -871,11 +878,21 @@ impl StrikeCore {
                     continue;
                 }
                 let gain = self.capture_gain(geo, me, t, tc, seal);
+                let mut shape = 0;
+                if self.k.notch > 0 || self.k.thin_pen > 0 {
+                    let hugged = geo.nbrs[t].iter().filter(|&&n| self.owned(n, me)).count();
+                    if hugged >= 4 {
+                        shape = self.k.notch;
+                    } else if hugged <= 2 && st < 1000 && want_t.is_some() {
+                        shape = -self.k.thin_pen;
+                    }
+                }
                 let kill = if tc.owner.is_some() { tc.troops as i64 * cost_milli / 1000 * self.k.kill_pct / 100 } else { 0 };
                 let score = gain * st / 1000 + (v / 1000 - st) * self.k.land / 1000
                     - loss as i64 * cost_milli / 1000
                     + kill
-                    + region;
+                    + region
+                    + shape;
                 let better = best.as_ref().map_or(true, |b| {
                     (score, std::cmp::Reverse(t), send)
                         > (b.score, std::cmp::Reverse(b.to), b.send as u64)
