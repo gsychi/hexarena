@@ -308,6 +308,18 @@ struct Knobs {
     guard_ratio_pct: u64,
     /// Supply cadence while threatened.
     guard_supply_every: u32,
+    /// We are also threatened while a rival's troops on hexes touching us are at least
+    /// this % of ours facing it (0 = never).
+    guard_troops_pct: u64,
+    /// Extra % of supply gain toward a short border hex per 100% of pressure from the
+    /// rivals it faces (their troops touching us over ours facing them, capped at 400%).
+    threat_supply_pct: i64,
+    /// Every this many ticks move the biggest stack at least `drain_depth` steps from
+    /// any enemy one step toward the nearest front (0 = never).
+    drain_every: u32,
+    drain_depth: u32,
+    /// Smallest stack the drain moves.
+    drain_min: u32,
     /// Whether the duel overrides have been applied.
     duel_set: bool,
 }
@@ -387,6 +399,11 @@ impl Knobs {
             late_share_milli: k("late_share_milli", 0) as usize,
             guard_ratio_pct: k("guard_ratio_pct", 0) as u64,
             guard_supply_every: k("guard_supply_every", 1) as u32,
+            guard_troops_pct: k("guard_troops_pct", 0) as u64,
+            threat_supply_pct: k("threat_supply_pct", 0),
+            drain_every: k("drain_every", 0) as u32,
+            drain_depth: k("drain_depth", 3) as u32,
+            drain_min: k("drain_min", 20) as u32,
             duel_set: false,
         }
     }
@@ -1083,7 +1100,7 @@ impl StrikeCore {
 
     /// Relays the spare stack that buys the most border safety per step one hex toward
     /// the short border hex nearest to it. Returns the safety gain per step (milli).
-    fn supply(&self, geo: &Geometry, me: PlayerId, mine: &[usize]) -> Option<(i64, Action)> {
+    fn supply(&self, geo: &Geometry, me: PlayerId, mine: &[usize], face: &[u64]) -> Option<(i64, Action)> {
         let slots = geo.passable.len();
         // Multi-source BFS from every short border hex through our land.
         let mut dist = vec![u32::MAX; slots];
@@ -1130,6 +1147,10 @@ impl StrikeCore {
                 / dist[i] as i64;
             if self.k.vsupply_pct != 100 && faces_victim(origin[i]) {
                 gain = gain * self.k.vsupply_pct / 100;
+            }
+            if self.k.threat_supply_pct > 0 {
+                let p = face.get(origin[i]).copied().unwrap_or(0).min(400) as i64;
+                gain = gain * (100 + self.k.threat_supply_pct * p / 100) / 100;
             }
             if best.map_or(true, |b| (gain, std::cmp::Reverse(i)) > (b.0, std::cmp::Reverse(b.1))) {
                 best = Some((gain, i));
@@ -1192,6 +1213,75 @@ impl StrikeCore {
     }
 
     /// Nothing worth taking: pull troops toward the border hex facing the cheapest target.
+    /// Each rival's troops on hexes touching our land as a % of ours on hexes touching
+    /// it, and for each own hex the highest such % among the rivals it touches.
+    fn pressure(&self, geo: &Geometry, me: PlayerId, mine: &[usize]) -> (Vec<u64>, Vec<u64>) {
+        let mut theirs = vec![0u64; 16];
+        let mut ours = vec![0u64; 16];
+        let mut counted = vec![false; geo.passable.len()];
+        for &s in mine {
+            let mut faced = [false; 16];
+            for &n in &geo.nbrs[s] {
+                let Some(c) = self.seen[n] else { continue };
+                let Some(o) = c.owner.filter(|&o| o != me && (o as usize) < 16) else { continue };
+                if !counted[n] {
+                    counted[n] = true;
+                    theirs[o as usize] += c.troops as u64;
+                }
+                faced[o as usize] = true;
+            }
+            let t = self.seen[s].unwrap().troops as u64;
+            for o in 0..16 {
+                if faced[o] {
+                    ours[o] += t;
+                }
+            }
+        }
+        let ratio: Vec<u64> = (0..16).map(|o| theirs[o] * 100 / ours[o].max(1)).collect();
+        let mut face = vec![0u64; geo.passable.len()];
+        for &s in mine {
+            for &n in &geo.nbrs[s] {
+                if let Some(o) = self.seen[n].and_then(|c| c.owner).filter(|&o| o != me && (o as usize) < 16) {
+                    face[s] = face[s].max(ratio[o as usize]);
+                }
+            }
+        }
+        (ratio, face)
+    }
+
+    /// The biggest stack at least `drain_depth` steps from every enemy, moved one step
+    /// toward the nearest own hex that touches one.
+    fn drain(&self, geo: &Geometry, me: PlayerId, mine: &[usize]) -> Option<Action> {
+        let slots = geo.passable.len();
+        let mut dist = vec![u32::MAX; slots];
+        let mut queue = VecDeque::new();
+        for &s in mine {
+            if geo.nbrs[s].iter().any(|&n| self.enemy(n, me)) {
+                dist[s] = 0;
+                queue.push_back(s);
+            }
+        }
+        if queue.is_empty() {
+            return None;
+        }
+        while let Some(c) = queue.pop_front() {
+            for &n in &geo.nbrs[c] {
+                if dist[n] == u32::MAX && self.owned(n, me) {
+                    dist[n] = dist[c] + 1;
+                    queue.push_back(n);
+                }
+            }
+        }
+        let (troops, i) = mine
+            .iter()
+            .filter(|&&i| dist[i] != u32::MAX && dist[i] >= self.k.drain_depth)
+            .map(|&i| (self.seen[i].unwrap().troops, i))
+            .filter(|&(t, _)| t >= self.k.drain_min)
+            .max_by_key(|&(t, i)| (t, std::cmp::Reverse(i)))?;
+        let to = geo.nbrs[i].iter().copied().find(|&n| self.owned(n, me) && dist[n] + 1 == dist[i])?;
+        Some(Action::Move { from: geo.hexes[i], to: geo.hexes[to], troops: troops - 1 })
+    }
+
     fn regroup(&self, geo: &Geometry, me: PlayerId, mine: &[usize], tick: u32) -> Option<Action> {
         if mine.len() < 2 {
             return None;
@@ -1304,7 +1394,12 @@ impl Bot for StrikeCore {
         if self.k.neck_take > 0 || self.k.neck_want_pct > 0 {
             self.necks(&geo, me);
         }
-        let supply = self.supply(&geo, me, &mine);
+        let (ratio, face) = if self.k.threat_supply_pct > 0 || self.k.guard_troops_pct > 0 {
+            self.pressure(&geo, me, &mine)
+        } else {
+            (vec![], vec![])
+        };
+        let supply = self.supply(&geo, me, &mine, &face);
         let mut buf = std::mem::take(&mut self.region_buf);
         let use_regions = self.k.region > 0 || self.k.region_enemy > 0;
         if use_regions {
@@ -1314,8 +1409,9 @@ impl Bot for StrikeCore {
             self.best_capture(&geo, me, &mine, sprinting, seal.as_ref(), use_regions.then_some(&buf));
         self.region_buf = buf;
         let capture = capture.filter(|c| rush || c.score >= self.k.min_score);
-        let threatened = self.k.guard_ratio_pct > 0
-            && mine.iter().any(|&s| {
+        let pressed = self.k.guard_troops_pct > 0 && ratio.iter().any(|&r| r >= self.k.guard_troops_pct);
+        let threatened = pressed
+            || self.k.guard_ratio_pct > 0 && mine.iter().any(|&s| {
                 geo.nbrs[s].iter().any(|&n| {
                     self.seen[n].and_then(|c| c.owner).filter(|&o| o != me).is_some_and(|o| {
                         self.land_of.get(o as usize).copied().unwrap_or(0) as u64 * 100
@@ -1340,10 +1436,14 @@ impl Bot for StrikeCore {
             .then(|| self.reinforce(&geo, me, &mine))
             .flatten()
             .filter(|r| r.0 >= self.k.reinforce_min);
+        let drain = (!rush && self.k.drain_every > 0 && view.tick % self.k.drain_every == 0)
+            .then(|| self.drain(&geo, me, &mine))
+            .flatten();
         let doomed = (self.k.demolish_pct > 0).then(|| self.doomed_building(&geo, me, &mine)).flatten();
         let action = match (supply, capture) {
             _ if doomed.is_some() => doomed.unwrap(),
             (Some((gain, a)), _) if supply_tick && gain >= self.k.supply_min => a,
+            _ if drain.is_some() => drain.unwrap(),
             _ if reinforce.is_some() => reinforce.unwrap().1,
             _ if staging.is_some() => staging.unwrap(),
             (_, Some(c)) => {

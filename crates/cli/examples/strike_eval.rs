@@ -9,6 +9,10 @@
 //! CAND/BASE: a roster CPU, an arena id (from $HEXARENA_ARENA or data/arena) or a genome
 //! .json. FIRST skips the first pairs, so long runs can be split up. Uses
 //! HEXARENA_EVAL_THREADS threads (default 1).
+//!
+//! `STRIKE_FIELD=a,b,c` plays field lobbies instead: `STRIKE_SEATS` (default 2) candidate
+//! seats and the rest drawn from the listed bots, mirrored with the base in the same
+//! seats, so the candidate is judged against other authors' bots, not its own copies.
 
 use hexarena_arena::eval::{avp8, LOBBY};
 use hexarena_arena::{entrants::load_all, play_on};
@@ -64,6 +68,7 @@ struct Side {
     kills: f64,
     kills_strong: f64,
     deaths: f64,
+    early_deaths: f64,
     land: f64,
     bld_caps: f64,
     land3000: f64,
@@ -128,6 +133,9 @@ fn run(seed: u64, seats: &[Style]) -> Game {
                 Event::Eliminated { player } => {
                     let p = *player as usize;
                     st[p].deaths += 1.0;
+                    if t < 3000 {
+                        st[p].early_deaths += 1.0;
+                    }
                     if let Some(&k) = last_taker.get(&p) {
                         st[k].kills += 1.0;
                         if !roster_ids.contains(&seats[p].id) {
@@ -196,6 +204,7 @@ fn side(g: &Game, id: &str) -> Side {
         s.kills += x.kills;
         s.kills_strong += x.kills_strong;
         s.deaths += x.deaths;
+        s.early_deaths += x.early_deaths;
         s.land += x.land;
         s.bld_caps += x.bld_caps;
         s.land3000 += x.land3000;
@@ -221,14 +230,23 @@ fn main() {
     let pairs: usize = a.get(2).and_then(|x| x.parse().ok()).unwrap_or(4);
     let seed_base: u64 = a.get(3).and_then(|x| x.parse().ok()).unwrap_or(500_000);
     let first: usize = a.get(4).and_then(|x| x.parse().ok()).unwrap_or(0);
-    let pool = roster();
+    let field: Vec<Style> = std::env::var("STRIKE_FIELD")
+        .map(|f| f.split(',').filter(|x| !x.is_empty()).map(seat).collect())
+        .unwrap_or_default();
+    let cand_seats: usize = std::env::var("STRIKE_SEATS").ok().and_then(|v| v.parse().ok()).unwrap_or(2);
+    let pool = if field.is_empty() { roster() } else { field.clone() };
     let mut lobbies = vec![];
     for k in first..pairs {
         let seed = seed_base.wrapping_add(k as u64);
         let mut rng = Rng(seed ^ 0x5EA7);
-        let mut seats = vec![cand.clone(); 3];
-        seats.extend(vec![base.clone(); 3]);
-        for _ in 0..LOBBY - 6 {
+        let mut seats = if field.is_empty() {
+            let mut s = vec![cand.clone(); 3];
+            s.extend(vec![base.clone(); 3]);
+            s
+        } else {
+            vec![cand.clone(); cand_seats]
+        };
+        while seats.len() < LOBBY {
             seats.push(pool[rng.below(pool.len())].clone());
         }
         rng.shuffle(&mut seats);
@@ -270,11 +288,11 @@ fn main() {
     let gains: Vec<f64> = games
         .chunks(2)
         .map(|p| {
-            let m = |g: &Game, id: &str| {
-                let s = side(g, id);
-                s.score / s.seats
+            let m = |id: &str| {
+                let v: Vec<f64> = p.iter().map(|g| side(g, id)).filter(|s| s.seats > 0.0).map(|s| s.score / s.seats).collect();
+                v.iter().sum::<f64>() / v.len().max(1) as f64
             };
-            (m(&p[0], "base") + m(&p[1], "base")) / 2.0 - (m(&p[0], "candidate") + m(&p[1], "candidate")) / 2.0
+            m("base") - m("candidate")
         })
         .collect();
     let nf = gains.len() as f64;
@@ -297,16 +315,17 @@ fn main() {
             t.kills += s.kills;
             t.kills_strong += s.kills_strong;
             t.deaths += s.deaths;
+            t.early_deaths += s.early_deaths;
             t.land += s.land;
             t.bld_caps += s.bld_caps;
             t.land3000 += s.land3000;
         }
         let k = t.seats;
         println!(
-            "{id:9} score {:.3} avp {:.3} closes {} | per seat: enemy caps {:.0} (pre-3000 {:.0}) lost {:.0} net {:+.0} surrendered-to-us {:.1} V/F caps {:.0} kills {:.2} (non-roster {:.2}) deaths {:.2} land@3000 {:.0} final land {:.0}",
+            "{id:9} score {:.3} avp {:.3} closes {} | per seat: enemy caps {:.0} (pre-3000 {:.0}) lost {:.0} net {:+.0} surrendered-to-us {:.1} V/F caps {:.0} kills {:.2} (non-roster {:.2}) deaths {:.2} (pre-3000 {:.2}) land@3000 {:.0} final land {:.0}",
             t.score / k, t.avp / k, t.closes,
             t.enemy_caps / k, t.early_caps / k, t.lost / k, (t.enemy_caps + t.surrendered - t.lost) / k, t.surrendered / k,
-            t.bld_caps / k, t.kills / k, t.kills_strong / k, t.deaths / k, t.land3000 / k, t.land / k
+            t.bld_caps / k, t.kills / k, t.kills_strong / k, t.deaths / k, t.early_deaths / k, t.land3000 / k, t.land / k
         );
     }
     let conquest = games.iter().filter(|g| g.closer.is_some()).count();
