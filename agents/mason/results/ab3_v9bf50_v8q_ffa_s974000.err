@@ -1,0 +1,12 @@
+seed 974000 tick 10000 closer None: cand=3/w112l185/d0/0.9ms@7791 cand=2/w248l84/d0/0.9ms@7792 base=6/w1l0/d0/1.0ms@487 predator=4/w26l181/d0/0.1ms@4882 cand=7/w0l1/d0/0.8ms@702 homesteader=8/w0l3/d0/0.0ms@0 base=5/w13l13/d0/0.9ms@400 base=1/w202l131/d0/0.8ms@8193
+seed 974000 tick 8030 closer Some("cand"): base=3/w73l52/d0/1.0ms@2998 base=2/w99l123/d0/1.2ms@2368 cand=6/w2l2/d0/0.9ms@2135 predator=4/w15l27/d0/0.1ms@2134 base=7/w1l0/d0/0.6ms@684 homesteader=8/w0l2/d0/0.0ms@0 cand=5/w7l9/d0/1.0ms@2134 cand=1/w145l126/d0/0.9ms@2435
+after 1 pairs: gain +0.12 ± NaN
+seed 974001 tick 10000 closer None: base=4/w49l167/d0/0.9ms@6961 homesteader=8/w0l3/d0/0.0ms@137 cand=5/w23l10/d0/0.9ms@1194 base=3/w230l79/d0/39.0ms@7429 predator=7/w14l26/d0/0.1ms@509 cand=2/w106l208/d0/0.9ms@1192 cand=6/w0l2/d0/0.8ms@1192 base=1/w136l57/d0/0.8ms@4382
+seed 974001 tick 10000 closer None: cand=3/w86l111/d0/1.0ms@2937 homesteader=7/w0l1/d0/0.0ms@174 base=5/w23l29/d0/2.1ms@3206 cand=4/w22l23/d0/1.0ms@2562 predator=8/w16l26/d0/0.1ms@960 base=1/w152l134/d0/48.1ms@6000 base=6/w1l2/d0/0.9ms@2380 cand=2/w124l86/d0/0.8ms@2638
+after 2 pairs: gain -0.11 ± 0.22
+seed 974002 tick 10000 closer None: base=8/w1l0/d0/0.4ms@0 base=2/w120l248/d0/13.1ms@1146 cand=5/w6l10/d0/0.5ms@928 cand=4/w13l23/d0/0.8ms@3018 base=3/w241l133/d0/3.5ms@1281 cand=1/w145l94/d0/0.8ms@3018 raider=7/w4l6/d0/0.1ms@386 predator=6/w4l9/d0/0.1ms@418
+seed 974002 tick 10000 closer None: cand=5/w33l14/d0/0.8ms@781 cand=3/w215l153/d0/2.2ms@741 base=4/w24l12/d0/0.8ms@83 base=6/w23l18/d0/0.9ms@376 cand=2/w159l160/d0/0.8ms@81 base=1/w165l241/d0/0.8ms@781 raider=8/w0l5/d0/0.0ms@30 predator=7/w19l23/d0/0.1ms@376
+after 3 pairs: gain +0.15 ± 0.29
+seed 974003 tick 10000 closer None: cand=7/w3l1/d0/3.7ms@2228 cand=3/w116l89/d0/1.3ms@3101 base=5/w6l14/d0/0.8ms@3384 base=1/w172l77/d0/3.3ms@6736 predator=8/w8l7/d0/0.0ms@381 base=4/w65l76/d0/1.2ms@3100 cand=2/w106l206/d0/1.4ms@3100 ridgeline=6/w7l9/d0/0.1ms@0
+seed 974003 tick 10000 closer None: base=7/w1l0/d0/0.6ms@107 base=4/w161l64/d0/0.9ms@5564 cand=5/w11l13/d0/0.9ms@1930 cand=1/w148l88/d0/0.8ms@5812 predator=8/w3l10/d0/0.0ms@327 cand=3/w39l115/d0/1.8ms@6860 base=2/w96l168/d0/0.8ms@2081 ridgeline=6/w11l6/d0/0.1ms@0
+after 4 pairs: gain +0.20 ± 0.21
