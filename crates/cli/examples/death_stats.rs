@@ -124,6 +124,8 @@ fn main() {
     let mut args = std::env::args().skip(1);
     let prefix = args.next().unwrap();
     let paths: Vec<String> = args.collect();
+    let before: u32 = std::env::var("DEATH_BEFORE").ok().and_then(|v| v.parse().ok()).unwrap_or(u32::MAX);
+    let (mut real_seats, mut real_deaths) = (0u64, 0u64);
     let (mut seats, mut deaths) = (0u64, 0u64);
     let mut death_bin = [0u64; 10];
     let mut mid_bin = [0u64; 12];
@@ -141,6 +143,7 @@ fn main() {
             continue;
         }
         let mine: Vec<bool> = names.iter().map(|x| x.starts_with(&prefix)).collect();
+        let real = replay.settings().rules.map.is_some();
         let mut st = State::new(replay.settings(), names.clone()).unwrap();
         let mut snaps: Vec<State> = vec![];
         // (tick, victim, taker, hexes, by seal)
@@ -179,7 +182,8 @@ fn main() {
         }
         for p in (0..n).filter(|&p| mine[p]) {
             seats += 1;
-            let Some((t, alive)) = died[p] else {
+            real_seats += real as u64;
+            let Some((t, alive)) = died[p].filter(|&(t, _)| t < before) else {
                 if let Some(s) = snaps.get(70) {
                     if !s.eliminated[p] {
                         survivors.add(position(s, p, None));
@@ -188,6 +192,7 @@ fn main() {
                 continue;
             };
             deaths += 1;
+            real_deaths += real as u64;
             death_bin[(t as usize / 1000).min(9)] += 1;
             if (3000..6000).contains(&t) {
                 mid_bin[(t as usize - 3000) / 250] += 1;
@@ -225,6 +230,7 @@ fn main() {
         }
     }
     println!("{} games' seats {seats}, deaths {deaths} ({:.0}%)", paths.len(), deaths as f64 * 100.0 / seats.max(1) as f64);
+    println!("on real maps: {real_deaths} deaths of {real_seats} seats");
     println!("deaths by 1000-tick bin: {death_bin:?}");
     println!("deaths from 3000 to 6000 by 250 ticks: {mid_bin:?}");
     println!("players alive when we died (us included): {alive_at_death:?}");

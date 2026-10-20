@@ -303,6 +303,11 @@ struct Knobs {
     /// Hold the late switch while we own less than this many thousandths of the board's
     /// passable hexes (0 = switch regardless): a small seat that goes reckless is eaten.
     late_share_milli: usize,
+    /// We are threatened while a rival touching us owns at least this % of our land
+    /// (0 = never).
+    guard_ratio_pct: u64,
+    /// Supply cadence while threatened.
+    guard_supply_every: u32,
     /// Whether the duel overrides have been applied.
     duel_set: bool,
 }
@@ -380,6 +385,8 @@ impl Knobs {
             thin_want_pct: k("thin_want_pct", 0) as u64,
             cash_from: k("cash_from", 0) as u32,
             late_share_milli: k("late_share_milli", 0) as usize,
+            guard_ratio_pct: k("guard_ratio_pct", 0) as u64,
+            guard_supply_every: k("guard_supply_every", 1) as u32,
             duel_set: false,
         }
     }
@@ -1279,7 +1286,7 @@ impl Bot for StrikeCore {
             }
         }
         self.my_land = mine.len();
-        if self.k.focus > 0 || self.k.victim_from > 0 {
+        if self.k.focus > 0 || self.k.victim_from > 0 || self.k.guard_ratio_pct > 0 {
             self.land_of = vec![0; 16];
             for o in self.seen.iter().flatten().filter_map(|c| c.owner) {
                 if let Some(n) = self.land_of.get_mut(o as usize) {
@@ -1307,8 +1314,17 @@ impl Bot for StrikeCore {
             self.best_capture(&geo, me, &mine, sprinting, seal.as_ref(), use_regions.then_some(&buf));
         self.region_buf = buf;
         let capture = capture.filter(|c| rush || c.score >= self.k.min_score);
-        let supply_tick =
-            !rush && self.k.supply_every > 0 && view.tick % self.k.supply_every == 0;
+        let threatened = self.k.guard_ratio_pct > 0
+            && mine.iter().any(|&s| {
+                geo.nbrs[s].iter().any(|&n| {
+                    self.seen[n].and_then(|c| c.owner).filter(|&o| o != me).is_some_and(|o| {
+                        self.land_of.get(o as usize).copied().unwrap_or(0) as u64 * 100
+                            >= self.k.guard_ratio_pct * mine.len() as u64
+                    })
+                })
+            });
+        let every = if threatened { self.k.guard_supply_every } else { self.k.supply_every };
+        let supply_tick = !rush && every > 0 && view.tick % every == 0;
         let floor = capture.map_or(self.k.min_score, |c| c.score);
         let staging = blocked
             .filter(|b| {
