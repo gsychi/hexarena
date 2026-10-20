@@ -41,8 +41,20 @@ export interface Rules {
   wall: { troop_cost: number; resource_cost: number; max_links: number; defense_milli_by_links: number[]; relink_cooldown: number }
   /** v0.7+: Go-style capture of any region sealed off by one player's land. */
   region_capture?: boolean
-  /** A hand-drawn landmass; absent on the procedural map. */
-  map?: 'europe'
+  /** A real-world map; absent on the procedural map. */
+  map?: MapPreset
+}
+
+export type MapPreset = 'europe' | 'mediterranean' | 'japan' | 'china' | 'united_states' | 'north_america' | 'africa'
+
+export const MAP_NAMES: Record<MapPreset, string> = {
+  europe: 'Europe',
+  mediterranean: 'Mediterranean',
+  japan: 'Japan',
+  china: 'China',
+  united_states: 'United States',
+  north_america: 'North America',
+  africa: 'Africa',
 }
 
 export interface KindReport {
@@ -74,6 +86,8 @@ export interface ViewerReplay {
   events: GameEvent[][]
   result: { rules_version: string; final_tick: number; placements: Placement[] }
   building_report: { matches: number; farm: KindReport; village: KindReport; quarry: KindReport; wall: KindReport }
+  /** City labels on a real-world map. */
+  places?: { idx: number; name: string }[]
 }
 
 /** The parts of a viewer document the 2D board draws; a live game supplies these without frames. */

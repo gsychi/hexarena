@@ -281,7 +281,7 @@ export function Viewer({ src, match, label, onBack }: { src: string; match?: str
               <Board3D rep={rep} cells={cells} tick={tick} visible={visible} />
             </Suspense>
           ) : (
-            <Board rep={rep} cells={cells} perspective={perspective} visible={visible} selected={selected} heightMode={heightMode} tick={tick} plan={plan} calmSea={rep.rules.map === 'europe'}
+            <Board rep={rep} cells={cells} perspective={perspective} visible={visible} selected={selected} heightMode={heightMode} tick={tick} plan={plan} calmSea={!!rep.rules.map} labels={rep.places}
               onSelect={(i) => { setSelected(i); if (i !== null) setTab('hex') }} />
           )}
           {tick === last && !hideEnd && <MatchOver rep={rep} elo={elo} onReplay={() => { setTick(0); setPlaying(true) }} onClose={() => setHideEnd(true)} />}

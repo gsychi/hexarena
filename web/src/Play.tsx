@@ -1,7 +1,6 @@
 import {
   ArrowLeft, ArrowRight, Bot, Crosshair, Flag, Gamepad2, Globe2, Loader2, Magnet, Pause, Pickaxe, Play, Shuffle, Swords, Trash2, Trophy, Undo2,
 } from 'lucide-react'
-import type { LucideIcon } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -9,13 +8,13 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
 import { api } from './api'
-import type { LiveLevel, LiveOrder, LivePhase, LiveSetup, LiveState, LiveSummary, MapPreset } from './api'
+import type { LiveLevel, LiveOrder, LivePhase, LiveSetup, LiveState, LiveSummary, MapInfo, MapPreset } from './api'
 import { Board } from './Board'
 import { BuildingIcon } from './Legend'
 import { Offline, Page } from './Page'
 import type { PlayerAction } from './Plan'
 import { usePoll } from './poll'
-import { BUILDING_KEYS, BUILDING_NAMES, HEIGHT_STYLE, PLAYER_COLORS, buildPreview, hexAt, hexDist, hexIndex } from './model'
+import { BUILDING_KEYS, BUILDING_NAMES, HEIGHT_STYLE, MAP_NAMES, PLAYER_COLORS, buildPreview, hexAt, hexDist, hexIndex } from './model'
 import type { BoardRep, Cell, GameEvent, Hex } from './model'
 
 const go = (hash: string) => { location.hash = hash }
@@ -26,10 +25,9 @@ const LEVELS: { id: LiveLevel; name: string; blurb: string }[] = [
   { id: 'hard', name: 'Hard', blurb: 'The current top of the arena, agent-designed and tuned in self-play.' },
 ]
 
-const MAPS: { id: MapPreset | null; name: string; blurb: string; icon: LucideIcon }[] = [
-  { id: 'europe', name: 'Mainland Europe', blurb: 'Lisbon to Kyiv in one connected landmass. Alps, Pyrenees and Carpathians as walls; no islands.', icon: Globe2 },
-  { id: null, name: 'Random', blurb: "The arena's procedural map, new every game.", icon: Shuffle },
-]
+const PROCEDURAL = { id: null, name: 'Random', blurb: "The arena's procedural map, new every game." }
+
+const mapName = (m: MapPreset | null) => (m ? MAP_NAMES[m] : 'Random map')
 
 const SETUP_SPEEDS = [1, 2, 5, 10]
 const POLL_MS = 200
@@ -71,6 +69,9 @@ export function PlayPage() {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const games = usePoll(api.liveGames, 5000)
+  const [maps, setMaps] = useState<MapInfo[] | null>(null)
+  const [mapsError, setMapsError] = useState(false)
+  useEffect(() => { api.maps().then(setMaps).catch(() => setMapsError(true)) }, [])
 
   const start = async () => {
     setBusy(true); setError(null)
@@ -91,15 +92,19 @@ export function PlayPage() {
         <Card>
           <CardHeader>
             <CardTitle>New game</CardTitle>
-            <CardDescription>Your seat is picked at random, so you might start in Madrid or in Warsaw.</CardDescription>
+            <CardDescription>Every real map is one connected landmass with no islands; straits are bridged. Your start city is picked at random.</CardDescription>
           </CardHeader>
           <CardContent className="space-y-5">
             <div className="space-y-2">
               <Label>Map</Label>
+              {!maps && !mapsError && <div className="flex items-center gap-2 text-xs text-muted-foreground"><Loader2 className="size-3.5 animate-spin" />Loading maps…</div>}
+              {mapsError && <p className="text-xs text-rose-400">Couldn't load the real-world maps; only the random map is available.</p>}
               <div className="grid gap-2 sm:grid-cols-2">
-                {MAPS.map((m) => (
+                {[...(maps ?? []), PROCEDURAL].map((m) => (
                   <Choice key={m.name} active={map === m.id} onClick={() => setMap(m.id)}>
-                    <span className="flex items-center gap-2 text-sm font-medium"><m.icon className="size-4 text-muted-foreground" />{m.name}</span>
+                    <span className="flex items-center gap-2 text-sm font-medium">
+                      {m.id ? <Globe2 className="size-4 text-muted-foreground" /> : <Shuffle className="size-4 text-muted-foreground" />}{m.name}
+                    </span>
                     <span className="text-xs text-muted-foreground">{m.blurb}</span>
                   </Choice>
                 ))}
@@ -185,7 +190,7 @@ function GameRow({ g }: { g: LiveSummary }) {
   return (
     <li className="flex items-center gap-2 rounded-lg border px-2.5 py-2 text-xs">
       <div className="min-w-0 flex-1">
-        <div className="flex items-center gap-1.5 font-medium">{g.map === 'europe' ? 'Europe' : 'Random map'} {phaseBadge(g.phase)}</div>
+        <div className="flex items-center gap-1.5 font-medium">{mapName(g.map)} {phaseBadge(g.phase)}</div>
         <div className="truncate text-muted-foreground">{rivals} CPU{rivals === 1 ? '' : 's'} · tick {g.tick} · <span className="font-mono">{g.id}</span></div>
       </div>
       <Button size="xs" variant={playing ? 'default' : 'outline'} onClick={() => go(playing ? `/play/${g.id}` : `/match/${g.id}`)}>
@@ -461,7 +466,7 @@ function LiveTable({ id, setup, rep, state, lines, offline, onQueue, onControl }
     <div className="flex h-full flex-col gap-3 overflow-y-auto bg-background p-3 text-foreground lg:flex-row lg:overflow-hidden">
       <div className="relative h-[62svh] shrink-0 lg:h-auto lg:min-h-0 lg:flex-1">
         <Board rep={rep} cells={cells} perspective={you} visible={visible} selected={selected} heightMode={false} tick={state.tick}
-          plans={over ? [] : plans} labels={setup.places} calmSea={setup.map === 'europe'} focus={focus} onSelect={onSelect} />
+          plans={over ? [] : plans} labels={setup.places} calmSea={setup.map !== null} focus={focus} onSelect={onSelect} />
         <div className="pointer-events-none absolute inset-x-0 top-12 flex justify-center px-4">
           {hint || offline ? <div className="rounded-lg border border-amber-400/40 bg-background/90 px-3 py-1.5 text-xs text-amber-200 shadow backdrop-blur">{hint ?? `Lost the server: ${offline}`}</div>
             : !over && <div className="hidden rounded-lg border bg-background/70 px-3 py-1.5 text-[11px] text-muted-foreground backdrop-blur md:block">
@@ -475,7 +480,7 @@ function LiveTable({ id, setup, rep, state, lines, offline, onQueue, onControl }
           <CardHeader className="flex items-center justify-between">
             <CardTitle className="flex items-center gap-2 text-sm">
               <span className="size-3 rounded-full" style={{ background: PLAYER_COLORS[you % 8] }} />
-              {setup.map === 'europe' ? 'Europe' : 'Random map'} · {setup.names.length} players
+              {mapName(setup.map)} · {setup.names.length} players
             </CardTitle>
             {phaseBadge(state.phase)}
           </CardHeader>

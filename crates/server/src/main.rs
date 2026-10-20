@@ -23,6 +23,8 @@ use tower_http::services::{ServeDir, ServeFile};
 
 mod catalog;
 mod chat;
+mod compare;
+mod habits;
 mod notes;
 mod play;
 mod standings;
@@ -158,6 +160,7 @@ struct AppState {
     notes: notes::Notebook,
     chat: chat::Chat,
     play: play::Games,
+    habits: habits::Store,
 }
 
 type Shared = Arc<AppState>;
@@ -248,6 +251,7 @@ impl AppState {
             .map(|n| n.get())
             .unwrap_or(2);
         AppState {
+            habits: habits::Store::load(&dir),
             dir,
             arena_dir,
             matches: Mutex::new(matches),
@@ -276,6 +280,7 @@ fn run_match(app: &AppState, mut summary: Summary, styles: Vec<Style>) -> Summar
             serde_json::to_vec(&viewer).unwrap(),
         )
         .map_err(|e| e.to_string())?;
+        app.habits.save(&summary.id, habits::from_events(styles.len(), &played.events));
         let st = &played.state;
         let ending = match st.conqueror() {
             Some(p) => {
@@ -546,6 +551,33 @@ async fn autoplay(app: Shared) {
         };
         let map = ((seed >> 8) % REAL_MAP_EVERY == 0).then(|| any_real_map(seed));
         launch(&app, &lineup, seed, true, map);
+    }
+}
+
+/// Works out habits for finished games under the current rules that don't have them
+/// yet, newest first, one at a time so it never competes with the arena for long.
+async fn backfill_habits(app: Shared) {
+    let current = RulesConfig::default().version;
+    let mut todo: Vec<(u64, String, usize)> = app
+        .matches
+        .lock()
+        .unwrap()
+        .values()
+        .filter(|m| m.status == Status::Done && m.rules_version == current && !app.habits.has(&m.id))
+        .map(|m| (m.created_at, m.id.clone(), m.seats.len()))
+        .collect();
+    todo.sort_by(|a, b| b.cmp(a));
+    let total = todo.len();
+    let started = std::time::Instant::now();
+    for (i, (_, id, players)) in todo.into_iter().enumerate() {
+        let worker = app.clone();
+        let done = tokio::task::spawn_blocking(move || worker.habits.backfill(&id, players).map_err(|e| (id, e))).await;
+        if let Ok(Err((id, e))) = done {
+            eprintln!("habits for {id}: {e}");
+        }
+        if (i + 1) % 500 == 0 || i + 1 == total {
+            println!("habits backfilled for {}/{total} games in {:.0?}", i + 1, started.elapsed());
+        }
     }
 }
 
@@ -1146,6 +1178,7 @@ async fn main() {
     state.autoplay = std::env::var("HEXARENA_AUTOPLAY").map_or(true, |v| v != "0");
     state.autoplay_parallel = env("HEXARENA_AUTOPLAY_PARALLEL").unwrap_or(AUTOPLAY_PARALLEL).max(1);
     let app: Shared = Arc::new(state);
+    tokio::spawn(backfill_habits(app.clone()));
     if app.autoplay {
         tokio::spawn(autoplay(app.clone()));
         println!(
@@ -1164,6 +1197,7 @@ async fn main() {
         .route("/api/leaderboard", get(leaderboard))
         .route("/api/rules", get(|| async { Json(RulesConfig::default()) }))
         .route("/api/maps", get(maps))
+        .route("/api/compare", get(compare::compare))
         .route("/api/arena", get(arena_info))
         .route("/api/observations", get(list_notes).post(add_note))
         .route("/api/agents", get(agents))

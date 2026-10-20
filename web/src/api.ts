@@ -1,5 +1,5 @@
 import { registerBots } from './lineage'
-import type { GameEvent, Hex, Placement, Rules, Terrain } from './model'
+import type { GameEvent, Hex, MapPreset, Placement, Rules, Terrain } from './model'
 
 export interface BotInfo {
   id: string
@@ -44,6 +44,8 @@ export interface MatchSummary {
   final_tick: number | null
   /** Scheduled by the self-playing arena. */
   auto?: boolean
+  /** The real-world map it was played on; procedural when absent. */
+  map?: MapPreset
   winner: string | null
   standings: Standing[]
 }
@@ -187,7 +189,10 @@ export type ActivityItem =
 
 export interface Activity { agent: string; status: AgentStatus | null; items: ActivityItem[] }
 
-export interface CreateMatch { bots: string[]; seed?: number; count: number }
+/** `'any'` picks a real-world map at random for each game. */
+export type MapChoice = 'procedural' | 'any' | MapPreset
+export interface CreateMatch { bots: string[]; seed?: number; count: number; map: MapChoice }
+export interface MapInfo { id: MapPreset; name: string; blurb: string }
 
 async function json<T>(res: Response): Promise<T> {
   if (!res.ok) {
@@ -200,6 +205,7 @@ async function json<T>(res: Response): Promise<T> {
 export const api = {
   /** Every bot, also recorded as lineage so mascots can inherit their parents' looks. */
   bots: () => fetch('/api/bots').then((r) => json<BotInfo[]>(r)).then((b) => { registerBots(b); return b }),
+  compare: (a: string, b: string) => fetch(`/api/compare?a=${encodeURIComponent(a)}&b=${encodeURIComponent(b)}`).then((r) => json<Comparison>(r)),
   profile: (id: string) => fetch(`/api/bots/${encodeURIComponent(id)}/profile`).then((r) => json<BotProfile>(r)),
   matches: () => fetch('/api/matches').then((r) => json<MatchSummary[]>(r)),
   /** The newest `limit` games plus how many games there are in all. */
@@ -207,6 +213,7 @@ export const api = {
     fetch(`/api/matches?limit=${limit}`).then(async (r) => ({ games: await json<MatchSummary[]>(r), total: Number(r.headers.get('x-total-count') ?? 0) })),
   match: (id: string) => fetch(`/api/matches/${id}`).then((r) => json<MatchSummary>(r)),
   rules: () => fetch('/api/rules').then((r) => json<LiveRules>(r)),
+  maps: () => fetch('/api/maps').then((r) => json<MapInfo[]>(r)),
   leaderboard: (format: BoardFormat = 'all') => fetch(format === 'all' ? '/api/leaderboard' : `/api/leaderboard?format=${format}`).then((r) => json<Leaderboard>(r)),
   matchElo: (id: string) => fetch(`/api/matches/${id}/elo`).then((r) => json<MatchElo>(r)),
   arena: () => fetch('/api/arena').then((r) => json<ArenaInfo>(r)),
@@ -233,7 +240,7 @@ export const api = {
 const post = <T,>(url: string, body: unknown) =>
   fetch(url, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) }).then((r) => json<T>(r))
 
-export type MapPreset = 'europe'
+export type { MapPreset }
 export type LiveLevel = 'easy' | 'medium' | 'hard'
 export type LivePhase = 'playing' | 'won' | 'lost' | 'cutoff' | 'abandoned'
 export interface NewLiveGame { map: MapPreset | null; level: LiveLevel; opponents: number; speed?: number }
@@ -294,3 +301,57 @@ export interface Note {
   tags: string[]
 }
 
+
+export type CompareFormat = 'duel' | 'ffa' | 'other'
+
+/** One bot's record against the other in the games both played. */
+export interface HeadToHead { games: number; a_ahead: number; b_ahead: number; even: number; a_won: number; b_won: number }
+
+/** How a bot plays in one format, averaged per game. Habit stats are null until its games are processed. */
+export interface Tendencies {
+  games: number
+  avg_place?: number
+  win_pct?: number
+  finish_pct?: number
+  avg_land?: number
+  avg_ticks?: number
+  ms_per_move?: number | null
+  habit_games?: number
+  farms?: number | null
+  villages?: number | null
+  quarries?: number | null
+  walls?: number | null
+  wall_pct?: number | null
+  first_wall?: number | null
+  demolished?: number | null
+  captures?: number | null
+  rival_captures?: number | null
+  attack_success_pct?: number | null
+  lost?: number | null
+  sealed?: number | null
+  sealed_lost?: number | null
+}
+
+export interface SharedGame {
+  id: string
+  created_at: number
+  players: number
+  map?: MapPreset | null
+  auto: boolean
+  ending: Ending | null
+  final_tick: number | null
+  winner: string | null
+  a: { place_start: number; place_end: number; land: number }
+  b: { place_start: number; place_end: number; land: number }
+}
+
+export interface Comparison {
+  rules_version: string
+  a: { id: string; name: string; retired: boolean }
+  b: { id: string; name: string; retired: boolean }
+  head_to_head: Partial<Record<CompareFormat, HeadToHead>>
+  shared_total: number
+  shared: SharedGame[]
+  tendencies: { a: Partial<Record<'duel' | 'ffa', Tendencies>>; b: Partial<Record<'duel' | 'ffa', Tendencies>> }
+  coverage: { games: number; with_habits: number }
+}
