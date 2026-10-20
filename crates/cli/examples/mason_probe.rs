@@ -33,6 +33,104 @@ struct Tally {
     predicted_ok: u64,
 }
 
+/// Layout audit as in `layout_yield`, per seat id and sample tick.
+const SAMPLES: [u32; 4] = [1500, 3000, 6000, 9000];
+
+#[derive(Default)]
+struct Layout {
+    seats: u64,
+    owned: u64,
+    income: u64,
+    built: u64,
+    built_income: u64,
+    counts: [u64; 3],
+    village_farms: [u64; 7],
+    farm_villages: [u64; 7],
+}
+
+thread_local! {
+    static LAYOUT: std::cell::RefCell<BTreeMap<(String, u32), Layout>> = Default::default();
+}
+
+fn sample_layout(st: &State, seats: &[Style]) {
+    LAYOUT.with(|acc| {
+        let mut acc = acc.borrow_mut();
+        for (p, s) in seats.iter().enumerate() {
+            let p = p as PlayerId;
+            if st.eliminated[p as usize] {
+                continue;
+            }
+            let a = acc.entry((s.id.clone(), st.tick)).or_default();
+            a.seats += 1;
+            for h in st.board.hexes() {
+                let Some(c) = st.cell(h) else { continue };
+                if c.owner != Some(p) {
+                    continue;
+                }
+                let inc = st.income(h) as u64;
+                a.owned += 1;
+                a.income += inc;
+                let own = |b: Building| {
+                    h.neighbors()
+                        .iter()
+                        .filter(|&&n| st.cell(n).is_some_and(|c| c.owner == Some(p) && c.building == Some(b)))
+                        .count()
+                };
+                match c.building {
+                    Some(Building::Farm) => {
+                        a.counts[0] += 1;
+                        a.farm_villages[own(Building::Village)] += 1;
+                    }
+                    Some(Building::Village) => {
+                        a.counts[1] += 1;
+                        a.village_farms[own(Building::Farm)] += 1;
+                    }
+                    Some(Building::Quarry) => a.counts[2] += 1,
+                    _ => {}
+                }
+                if matches!(c.building, Some(Building::Farm | Building::Village | Building::Quarry)) {
+                    a.built += 1;
+                    a.built_income += inc;
+                }
+            }
+        }
+    });
+}
+
+fn print_layout() {
+    LAYOUT.with(|acc| {
+        let acc = acc.borrow();
+        if acc.is_empty() {
+            return;
+        }
+        println!(
+            "{:<14} {:>5} {:>5} {:>6} {:>6} {:>6} {:>5} {:>11}  {:<21}  {:<21}",
+            "layout", "tick", "seats", "land", "inc/hx", "inc/bh", "bh%", "F:V:Q", "farms/village 0..6", "villages/farm 0..6"
+        );
+        let pct = |h: &[u64; 7]| {
+            let t: u64 = h.iter().sum::<u64>().max(1);
+            h.iter().map(|v| format!("{:>3}", v * 100 / t)).collect::<Vec<_>>().join("")
+        };
+        for ((id, tick), a) in acc.iter() {
+            let v = a.counts[1].max(1) as f64;
+            println!(
+                "{:<14} {:>5} {:>5} {:>6.0} {:>6.2} {:>6.2} {:>4.0}% {:>4.2}:1:{:>4.2}  {:<21}  {:<21}",
+                id,
+                tick,
+                a.seats,
+                a.owned as f64 / a.seats.max(1) as f64,
+                a.income as f64 / a.owned.max(1) as f64,
+                a.built_income as f64 / a.built.max(1) as f64,
+                a.built as f64 * 100.0 / a.owned.max(1) as f64,
+                a.counts[0] as f64 / v,
+                a.counts[2] as f64 / v,
+                pct(&a.village_farms),
+                pct(&a.farm_villages)
+            );
+        }
+    });
+}
+
 fn seat_style(id: &str, arena: &str) -> Style {
     if let Some(s) = style(id) {
         return s;
@@ -138,6 +236,9 @@ fn play(seed: u64, seats: &[Style], tallies: &mut BTreeMap<String, Tally>, log: 
             cmds.push((p, cmd));
         }
         st.step(&cmds);
+        if SAMPLES.contains(&st.tick) {
+            sample_layout(&st, seats);
+        }
         let mut region_now: HashMap<PlayerId, u32> = HashMap::new();
         let mut captured_at: HashMap<PlayerId, Vec<Hex>> = HashMap::new();
         let move_to: HashMap<PlayerId, Hex> = cmds
@@ -363,4 +464,5 @@ fn main() {
             e.wall_slowest.as_secs_f64() * 1000.0
         );
     }
+    print_layout();
 }

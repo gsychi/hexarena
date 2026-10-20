@@ -1,0 +1,18 @@
+seed 970000 tick 7105 closer Some("cand"): cand=1/w221l190/d0/0.2ms@5531 base=8/w190l220/d0/0.2ms@4190
+seed 970000 tick 5094 closer Some("cand"): base=8/w133l150/d0/0.3ms@1060 cand=1/w150l130/d0/0.2ms@1059
+after 1 pairs: gain +1.00 ± NaN
+seed 970001 tick 4208 closer Some("cand"): base=8/w81l100/d0/0.2ms@3585 cand=1/w100l78/d0/0.2ms@140
+seed 970001 tick 4798 closer Some("base"): cand=8/w91l122/d0/0.3ms@4456 base=1/w122l91/d0/0.2ms@848
+after 2 pairs: gain +0.50 ± 0.50
+seed 970002 tick 3942 closer Some("cand"): cand=1/w95l48/d0/0.3ms@1195 base=8/w48l95/d0/0.2ms@3498
+seed 970002 tick 4797 closer Some("cand"): base=8/w93l106/d0/0.2ms@4435 cand=1/w107l93/d0/0.3ms@1305
+after 3 pairs: gain +0.67 ± 0.33
+seed 970003 tick 6529 closer Some("base"): base=1/w109l50/d0/11.4ms@2217 cand=8/w54l109/d0/0.4ms@4646
+seed 970003 tick 3198 closer Some("base"): cand=8/w58l117/d0/0.6ms@2006 base=1/w120l58/d0/0.3ms@2381
+after 4 pairs: gain +0.25 ± 0.48
+seed 970004 tick 9008 closer Some("base"): cand=8/w215l283/d0/40.3ms@3743 base=1/w283l213/d0/0.4ms@8571
+seed 970004 tick 6070 closer Some("cand"): base=8/w88l148/d0/0.4ms@3925 cand=1/w150l88/d0/0.4ms@3924
+after 5 pairs: gain +0.20 ± 0.37
+seed 970005 tick 5104 closer Some("cand"): base=8/w74l64/d0/0.4ms@3114 cand=1/w67l73/d0/0.4ms@522
+seed 970005 tick 6027 closer Some("base"): cand=8/w165l154/d0/0.6ms@3175 base=1/w157l165/d0/0.4ms@3182
+after 6 pairs: gain +0.17 ± 0.31
