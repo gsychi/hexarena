@@ -1,0 +1,1 @@
+{"brain": "mason", "knobs": {"build_from": 100, "edge_cluster": 200, "late_from": 4500, "quarry": 1, "quarry_first": 1, "quarry_sites": 2, "quarry_village": 1, "ring": 1, "village_first": 1, "wall_from": 3000, "wall_gap": 2, "duel_late_sprint": 1, "duel_late_gather": 1, "duel_push_gather": 10, "duel_send_pct": 60, "ffa_duel_when": 2}}
