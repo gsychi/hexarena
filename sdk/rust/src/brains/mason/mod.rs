@@ -77,6 +77,13 @@ impl Map {
         let h = self.hexes[i];
         (h.q - h.r).rem_euclid(3)
     }
+
+    /// One of seven colours; each class is a lattice of hexes exactly 3 apart, whose
+    /// six neighbours all differ in colour from it.
+    fn colour7(&self, i: usize) -> i32 {
+        let h = self.hexes[i];
+        (h.q - 2 * h.r).rem_euclid(7)
+    }
 }
 
 struct Knobs {
@@ -158,6 +165,10 @@ struct Knobs {
     /// Fewest steps from land we don't own to a Farm site (Farms are cheap to lose, and a
     /// border Farm still feeds the Villages behind it).
     farm_depth: u32,
+    /// With `farm_lattice`, Quarries on hills only on a lattice of hexes exactly 3 apart,
+    /// every other hill hex a Village: each Quarry ringed by six (2.71 troops a tick a hex
+    /// against 2.0 for bare Villages) (0/1).
+    quarry_lattice: bool,
     /// Pockets a rival can swallow (bits, 0 = off): 1 = no builds on hexes a rival is
     /// about to take, 2 = also demolish the best Village in a pocket whose neck is about
     /// to fall (pockets only, unlike `demolish`).
@@ -208,6 +219,7 @@ impl Knobs {
             clear_walls: k("clear_walls", 0) > 0,
             farm_lattice: k("farm_lattice", 0) > 0,
             farm_depth: k("farm_depth", k("depth", 2)) as u32,
+            quarry_lattice: k("quarry_lattice", 0) > 0,
             pocket_guard: k("pocket_guard", 0) as u32,
             lattice_fix: k("lattice_fix", 0) as u64,
         }
@@ -221,6 +233,8 @@ pub struct Mason {
     map: Option<Map>,
     /// Lattice colour that holds Villages (Farms with `farm_lattice`).
     vclass: Option<i32>,
+    /// Seven-colour class whose hill hexes hold Quarries (`quarry_lattice`).
+    qclass: Option<i32>,
     last_build: Option<u32>,
     last_wall: Option<u32>,
     start: Option<usize>,
@@ -256,6 +270,7 @@ impl Mason {
             k: Knobs::read(&style),
             map: None,
             vclass: None,
+            qclass: None,
             last_build: None,
             last_wall: None,
             start: None,
@@ -427,8 +442,20 @@ impl Mason {
         // Farm-centred: Farms on colour `vclass`, each ringed by six Villages touching three
         // Farms each; hills, where no Farm can stand, take Villages (and Quarries) anywhere.
         let farm_lattice = self.k.farm_lattice;
+        // With `quarry_lattice`, hill hexes of colour `qclass` are kept for Quarries, each
+        // to be ringed by six Villages.
+        let qcentre = |n: usize| {
+            farm_lattice
+                && self.qclass.is_some_and(|q| m.colour7(n) == q)
+                && !self.farmable(m, n)
+                && self.quarry_ok(m, n)
+        };
         let vslot = |n: usize| {
-            if farm_lattice { m.colour(n) != vclass || !self.farmable(m, n) } else { m.colour(n) == vclass }
+            if farm_lattice {
+                (m.colour(n) != vclass || !self.farmable(m, n)) && !qcentre(n)
+            } else {
+                m.colour(n) == vclass
+            }
         };
         let fslot = |n: usize| !vslot(n) && self.farmable(m, n);
         let mut best: Option<(u64, usize, Building)> = None;
@@ -461,7 +488,9 @@ impl Mason {
                     options.push((Building::Farm, rate));
                 }
             }
-            let quarry_site = !self.farmable(m, i) && (self.k.farm_lattice || !vslot(i));
+            let quarry_site = !self.farmable(m, i)
+                && (self.k.farm_lattice || !vslot(i))
+                && (self.qclass.is_none() || qcentre(i));
             if quarry_site && self.k.quarry && self.quarry_ok(m, i) {
                 let close = (0..slots).any(|j| {
                     site[j] == Site::Mine(Building::Quarry)
@@ -768,6 +797,18 @@ impl Bot for Mason {
         if self.vclass.is_none() {
             let start = view.visible_hexes.iter().find(|c| c.owner == Some(view.you)).and_then(|c| m.slot(c.hex));
             self.vclass = start.map(|s| self.pick_class(&m, s));
+            if self.k.farm_lattice && self.k.quarry_lattice {
+                self.qclass = start.map(|s| {
+                    let hill = |i: usize| m.passable[i] && !self.farmable(&m, i) && self.quarry_ok(&m, i);
+                    (0..7)
+                        .max_by_key(|&c| {
+                            (0..m.passable.len())
+                                .filter(|&i| hill(i) && m.colour7(i) == c && m.hexes[i].distance(m.hexes[s]) <= 8)
+                                .count()
+                        })
+                        .unwrap_or(0)
+                });
+            }
             self.start = start;
             self.turtling = self.k.turtle & 1 != 0 && start.is_some_and(|s| self.exposed(&m, s));
         }
