@@ -40,6 +40,24 @@ struct Tally {
     won_cap: [u64; 4],
     /// Land held at tick 1500 / 3000 / 6000 (summed over seats alive then).
     land: [u64; 3],
+    /// Rival hexes taken / lost: by direct capture, then by seals.
+    trade_won: [u64; 2],
+    trade_lost: [u64; 2],
+    /// Attacks on rival (0) and neutral (1) hexes by height step (from - to, -2..2) and
+    /// garrison bucket (see `gbucket`): [attempts, captures, troops spent].
+    attacks: [[[[u64; 3]; 5]; 5]; 2],
+    /// Villages lost by direct capture, and of those retaken within 50 / 200 ticks.
+    village_back: [u64; 3],
+}
+
+fn gbucket(t: u32) -> usize {
+    match t {
+        0 => 0,
+        1..=3 => 1,
+        4..=10 => 2,
+        11..=30 => 3,
+        _ => 4,
+    }
 }
 
 /// Real-world map every game is played on (`--map europe`, ...); procedural if unset.
@@ -238,6 +256,7 @@ fn play(seed: u64, seats: &[Style], tallies: &mut BTreeMap<String, Tally>, log: 
     let mut board: Option<Board> = None;
     let mut tarjan = Tarjan::default();
     let mut out: Vec<Loot> = vec![];
+    let mut lost_village: HashMap<Hex, (PlayerId, u32)> = HashMap::new();
     while !st.is_over() {
         let first = st.initiative_order().first().copied();
         let mut cmds = vec![];
@@ -283,7 +302,69 @@ fn play(seed: u64, seats: &[Style], tallies: &mut BTreeMap<String, Tally>, log: 
             }
             cmds.push((p, cmd));
         }
+        let before: HashMap<Hex, (Option<PlayerId>, u32)> = cmds
+            .iter()
+            .filter_map(|(_, c)| match c.action {
+                Action::Move { to, .. } => st.cell(to).map(|x| (to, (x.owner, x.troops))),
+                _ => None,
+            })
+            .collect();
+        let tick_now = st.tick;
         st.step(&cmds);
+        let mut fights: HashMap<(PlayerId, Hex), (usize, usize, usize, u32)> = HashMap::new();
+        for e in &st.last_events {
+            if let Event::Moved { player, from, to, troops } = e {
+                let Some(&(owner, garrison)) = before.get(to) else { continue };
+                if owner == Some(*player) {
+                    continue;
+                }
+                let dh = (st.height(*from) as i32 - st.height(*to) as i32).clamp(-2, 2) + 2;
+                fights.insert((*player, *to), (owner.is_none() as usize, dh as usize, gbucket(garrison), *troops));
+            }
+        }
+        for e in &st.last_events {
+            let (p, at, spent, won) = match e {
+                Event::Captured { player, at, troops_left, .. } => match fights.get(&(*player, *at)) {
+                    Some(f) => (*player, *at, f.3.saturating_sub(*troops_left), true),
+                    None => continue,
+                },
+                Event::Repelled { attacker, at, attackers_lost } => (*attacker, *at, *attackers_lost, false),
+                _ => continue,
+            };
+            let Some(&(k, dh, g, _)) = fights.get(&(p, at)) else { continue };
+            let a = &mut t[p as usize].attacks[k][dh][g];
+            a[0] += 1;
+            a[1] += won as u64;
+            a[2] += spent as u64;
+        }
+        for e in &st.last_events {
+            match e {
+                Event::Captured { player, at, previous_owner: Some(prev), building, .. } => {
+                    t[*player as usize].trade_won[0] += 1;
+                    t[*prev as usize].trade_lost[0] += 1;
+                    if let Some((q, when)) = lost_village.remove(at) {
+                        if q == *player {
+                            let dt = tick_now - when;
+                            if dt <= 50 {
+                                t[q as usize].village_back[1] += 1;
+                            }
+                            if dt <= 200 {
+                                t[q as usize].village_back[2] += 1;
+                            }
+                        }
+                    }
+                    if *building == Some(Building::Village) {
+                        t[*prev as usize].village_back[0] += 1;
+                        lost_village.insert(*at, (*prev, tick_now));
+                    }
+                }
+                Event::Surrendered { capturer, from, hexes } => {
+                    t[*capturer as usize].trade_won[1] += hexes.len() as u64;
+                    t[*from as usize].trade_lost[1] += hexes.len() as u64;
+                }
+                _ => {}
+            }
+        }
         if SAMPLES.contains(&st.tick) {
             sample_layout(&st, seats);
         }
@@ -385,6 +466,18 @@ fn play(seed: u64, seats: &[Style], tallies: &mut BTreeMap<String, Tally>, log: 
         }
         for k in 0..3 {
             e.land[k] += tp.land[k];
+            e.village_back[k] += tp.village_back[k];
+        }
+        for k in 0..2 {
+            e.trade_won[k] += tp.trade_won[k];
+            e.trade_lost[k] += tp.trade_lost[k];
+            for dh in 0..5 {
+                for g in 0..5 {
+                    for x in 0..3 {
+                        e.attacks[k][dh][g][x] += tp.attacks[k][dh][g][x];
+                    }
+                }
+            }
         }
         e.demolished += tp.demolished;
         e.eliminated += tp.eliminated;
@@ -545,6 +638,51 @@ fn main() {
         let f = |a: &[u64; 4]| a.iter().map(|&x| format!("{:.1}", x as f64 / s)).collect::<Vec<_>>().join("/");
         let land = e.land.iter().map(|&x| format!("{:.0}", x as f64 / s)).collect::<Vec<_>>().join("/");
         println!("{:<14} lost {:<22} seal {:<18} won {:<22} land {}", id, f(&e.lost_cap), f(&e.lost_seal), f(&e.won_cap), land);
+    }
+    println!("rival trades per seat-game: won cap+seal, lost cap+seal, net; Villages lost by capture, % retaken <=50 / <=200 ticks");
+    for (id, e) in &tallies {
+        let s = e.seats.max(1) as f64;
+        let won = (e.trade_won[0] + e.trade_won[1]) as f64;
+        let lost = (e.trade_lost[0] + e.trade_lost[1]) as f64;
+        let vb = e.village_back[0].max(1) as f64;
+        println!(
+            "{:<14} won {:.0}+{:.0} lost {:.0}+{:.0} net {:+.0}   V lost {:.0} back {:.0}%/{:.0}%",
+            id,
+            e.trade_won[0] as f64 / s,
+            e.trade_won[1] as f64 / s,
+            e.trade_lost[0] as f64 / s,
+            e.trade_lost[1] as f64 / s,
+            (won - lost) / s,
+            e.village_back[0] as f64 / s,
+            100.0 * e.village_back[1] as f64 / vb,
+            100.0 * e.village_back[2] as f64 / vb
+        );
+    }
+    println!("attacks (cand+base): rows height step from-to -2..2, cols garrison 0 / 1-3 / 4-10 / 11-30 / 31+: attempts/g, capture %, troops spent per capture");
+    for (k, what) in [(0usize, "rival"), (1, "neutral")] {
+        for dh in 0..5 {
+            let cells: Vec<String> = (0..5)
+                .map(|g| {
+                    let mut a = [0u64; 3];
+                    let mut seats = 0;
+                    for id in ["cand", "base"] {
+                        if let Some(e) = tallies.get(id) {
+                            seats += e.seats;
+                            for x in 0..3 {
+                                a[x] += e.attacks[k][dh][g][x];
+                            }
+                        }
+                    }
+                    format!(
+                        "{:>6.0} {:>3.0}% {:>5.1}",
+                        a[0] as f64 / seats.max(1) as f64,
+                        100.0 * a[1] as f64 / a[0].max(1) as f64,
+                        a[2] as f64 / a[1].max(1) as f64
+                    )
+                })
+                .collect();
+            println!("{:<8} {:+}  {}", what, dh as i32 - 2, cells.join(" |"));
+        }
     }
     print_layout();
 }

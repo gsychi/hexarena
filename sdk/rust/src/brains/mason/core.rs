@@ -240,6 +240,11 @@ struct Knobs {
     neck_cap: u32,
     /// Extra hexes each swallowed Village counts as in the neck terms.
     neck_village: u32,
+    /// Score for retaking a rival-held hex we lost at most `recapture_ticks` ago, plus
+    /// `recapture_village` if it holds a Village.
+    recapture: i64,
+    recapture_village: i64,
+    recapture_ticks: u32,
     /// A capture sealing at least this ring value takes the tick before supply and
     /// staging (0 = no priority).
     ring_first: i64,
@@ -324,6 +329,9 @@ impl Knobs {
             neck_want_pct: k("neck_want_pct", 15) as u64,
             neck_cap: k("neck_cap", 30) as u32,
             neck_village: k("neck_village", 0) as u32,
+            recapture: k("recapture", 0),
+            recapture_village: k("recapture_village", 0),
+            recapture_ticks: k("recapture_ticks", 100) as u32,
             ring_first: k("ring_first", 300),
             ring_stage: k("ring_stage", 500),
         }
@@ -375,6 +383,9 @@ pub struct Core {
     tarjan: Tarjan,
     /// Hexes we own this tick.
     mine_now: Vec<bool>,
+    /// Tick we last saw a rival take each hex from us (0 = never).
+    lost_at: Vec<u32>,
+    now: u32,
     /// What taking each hex would seal off for us this tick.
     ring: Vec<Loot>,
     /// Lookahead credit for taking each hex.
@@ -408,6 +419,8 @@ impl Core {
             board: None,
             tarjan: Tarjan::default(),
             mine_now: vec![],
+            lost_at: vec![],
+            now: 0,
             ring: vec![],
             setup: vec![],
             neck: vec![],
@@ -1003,6 +1016,9 @@ impl Core {
                 let n = self.land_of.get(o as usize).copied().unwrap_or(0).max(1) as i64;
                 gain += self.k.focus * 50 / n;
             }
+            if self.k.recapture > 0 && self.lost_at[t] > 0 && self.now <= self.lost_at[t] + self.k.recapture_ticks {
+                gain += self.k.recapture + if tc.building == Some(Building::Village) { self.k.recapture_village } else { 0 };
+            }
             if self.prey_of == Some(o) {
                 gain += self.k.prey + if tc.building == Some(Building::Village) { self.k.prey_village } else { 0 };
             }
@@ -1166,11 +1182,16 @@ impl Bot for Core {
         let geo = self.geo.take().unwrap_or_else(|| Geometry::new(view));
         if self.seen.is_empty() {
             self.seen = vec![None; geo.passable.len()];
+            self.lost_at = vec![0; geo.passable.len()];
         }
+        self.now = view.tick;
         let me = view.you;
         let mut mine = vec![];
         for c in &view.visible_hexes {
             let Some(i) = geo.slot(c.hex) else { continue };
+            if c.owner.is_some_and(|o| o != me) && self.seen[i].is_some_and(|o| o.owner == Some(me)) {
+                self.lost_at[i] = view.tick;
+            }
             self.seen[i] = Some(Cell {
                 owner: c.owner,
                 troops: c.troops,
