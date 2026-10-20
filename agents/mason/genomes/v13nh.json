@@ -46,9 +46,9 @@
   "farm_lattice": 1,
   "farm_depth": 1,
   "quarry_lattice": 2,
-  "honey_until": 500,
+  "honey_until": 0,
   "upgrade": 1,
-  "neck_village": 3,
-  "neck_cap": 60
+  "neck_cap": 60,
+  "neck_want_pct": 25
  }
 }
