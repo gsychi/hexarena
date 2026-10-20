@@ -251,6 +251,17 @@ struct Knobs {
     /// Walk troops toward the launch hex of an unaffordable ring worth at least this
     /// (0 = never).
     ring_stage: i64,
+    /// In a multi-player lobby, from `wave_from` to `wave_until` (0 = off) whatever the
+    /// phase, border hexes facing a rival whose known land is at least ours want
+    /// `wave_pct`% more garrison, and supply runs every `wave_supply_every` ticks
+    /// (0 = keep `supply_every`): most rivals go late around then and roll weak borders.
+    wave_from: u32,
+    wave_until: u32,
+    wave_pct: u64,
+    wave_supply_every: u32,
+    /// Among sends that make a capture equally safe, send the fewest (0/1): a big stack
+    /// rolled onto the border makes every rival facing it garrison up.
+    lean: bool,
 }
 
 impl Knobs {
@@ -333,6 +344,11 @@ impl Knobs {
             neck_village: k("neck_village", 0) as u32,
             ring_first: k("ring_first", 300),
             ring_stage: k("ring_stage", 500),
+            wave_from: k("wave_from", 0) as u32,
+            wave_until: k("wave_until", 0) as u32,
+            wave_pct: k("wave_pct", 0) as u64,
+            wave_supply_every: k("wave_supply_every", 0) as u32,
+            lean: k("lean", 0) > 0,
         }
     }
 
@@ -411,6 +427,8 @@ pub struct Core {
     sealed_mask: Vec<u8>,
     /// The capture this tick's action makes and the ring value it seals, if any.
     pub chosen: Option<(Hex, i64)>,
+    /// Rivals (by id) the defensive wave window guards against this tick.
+    wave: [bool; 16],
 }
 
 impl Core {
@@ -463,6 +481,7 @@ impl Core {
             blocked2: vec![],
             sealed_mask: vec![],
             chosen: None,
+            wave: [false; 16],
         }
     }
 
@@ -748,9 +767,13 @@ impl Core {
             if skip(n) || !self.enemy(n, me) {
                 continue;
             }
-            let stack = self.seen[n].unwrap().troops.saturating_sub(1) as u64;
+            let c = self.seen[n].unwrap();
+            let stack = c.troops.saturating_sub(1) as u64;
             let wall = self.seen[h].map_or(MILLI, |c| c.wall_milli.max(MILLI));
-            let k = self.kills(stack, self.defense(geo, n, h, wall));
+            let mut k = self.kills(stack, self.defense(geo, n, h, wall));
+            if c.owner.is_some_and(|o| self.wave.get(o as usize).copied().unwrap_or(false)) {
+                k = k * (100 + self.k.wave_pct) / 100;
+            }
             worst = Some(worst.map_or(k, |w| w.max(k)));
         }
         worst.map(|k| self.k.guard + k * self.k.margin_pct / 100)
@@ -998,7 +1021,12 @@ impl Core {
                     let st = Self::safety(send.saturating_sub(loss), want_t);
                     let drop = before - Self::safety(troops - send, want_s);
                     let v = st * 1000 - drop * self.k.drop_w * 10;
-                    if (v, send) > (pick.0, pick.2) {
+                    let better = if self.k.lean {
+                        (v, std::cmp::Reverse(send)) > (pick.0, std::cmp::Reverse(pick.2))
+                    } else {
+                        (v, send) > (pick.0, pick.2)
+                    };
+                    if better {
                         pick = (v, st, send);
                     }
                 }
@@ -1299,12 +1327,19 @@ impl Bot for Core {
         let finish_on = self.k.finish_alive > 0 || self.k.finish_land_pct > 0;
         let duel = view.public_players.iter().filter(|p| p.alive && p.id != me).count() == 1;
         let duel_early = duel && self.k.late_from > 0 && self.k.duel_late_from > 0 && view.tick >= self.k.duel_late_from;
-        if self.k.focus > 0 || finish_on || duel_early {
+        let wave_on = lobby > 2 && self.k.wave_pct > 0 && (self.k.wave_from..self.k.wave_until).contains(&view.tick);
+        if self.k.focus > 0 || finish_on || duel_early || wave_on {
             self.land_of = vec![0; 16];
             for o in self.seen.iter().flatten().filter_map(|c| c.owner) {
                 if let Some(n) = self.land_of.get_mut(o as usize) {
                     *n += 1;
                 }
+            }
+        }
+        self.wave = [false; 16];
+        if wave_on {
+            for (o, w) in self.wave.iter_mut().enumerate() {
+                *w = o != me as usize && self.land_of.get(o).copied().unwrap_or(0) as usize >= mine.len();
             }
         }
         if duel_early {
@@ -1416,8 +1451,11 @@ impl Bot for Core {
             self.geo = Some(geo);
             return PlayerCommand::action(a);
         }
-        let supply_tick =
-            !sprinting && self.k.supply_every > 0 && view.tick % self.k.supply_every == 0;
+        let every = match self.k.wave_supply_every {
+            e if wave_on && e > 0 => e,
+            _ => self.k.supply_every,
+        };
+        let supply_tick = !sprinting && every > 0 && view.tick % every == 0;
         let floor = capture.map_or(self.k.min_score, |c| c.score);
         let staging = blocked
             .filter(|b| !sprinting && mine.len() > 1 && b.score >= floor + self.k.stage)
