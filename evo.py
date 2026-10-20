@@ -12,7 +12,7 @@ it prints a dummy eval result when done.
 import json, os, random, subprocess, sys, time
 
 WT = '/tmp/wt-wildcard'
-BIN = os.environ.get('EVO_BIN', '/tmp/hx-wild-n')
+BIN = os.environ.get('EVO_BIN', '/tmp/hx-wild-p')
 GENS = int(os.environ.get('EVO_GENS', '3'))
 START = sys.argv[sys.argv.index('--params') + 1] if '--params' in sys.argv else f'{WT}/genomes/wc3.json'
 OPP = ['mason-v2', 'pangolin-v20']

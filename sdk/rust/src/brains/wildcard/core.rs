@@ -197,6 +197,10 @@ struct Knobs {
     /// First steps the lookahead tries (0 = no lookahead), and % of the extra ring value
     /// the best second step would then seal that the first step is credited with.
     setup_k: usize,
+    /// On boards with more passable hexes than this (the real-world maps), the lookahead
+    /// tries `setup_k * setup_ref / passable` first steps, at least 3, so a tick's
+    /// full-board Tarjan passes cost about what they do on a procedural board (0 = off).
+    setup_ref: usize,
     setup_pct: i64,
     /// Second steps the lookahead tries after each first step (0 = two-step lookahead
     /// only), and % of the extra ring value a third step would then seal.
@@ -304,6 +308,7 @@ impl Knobs {
             ring_farm: k("ring_farm", 40),
             ring_troop_pct: k("ring_troop_pct", 50),
             setup_k: k("setup_k", 10) as usize,
+            setup_ref: k("setup_ref", 1400) as usize,
             setup_pct: k("setup_pct", 40),
             setup3_k: k("setup3_k", 0) as usize,
             setup3_pct: k("setup3_pct", 25),
@@ -709,7 +714,13 @@ impl Core {
                 .map(|&a| (bay(a, &self.mine_now), a))
                 .collect();
             cands.sort_unstable_by(|x, y| y.cmp(x));
-            cands.truncate(self.k.setup_k);
+            let land = b.passable.iter().filter(|&&p| p).count().max(1);
+            let trials = if self.k.setup_ref > 0 && land > self.k.setup_ref {
+                (self.k.setup_k * self.k.setup_ref / land).clamp(3.min(self.k.setup_k), self.k.setup_k)
+            } else {
+                self.k.setup_k
+            };
+            cands.truncate(trials);
             let mut after = std::mem::take(&mut self.scratch);
             let mut after2 = std::mem::take(&mut self.scratch2);
             let mut blocked2 = std::mem::take(&mut self.blocked2);
