@@ -175,6 +175,11 @@ struct Knobs {
     /// What finishing mode turns on besides `prey`: 0 = nothing, 1 = the whole blitz,
     /// 2 = only its Gathers (mass the bank behind safe captures).
     finish_blitz: u32,
+    /// With one rival, go late (and so blitz, with `duel_blitz`) from this tick instead of
+    /// `late_from` (0 = off) ...
+    duel_late_from: u32,
+    /// ... once our land is at least this % of the rival's known land (0 = at once).
+    duel_lead_pct: u32,
     /// In finishing mode, score per hex of the alive rival we know the least land of, so
     /// one rival is wiped out before the next.
     prey: i64,
@@ -285,6 +290,8 @@ impl Knobs {
             finish_land_pct: k("finish_land_pct", 0) as u32,
             finish_lead_pct: k("finish_lead_pct", 0) as u32,
             finish_blitz: k("finish_blitz", 1) as u32,
+            duel_late_from: k("duel_late_from", 0) as u32,
+            duel_lead_pct: k("duel_lead_pct", 0) as u32,
             prey: k("prey", 0),
             prey_village: k("prey_village", 0),
             prey_border: k("prey_border", 0) > 0,
@@ -1186,12 +1193,26 @@ impl Bot for Core {
             }
         }
         let finish_on = self.k.finish_alive > 0 || self.k.finish_land_pct > 0;
-        if self.k.focus > 0 || finish_on {
+        let duel = view.public_players.iter().filter(|p| p.alive && p.id != me).count() == 1;
+        let duel_early = duel && self.k.late_from > 0 && self.k.duel_late_from > 0 && view.tick >= self.k.duel_late_from;
+        if self.k.focus > 0 || finish_on || duel_early {
             self.land_of = vec![0; 16];
             for o in self.seen.iter().flatten().filter_map(|c| c.owner) {
                 if let Some(n) = self.land_of.get_mut(o as usize) {
                     *n += 1;
                 }
+            }
+        }
+        if duel_early {
+            let rival = view
+                .public_players
+                .iter()
+                .filter(|p| p.alive && p.id != me)
+                .map(|p| self.land_of.get(p.id as usize).copied().unwrap_or(0) as usize)
+                .max()
+                .unwrap_or(0);
+            if mine.len() * 100 >= rival * self.k.duel_lead_pct as usize {
+                self.k.go_late();
             }
         }
         if finish_on {

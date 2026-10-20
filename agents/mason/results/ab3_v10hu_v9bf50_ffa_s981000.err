@@ -1,0 +1,12 @@
+seed 981000 tick 10000 closer None: cand=1/w137l215/d13/1.1ms@4320 cand=3/w159l146/d3/2.2ms@1349 homesteader=8/w0l0/d0/0.1ms@357 base=5/w19l15/d0/0.9ms@3449 warden=7/w1l18/d0/0.0ms@0 base=6/w2l5/d0/38.5ms@551 cand=2/w198l123/d59/1.1ms@4402 base=4/w50l40/d0/0.9ms@4582
+seed 981000 tick 10000 closer None: base=1/w232l269/d0/0.7ms@2253 base=4/w6l15/d0/0.7ms@2711 homesteader=8/w0l2/d0/0.0ms@0 cand=5/w11l12/d19/0.8ms@2252 warden=7/w1l22/d0/0.0ms@598 cand=6/w4l7/d3/0.5ms@357 base=2/w300l232/d0/0.7ms@2249 cand=3/w35l22/d19/0.7ms@2709
+after 1 pairs: gain +0.33 ± NaN
+seed 981001 tick 10000 closer None: cand=5/w11l7/d20/0.6ms@142 base=4/w9l4/d0/0.8ms@3272 cand=1/w224l134/d37/0.7ms@3446 relay=6/w1l6/d0/0.1ms@0 predator=7/w1l13/d0/0.0ms@255 cand=2/w72l270/d14/0.8ms@3272 base=8/w0l1/d0/0.5ms@300 base=3/w224l104/d0/0.8ms@3271
+seed 981001 tick 10000 closer None: base=5/w14l10/d0/1.0ms@520 cand=6/w1l1/d0/0.8ms@520 base=1/w188l190/d0/0.7ms@844 relay=7/w1l3/d0/0.1ms@336 predator=8/w2l2/d0/0.0ms@136 base=3/w82l71/d0/0.8ms@5219 cand=4/w8l9/d10/0.7ms@844 cand=2/w232l235/d24/0.8ms@803
+after 2 pairs: gain +0.50 ± 0.17
+seed 981002 tick 10000 closer None: cand=7/w1l0/d0/0.7ms@699 base=2/w181l157/d0/5.4ms@4964 base=1/w83l198/d0/0.8ms@1192 cand=3/w257l169/d23/0.9ms@4234 base=4/w9l8/d0/0.9ms@1103 ridgeline=6/w9l4/d0/0.1ms@0 cand=5/w7l5/d3/3.2ms@781 ridgeline=8/w0l1/d0/0.1ms@0
+seed 981002 tick 10000 closer None: base=6/w1l2/d0/1.0ms@633 cand=1/w175l318/d15/33.2ms@7601 cand=2/w209l136/d20/1.0ms@3355 base=3/w307l242/d0/0.9ms@398 cand=5/w12l15/d29/0.9ms@398 ridgeline=7/w4l2/d0/0.1ms@0 base=4/w22l9/d0/0.8ms@3093 ridgeline=8/w0l1/d0/0.1ms@0
+after 3 pairs: gain +0.17 ± 0.35
+seed 981003 tick 10000 closer None: base=2/w112l130/d0/4.9ms@9455 base=1/w70l99/d0/65.9ms@524 raider=7/w0l0/d0/0.2ms@19 cand=3/w85l57/d17/0.8ms@3370 base=6/w9l13/d0/0.8ms@597 cand=4/w132l99/d14/0.8ms@8930 cand=5/w6l12/d16/0.8ms@3370 raider=8/w0l0/d0/0.0ms@0
+seed 981003 tick 10000 closer None: cand=1/w133l93/d11/1.0ms@4887 cand=2/w125l85/d32/0.8ms@5114 raider=7/w0l2/d0/0.0ms@19 base=4/w115l69/d0/1.3ms@5406 cand=6/w24l27/d12/0.8ms@1048 base=5/w72l114/d0/0.7ms@5694 base=3/w41l114/d0/0.8ms@5694 raider=8/w0l0/d0/0.0ms@43
+after 4 pairs: gain +0.12 ± 0.25

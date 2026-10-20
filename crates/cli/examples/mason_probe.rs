@@ -31,6 +31,23 @@ struct Tally {
     slowest_tick: u32,
     predicted: u64,
     predicted_ok: u64,
+    /// Buildings that changed owner away from this seat: [Farm, Village, Quarry, Wall] by
+    /// direct capture, then by a sealed region.
+    lost_cap: [u64; 4],
+    lost_seal: [u64; 4],
+    /// Buildings this seat took from rivals by direct capture.
+    won_cap: [u64; 4],
+    /// Land held at tick 1500 / 3000 / 6000 (summed over seats alive then).
+    land: [u64; 3],
+}
+
+fn bslot(b: Building) -> usize {
+    match b {
+        Building::Farm => 0,
+        Building::Village => 1,
+        Building::Quarry => 2,
+        Building::Wall => 3,
+    }
 }
 
 /// Layout audit as in `layout_yield`, per seat id and sample tick.
@@ -264,6 +281,13 @@ fn play(seed: u64, seats: &[Style], tallies: &mut BTreeMap<String, Tally>, log: 
         if SAMPLES.contains(&st.tick) {
             sample_layout(&st, seats);
         }
+        if let Some(k) = [1500, 3000, 6000].iter().position(|&s| s == st.tick) {
+            for h in st.board.hexes() {
+                if let Some(p) = st.cell(h).and_then(|c| c.owner) {
+                    t[p as usize].land[k] += 1;
+                }
+            }
+        }
         let mut region_now: HashMap<PlayerId, u32> = HashMap::new();
         let mut captured_at: HashMap<PlayerId, Vec<Hex>> = HashMap::new();
         let move_to: HashMap<PlayerId, Hex> = cmds
@@ -279,6 +303,11 @@ fn play(seed: u64, seats: &[Style], tallies: &mut BTreeMap<String, Tally>, log: 
                     t[*capturer as usize].region_won += hexes.len() as u64;
                     t[*from as usize].region_lost += hexes.len() as u64;
                     *region_now.entry(*capturer).or_default() += hexes.len() as u32;
+                    for &h in hexes {
+                        if let Some(b) = st.cell(h).and_then(|c| c.building) {
+                            t[*from as usize].lost_seal[bslot(b)] += 1;
+                        }
+                    }
                 }
                 Event::Captured { player, at, previous_owner: None, .. } => {
                     if move_to.get(player) != Some(at) {
@@ -287,7 +316,13 @@ fn play(seed: u64, seats: &[Style], tallies: &mut BTreeMap<String, Tally>, log: 
                     }
                     captured_at.entry(*player).or_default().push(*at);
                 }
-                Event::Captured { player, at, .. } => captured_at.entry(*player).or_default().push(*at),
+                Event::Captured { player, at, previous_owner: Some(prev), building, .. } => {
+                    if let Some(b) = building {
+                        t[*prev as usize].lost_cap[bslot(*b)] += 1;
+                        t[*player as usize].won_cap[bslot(*b)] += 1;
+                    }
+                    captured_at.entry(*player).or_default().push(*at)
+                }
                 Event::Demolished { player, building, .. } => {
                     t[*player as usize].demolished += 1;
                     if std::env::var("PROBE_DEMO").is_ok() {
@@ -337,6 +372,14 @@ fn play(seed: u64, seats: &[Style], tallies: &mut BTreeMap<String, Tally>, log: 
         e.avp += tp.avp;
         e.region_won += tp.region_won;
         e.region_lost += tp.region_lost;
+        for b in 0..4 {
+            e.lost_cap[b] += tp.lost_cap[b];
+            e.lost_seal[b] += tp.lost_seal[b];
+            e.won_cap[b] += tp.won_cap[b];
+        }
+        for k in 0..3 {
+            e.land[k] += tp.land[k];
+        }
         e.demolished += tp.demolished;
         e.eliminated += tp.eliminated;
         e.closes += tp.closes;
@@ -488,6 +531,13 @@ fn main() {
             e.predicted,
             e.wall_slowest.as_secs_f64() * 1000.0
         );
+    }
+    println!("buildings per seat-game (F/V/Q/W): lost by capture | lost by seal | won by capture; land held per seat at t1500/3000/6000");
+    for (id, e) in &tallies {
+        let s = e.seats.max(1) as f64;
+        let f = |a: &[u64; 4]| a.iter().map(|&x| format!("{:.1}", x as f64 / s)).collect::<Vec<_>>().join("/");
+        let land = e.land.iter().map(|&x| format!("{:.0}", x as f64 / s)).collect::<Vec<_>>().join("/");
+        println!("{:<14} lost {:<22} seal {:<18} won {:<22} land {}", id, f(&e.lost_cap), f(&e.lost_seal), f(&e.won_cap), land);
     }
     print_layout();
 }
