@@ -203,6 +203,13 @@ pub struct Wildcard {
     /// blitz only starts when a conquest before the cutoff looks reachable.
     gate_share: u64,
     gate_until: u32,
+    /// ... and, when `gate_proj` > 0, until our land growth over the last 500 ticks, sped
+    /// up `gate_proj`% by the blitz, would reach `gate_need` per mille of the board by
+    /// the cutoff.
+    gate_proj: u64,
+    gate_need: u64,
+    /// Our land every 50 ticks, newest last, the last 11 samples.
+    land_log: VecDeque<u64>,
     duel_style: Option<Style>,
     inner: Core,
     rules: RulesConfig,
@@ -278,6 +285,9 @@ impl Wildcard {
             duel_share: 0,
             gate_share: 0,
             gate_until: 0,
+            gate_proj: 0,
+            gate_need: 900,
+            land_log: VecDeque::new(),
             duel_style: None,
             inner: Core::new(style.clone()),
             rules: RulesConfig::default(),
@@ -807,6 +817,8 @@ impl Wildcard {
             self.duel_share = if duel { 0 } else { s.params.knob("duel_share", 0).max(0) as u64 };
             self.gate_share = s.params.knob("gate_share", 0).max(0) as u64;
             self.gate_until = s.params.knob("gate_until", 0).max(0) as u32;
+            self.gate_proj = s.params.knob("gate_proj", 0).max(0) as u64;
+            self.gate_need = s.params.knob("gate_need", 900).max(0) as u64;
             self.duel_style = (self.duel_when > 0 || self.duel_share > 0)
                 .then(|| Self::for_format(&Self::for_format(&style, "duel_"), "end_"));
             let portfolio = s.params.knob("portfolio", 0);
@@ -825,15 +837,27 @@ impl Wildcard {
             let s = self.inner_style.clone();
             self.inner = Core::new(s);
         }
-        let share = || {
-            let mine = view.visible_hexes.iter().filter(|c| c.owner == Some(view.you)).count() as u64;
-            let land = view.public_terrain.iter().flatten().filter(|t| t.passable()).count() as u64;
-            mine * 1000 / land.max(1)
+        let mine = || view.visible_hexes.iter().filter(|c| c.owner == Some(view.you)).count() as u64;
+        let land = || view.public_terrain.iter().flatten().filter(|t| t.passable()).count().max(1) as u64;
+        let share = || mine() * 1000 / land();
+        if self.gate_proj > 0 && self.duel_style.is_some() && view.tick % 50 == 0 {
+            self.land_log.push_back(mine());
+            if self.land_log.len() > 11 {
+                self.land_log.pop_front();
+            }
+        }
+        let reachable = || {
+            let (Some(&old), Some(&now)) = (self.land_log.front(), self.land_log.back()) else { return false };
+            let left = self.rules.max_ticks.saturating_sub(view.tick) as u64;
+            let span = 50 * (self.land_log.len() as u64 - 1).max(1);
+            let grown = now.saturating_sub(old) * left * self.gate_proj / (100 * span);
+            (now + grown) * 1000 >= self.gate_need * land()
         };
         let few = self.duel_when > 0
             && view.public_players.iter().filter(|p| p.alive).count() <= self.duel_when
             && (self.gate_until == 0 || view.tick < self.gate_until)
-            && (self.gate_share == 0 || share() >= self.gate_share);
+            && (self.gate_share == 0 || share() >= self.gate_share)
+            && (self.gate_proj == 0 || reachable());
         let big = self.duel_style.is_some() && self.duel_share > 0 && share() >= self.duel_share;
         if few || big {
             if let Some(s) = self.duel_style.take() {
