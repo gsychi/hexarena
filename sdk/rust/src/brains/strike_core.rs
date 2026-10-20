@@ -144,6 +144,8 @@ struct Regions {
     troops: Vec<u32>,
     /// Villages a rival owns among the sealed hexes: buildings change sides with them.
     villages: Vec<u32>,
+    /// Buildings of ours among the sealed hexes (for threats against us).
+    mine_bld: Vec<u32>,
     disc: Vec<u32>,
     low: Vec<u32>,
     sub_land: Vec<u32>,
@@ -151,6 +153,7 @@ struct Regions {
     sub_mine: Vec<u32>,
     sub_troops: Vec<u32>,
     sub_villages: Vec<u32>,
+    sub_mine_bld: Vec<u32>,
     parent: Vec<usize>,
     stack: Vec<(usize, usize)>,
 }
@@ -259,6 +262,8 @@ struct Knobs {
     neck_want_pct: u64,
     /// Most swallowed hexes the neck terms count.
     neck_cap: u32,
+    /// Hexes each building of ours in a pocket counts as in the neck terms.
+    neck_bld: u32,
     /// Hexes we took in the last this many ticks count as fresh (0 = never reinforce).
     reinforce: u32,
     /// Safety gain (milli) a move of spare troops into a fresh hex must buy to take the tick.
@@ -344,6 +349,7 @@ impl Knobs {
             neck_take: k("neck_take", 0),
             neck_want_pct: k("neck_want_pct", 0) as u64,
             neck_cap: k("neck_cap", 30) as u32,
+            neck_bld: k("neck_bld", 0) as u32,
             reinforce: k("reinforce", 0) as u32,
             reinforce_min: k("reinforce_min", 300),
             demolish_pct: k("demolish_pct", 0) as u64,
@@ -558,6 +564,8 @@ impl StrikeCore {
             &mut r.sub_troops,
             &mut r.villages,
             &mut r.sub_villages,
+            &mut r.mine_bld,
+            &mut r.sub_mine_bld,
         ] {
             v.clear();
             v.resize(slots, 0);
@@ -578,6 +586,8 @@ impl StrikeCore {
             sub_mine,
             sub_troops,
             sub_villages,
+            mine_bld,
+            sub_mine_bld,
             parent,
             stack,
         } = r;
@@ -618,6 +628,9 @@ impl StrikeCore {
                         Some(_) => sub_enemy[v] += 1,
                         None => {}
                     }
+                    if owner(v) == Some(me) && self.seen[v].is_some_and(|c| c.building.is_some()) {
+                        sub_mine_bld[v] += 1;
+                    }
                     if owner(v) != Some(me) {
                         sub_troops[v] += self.seen[v].map_or(0, |c| c.troops);
                         if owner(v).is_some() && self.seen[v].is_some_and(|c| c.building == Some(Building::Village)) {
@@ -635,12 +648,14 @@ impl StrikeCore {
                 sub_mine[p] += sub_mine[v];
                 sub_troops[p] += sub_troops[v];
                 sub_villages[p] += sub_villages[v];
+                sub_mine_bld[p] += sub_mine_bld[v];
                 if low[v] >= disc[p] {
                     land[p] += sub_land[v];
                     enemy[p] += sub_enemy[v];
                     mine[p] += sub_mine[v];
                     troops[p] += sub_troops[v];
                     villages[p] += sub_villages[v];
+                    mine_bld[p] += sub_mine_bld[v];
                 }
             }
         }
@@ -679,7 +694,7 @@ impl StrikeCore {
             let mut map = std::mem::take(&mut self.neck_of[r]);
             map.clear();
             map.extend((0..slots).map(|i| {
-                let m = buf.mine[i];
+                let m = buf.mine[i] + buf.mine_bld[i] * self.k.neck_bld;
                 let next_to = m > 0 && geo.nbrs[i].iter().any(|&n| self.seen[n].is_some_and(|c| c.owner == Some(rid)));
                 if next_to { m.min(self.k.neck_cap) } else { 0 }
             }));
