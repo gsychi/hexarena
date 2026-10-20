@@ -1,0 +1,12 @@
+seed 999000 tick 10000 closer None: ridgeline=7/w2l6/d0/0.1ms@0 cand=2/w108l64/d0/0.8ms@4295 base=1/w192l193/d30/0.7ms@5926 cand=5/w2l5/d3/0.4ms@120 base=8/w0l0/d0/0.4ms@0 cand=3/w144l176/d38/0.7ms@4456 base=4/w9l4/d14/0.6ms@4294 ridgeline=6/w0l0/d0/0.1ms@0
+seed 999000 tick 10000 closer None: ridgeline=6/w7l4/d0/0.1ms@0 base=3/w180l123/d0/0.9ms@7250 cand=2/w174l140/d30/41.6ms@2515 base=8/w1l1/d0/0.6ms@1926 cand=5/w1l9/d8/0.6ms@2363 base=1/w136l200/d49/0.9ms@7250 cand=4/w14l26/d13/4.6ms@2156 ridgeline=7/w0l1/d0/0.1ms@0
+after 1 pairs: gain +0.67 ± NaN
+seed 999001 tick 10000 closer None: base=3/w76l65/d21/1.3ms@3600 cand=2/w376l343/d28/0.9ms@2749 base=1/w384l421/d19/0.9ms@3599 base=7/w16l8/d5/0.9ms@2935 cand=6/w31l19/d5/0.9ms@2748 predator=5/w12l37/d0/0.1ms@2529 cand=4/w21l20/d5/47.4ms@3083 raider=8/w0l2/d0/0.0ms@35
+seed 999001 tick 10000 closer None: cand=6/w5l4/d2/0.5ms@571 base=5/w32l28/d25/0.8ms@3019 cand=2/w201l280/d20/1.6ms@3039 cand=1/w324l222/d17/0.7ms@4953 base=4/w16l26/d6/0.7ms@3038 predator=7/w13l33/d0/0.1ms@583 base=3/w18l11/d8/0.8ms@4264 raider=8/w0l1/d0/0.0ms@221
+after 2 pairs: gain +0.50 ± 0.17
+seed 999002 tick 10000 closer None: cand=2/w119l132/d5/0.8ms@9918 cand=3/w53l59/d12/0.7ms@9249 base=5/w25l43/d29/0.5ms@18 base=4/w21l29/d10/0.6ms@9 homesteader=7/w0l0/d0/0.0ms@6 expander=8/w0l1/d0/0.0ms@33 cand=6/w3l16/d9/0.6ms@12 base=1/w201l134/d54/0.7ms@9917
+seed 999002 tick 10000 closer None: base=2/w157l81/d9/0.9ms@1438 base=4/w52l78/d11/1.0ms@1651 cand=6/w30l17/d28/0.8ms@842 cand=3/w104l184/d15/0.8ms@187 homesteader=8/w0l0/d0/0.0ms@0 expander=7/w0l1/d0/0.0ms@29 base=5/w21l21/d7/1.1ms@1438 cand=1/w103l75/d45/0.9ms@421
+after 3 pairs: gain +0.33 ± 0.19
+seed 999003 tick 10000 closer None: base=4/w19l27/d12/27.9ms@2632 ridgeline=7/w3l0/d0/0.1ms@0 cand=5/w25l29/d4/0.9ms@2835 base=2/w154l280/d38/0.8ms@2308 cand=6/w13l7/d1/0.8ms@2835 cand=1/w174l87/d18/5.5ms@1889 warden=8/w0l4/d0/0.1ms@266 base=3/w214l159/d41/0.9ms@4130
+seed 999003 tick 10000 closer None: cand=4/w25l26/d17/0.6ms@2808 ridgeline=8/w0l1/d0/0.1ms@0 base=5/w39l19/d2/0.5ms@2101 cand=2/w159l226/d39/0.8ms@8594 base=6/w7l1/d0/0.5ms@716 base=1/w140l70/d13/5.8ms@5570 warden=7/w0l5/d0/0.1ms@170 cand=3/w189l206/d36/0.9ms@9791
+after 4 pairs: gain +0.25 ± 0.16

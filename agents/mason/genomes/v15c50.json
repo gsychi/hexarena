@@ -50,8 +50,6 @@
   "upgrade": 1,
   "neck_cap": 60,
   "neck_want_pct": 25,
-  "recapture": 60,
-  "recapture_village": 150,
-  "recapture_ticks": 100
+  "cost_pct": 50
  }
 }
