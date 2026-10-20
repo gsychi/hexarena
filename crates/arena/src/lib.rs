@@ -4,7 +4,7 @@
 pub mod entrants;
 pub mod eval;
 
-use hexarena_engine::{build_replay, State};
+use hexarena_engine::{atlas, build_replay, State};
 use hexarena_protocol::*;
 use hexarena_sdk::{brains, Bot, Style};
 use std::collections::BTreeMap;
@@ -74,16 +74,22 @@ impl Played {
 
 /// Plays one match with one CPU per seat, in seat order, recording a full replay.
 pub fn play(seed: u64, styles: &[Style], max_ticks: u32) -> Result<Played, String> {
-    run(seed, styles, max_ticks, true)
+    play_on(seed, styles, max_ticks, None)
+}
+
+/// [`play`] on a real-world map, or the procedural one when `map` is `None`.
+pub fn play_on(seed: u64, styles: &[Style], max_ticks: u32, map: Option<MapPreset>) -> Result<Played, String> {
+    run(seed, styles, max_ticks, map, true)
 }
 
 /// Plays one match without recording commands or events: the fast path for evaluation.
 pub fn play_result(seed: u64, styles: &[Style], max_ticks: u32) -> Result<MatchResult, String> {
-    run(seed, styles, max_ticks, false).map(|p| p.result())
+    run(seed, styles, max_ticks, None, false).map(|p| p.result())
 }
 
-fn run(seed: u64, styles: &[Style], max_ticks: u32, record: bool) -> Result<Played, String> {
-    let s = settings(styles.len() as u16, seed);
+fn run(seed: u64, styles: &[Style], max_ticks: u32, map: Option<MapPreset>, record: bool) -> Result<Played, String> {
+    let mut s = settings(styles.len() as u16, seed);
+    s.rules.map = map;
     let mut st = State::new(s, seat_names(styles))?;
     let mut bots: Vec<Box<dyn Bot>> = styles
         .iter()
@@ -149,8 +155,17 @@ pub fn viewer_json(replay: &Replay) -> Result<serde_json::Value, String> {
         "terrain": st.terrain,
         "neutral": initial,
         "frame_encoding": "delta-v2", "frames": frames, "events": events,
-        "result": replay.result, "building_report": st.building_report(),
+        "result": replay.result, "building_report": st.building_report(), "places": place_labels(&st),
     }))
+}
+
+/// City labels on a real-world map as `{name, idx}`; empty on procedural maps.
+pub fn place_labels(st: &State) -> Vec<serde_json::Value> {
+    let Some(preset) = st.rules().map else { return vec![] };
+    atlas::places(preset, st.board.radius)
+        .into_iter()
+        .filter_map(|(name, h)| st.board.index(h).map(|i| serde_json::json!({ "name": name, "idx": i })))
+        .collect()
 }
 
 fn frame(st: &State, initial: &[u32]) -> Vec<i32> {

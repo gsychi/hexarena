@@ -41,6 +41,20 @@ export interface Rules {
   wall: { troop_cost: number; resource_cost: number; max_links: number; defense_milli_by_links: number[]; relink_cooldown: number }
   /** v0.7+: Go-style capture of any region sealed off by one player's land. */
   region_capture?: boolean
+  /** A real-world map; absent on the procedural map. */
+  map?: MapPreset
+}
+
+export type MapPreset = 'europe' | 'mediterranean' | 'japan' | 'china' | 'united_states' | 'north_america' | 'africa'
+
+export const MAP_NAMES: Record<MapPreset, string> = {
+  europe: 'Europe',
+  mediterranean: 'Mediterranean',
+  japan: 'Japan',
+  china: 'China',
+  united_states: 'United States',
+  north_america: 'North America',
+  africa: 'Africa',
 }
 
 export interface KindReport {
@@ -72,7 +86,12 @@ export interface ViewerReplay {
   events: GameEvent[][]
   result: { rules_version: string; final_tick: number; placements: Placement[] }
   building_report: { matches: number; farm: KindReport; village: KindReport; quarry: KindReport; wall: KindReport }
+  /** City labels on a real-world map. */
+  places?: { idx: number; name: string }[]
 }
+
+/** The parts of a viewer document the 2D board draws; a live game supplies these without frames. */
+export type BoardRep = Pick<ViewerReplay, 'radius' | 'fog' | 'names' | 'rules' | 'terrain' | 'neutral' | 'events'>
 
 export const BUILDING_KEYS = ['farm', 'village', 'quarry', 'wall'] as const
 export const BUILDING_NAMES = ['Farm', 'Village', 'Quarry', 'Wall']
@@ -103,7 +122,7 @@ export function hexAt(radius: number, idx: number): Hex {
 export const usesResource = (r: Rules) => r.extractor_output > 0
 
 /** Distance from the centre of the innermost passable hex: the storm stops there. */
-export function stormFloor(rep: ViewerReplay): number {
+export function stormFloor(rep: BoardRep): number {
   let best = rep.radius
   rep.terrain.forEach((t, i) => {
     if (t && t.kind === 'open') best = Math.min(best, hexDist(hexAt(rep.radius, i), { q: 0, r: 0 }))
@@ -306,7 +325,7 @@ export interface BuildPreview {
 }
 
 /** Display-only preview of what building here would cost; the engine remains authoritative. */
-export function buildPreview(rep: ViewerReplay, cells: Map<number, Cell>, idx: number, kind: number): BuildPreview {
+export function buildPreview(rep: BoardRep, cells: Map<number, Cell>, idx: number, kind: number): BuildPreview {
   const r = rep.rules
   const cell = cells.get(idx)
   const t = rep.terrain[idx]
