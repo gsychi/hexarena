@@ -94,7 +94,38 @@ impl Board {
                     None => boundary[i] = true,
                 }
             }
-            if boundary[i] {
+        }
+        // Impassable hexes joined to the board edge through impassable hexes can never be
+        // owned, so every region touching one touches the edge: fold them into the edge
+        // node. Exact, and on the real-world maps it drops most of the sea from every pass.
+        let wall = |i: usize| view.public_terrain[i].is_some_and(|t| !t.passable());
+        let mut sea = vec![false; slots];
+        let mut queue: Vec<usize> = (0..slots).filter(|&i| valid[i] && boundary[i] && wall(i)).collect();
+        for &i in &queue {
+            sea[i] = true;
+        }
+        while let Some(c) = queue.pop() {
+            for &j in &adj[c] {
+                if j != NONE && !sea[j as usize] && wall(j as usize) {
+                    sea[j as usize] = true;
+                    queue.push(j as usize);
+                }
+            }
+        }
+        for i in 0..slots {
+            if sea[i] {
+                valid[i] = false;
+                boundary[i] = false;
+                adj[i] = [NONE; 6];
+                continue;
+            }
+            for k in 0..6 {
+                if adj[i][k] != NONE && sea[adj[i][k] as usize] {
+                    adj[i][k] = NONE;
+                    boundary[i] = true;
+                }
+            }
+            if valid[i] && boundary[i] {
                 boundary_list.push(i as u32);
             }
         }
