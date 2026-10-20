@@ -1,0 +1,8 @@
+timing seed 975001 seat 0 cand   moves 10000 mean 0.372 ms  p99.9 0.435 ms  max 0.452 ms at move 4975
+timing seed 975001 seat 1 cand   moves 10000 mean 0.343 ms  p99.9 0.414 ms  max 0.551 ms at move 1331
+timing seed 975001 seat 2 relay  moves   414 mean 0.016 ms  p99.9 0.046 ms  max 0.046 ms at move 0
+timing seed 975001 seat 3 base   moves  5207 mean 0.379 ms  p99.9 0.445 ms  max 0.644 ms at move 220
+timing seed 975001 seat 4 base   moves 10000 mean 0.357 ms  p99.9 0.417 ms  max 0.468 ms at move 220
+timing seed 975001 seat 5 warden moves   297 mean 0.014 ms  p99.9 0.046 ms  max 0.046 ms at move 107
+timing seed 975001 seat 6 cand   moves  4503 mean 0.349 ms  p99.9 0.418 ms  max 0.433 ms at move 567
+timing seed 975001 seat 7 base   moves 10000 mean 0.330 ms  p99.9 0.392 ms  max 0.412 ms at move 4429
