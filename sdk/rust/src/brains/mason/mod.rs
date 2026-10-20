@@ -32,6 +32,7 @@ pub mod rings;
 use self::core::Core;
 use self::rings::{Board, Tarjan};
 use crate::{Action, Bot, Building, Hex, ManagementCommand, PlayerCommand, PlayerId, RulesConfig, Style, View};
+use std::cell::Cell;
 use std::collections::VecDeque;
 
 struct Map {
@@ -169,6 +170,19 @@ struct Knobs {
     /// every other hill hex a Village: each Quarry ringed by six (2.71 troops a tick a hex
     /// against 2.0 for bare Villages) (0/1).
     quarry_lattice: bool,
+    /// With `farm_lattice`, build the village-centred honeycomb (best per troop) before this
+    /// tick: Villages on colour `vclass + 1`, Farms on the other two. The lattice keeps the
+    /// `vclass` Farms, so `upgrade` turns the honeycomb into it.
+    honey_until: u32,
+    /// With `farm_lattice`, pick the Farm colour per hex: the colour with the most Farm
+    /// sites within this many steps, `local_bias` sites in favour of the global one
+    /// (0 = one colour for the whole board). Fits the lattice to scattered hills.
+    local_class: i32,
+    local_bias: i32,
+    /// With `farm_lattice`, demolish an own Farm on a lattice Village slot when a Village
+    /// there would add at least this many troops a tick more (0 = off); the build pass
+    /// refills the slot.
+    upgrade: u64,
     /// Pockets a rival can swallow (bits, 0 = off): 1 = no builds on hexes a rival is
     /// about to take, 2 = also demolish the best Village in a pocket whose neck is about
     /// to fall (pockets only, unlike `demolish`).
@@ -220,6 +234,10 @@ impl Knobs {
             farm_lattice: k("farm_lattice", 0) > 0,
             farm_depth: k("farm_depth", k("depth", 2)) as u32,
             quarry_lattice: k("quarry_lattice", 0) > 0,
+            honey_until: k("honey_until", 0) as u32,
+            local_class: k("local_class", 0) as i32,
+            local_bias: k("local_bias", 2) as i32,
+            upgrade: k("upgrade", 0) as u64,
             pocket_guard: k("pocket_guard", 0) as u32,
             lattice_fix: k("lattice_fix", 0) as u64,
         }
@@ -235,6 +253,10 @@ pub struct Mason {
     vclass: Option<i32>,
     /// Seven-colour class whose hill hexes hold Quarries (`quarry_lattice`).
     qclass: Option<i32>,
+    /// Slot of the last Farm demolished by `upgrade`; no further upgrade while it is empty.
+    upgraded: Cell<Option<usize>>,
+    /// Farm colour per slot (`local_class`); empty = `vclass` everywhere.
+    fclass: Vec<i32>,
     last_build: Option<u32>,
     last_wall: Option<u32>,
     start: Option<usize>,
@@ -271,6 +293,8 @@ impl Mason {
             map: None,
             vclass: None,
             qclass: None,
+            upgraded: Cell::new(None),
+            fclass: vec![],
             last_build: None,
             last_wall: None,
             start: None,
@@ -353,6 +377,30 @@ impl Mason {
             }
         }
         best.1
+    }
+
+    fn local_classes(&self, m: &Map, global: i32) -> Vec<i32> {
+        let r = self.k.local_class;
+        (0..m.passable.len())
+            .map(|i| {
+                if !m.passable[i] {
+                    return global;
+                }
+                let h = m.hexes[i];
+                let mut score = [0i32; 3];
+                score[global as usize] += self.k.local_bias;
+                for dq in -r..=r {
+                    for dr in (-r).max(-dq - r)..=r.min(-dq + r) {
+                        if let Some(j) = m.slot(Hex::new(h.q + dq, h.r + dr)) {
+                            if m.passable[j] && self.farmable(m, j) {
+                                score[m.colour(j) as usize] += 1;
+                            }
+                        }
+                    }
+                }
+                (0..3).max_by_key(|&c| (score[c as usize], c == global)).unwrap_or(global)
+            })
+            .collect()
     }
 
     fn build(&mut self, view: &View, m: &Map, vclass: i32) -> Option<(u64, Action)> {
@@ -450,14 +498,46 @@ impl Mason {
                 && !self.farmable(m, n)
                 && self.quarry_ok(m, n)
         };
+        let honey = farm_lattice && view.tick < self.k.honey_until;
+        let fc = |n: usize| self.fclass.get(n).copied().unwrap_or(vclass);
         let vslot = |n: usize| {
-            if farm_lattice {
-                (m.colour(n) != vclass || !self.farmable(m, n)) && !qcentre(n)
+            if honey {
+                (m.colour(n) == (fc(n) + 1) % 3 || !self.farmable(m, n)) && !qcentre(n)
+            } else if farm_lattice {
+                (m.colour(n) != fc(n) || !self.farmable(m, n)) && !qcentre(n)
             } else {
                 m.colour(n) == vclass
             }
         };
         let fslot = |n: usize| !vslot(n) && self.farmable(m, n);
+        let pending = self.upgraded.get().is_some_and(|j| site[j] == Site::Empty);
+        if farm_lattice && !honey && self.k.upgrade > 0 && !pending {
+            let adj = |i: usize, b: Building| m.nbrs[i].iter().filter(|&&n| site[n] == Site::Mine(b)).count() as u64;
+            let vb = self.rules.village.bonus as u64;
+            let fb = self.rules.village.farm_bonus as u64;
+            let mut fix: Option<(u64, usize)> = None;
+            for i in 0..slots {
+                if site[i] != Site::Mine(Building::Farm)
+                    || !vslot(i)
+                    || depth[i] == u32::MAX
+                    || depth[i] < self.k.depth
+                    || troops[i] <= cost(Building::Village, i)
+                    || self.danger.get(i).copied().unwrap_or(false)
+                {
+                    continue;
+                }
+                let village = vb + fb * adj(i, Building::Farm) + self.k.quarry_village * adj(i, Building::Quarry);
+                let gain = village.saturating_sub(fb * adj(i, Building::Village));
+                if gain >= self.k.upgrade && fix.is_none_or(|f| (gain, std::cmp::Reverse(i)) > (f.0, std::cmp::Reverse(f.1))) {
+                    fix = Some((gain, i));
+                }
+            }
+            if let Some((gain, i)) = fix {
+                self.upgraded.set(Some(i));
+                let roi = gain * 1000 / (2 * cost(Building::Village, i).max(1) as u64);
+                return Some((roi.max(self.k.min_roi), Action::Demolish { at: m.hexes[i] }));
+            }
+        }
         let mut best: Option<(u64, usize, Building)> = None;
         let mut best_quarry: Option<(u64, usize)> = None;
         let mut best_ring_village: Option<(u64, usize)> = None;
@@ -808,6 +888,9 @@ impl Bot for Mason {
                         })
                         .unwrap_or(0)
                 });
+            }
+            if let (true, true, Some(global)) = (self.k.farm_lattice, self.k.local_class > 0, self.vclass) {
+                self.fclass = self.local_classes(&m, global);
             }
             self.start = start;
             self.turtling = self.k.turtle & 1 != 0 && start.is_some_and(|s| self.exposed(&m, s));
