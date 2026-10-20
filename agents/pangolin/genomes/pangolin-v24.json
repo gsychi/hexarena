@@ -1,0 +1,33 @@
+{
+ "brain": "mason",
+ "knobs": {
+  "build_from": 50,
+  "edge_cluster": 200,
+  "late_from": 4500,
+  "quarry": 1,
+  "quarry_first": 1,
+  "quarry_sites": 2,
+  "quarry_village": 1,
+  "ring": 1,
+  "village_first": 1,
+  "wall_from": 3000,
+  "wall_gap": 2,
+  "duel_late_sprint": 1,
+  "duel_late_gather": 1,
+  "duel_push_gather": 10,
+  "duel_send_pct": 60,
+  "ffa_duel_when": 2,
+  "farm_lattice": 1,
+  "farm_depth": 1,
+  "finish_alive": 3,
+  "finish_blitz": 0,
+  "prey": 200,
+  "prey_village": 300,
+  "finish_land_pct": 25,
+  "neck_want_pct": 30,
+  "neck_take": 120,
+  "neck_cap": 60,
+  "honey_until": 500,
+  "upgrade": 1
+ }
+}
