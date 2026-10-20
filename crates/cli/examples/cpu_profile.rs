@@ -22,9 +22,13 @@ fn thread_cpu() -> Duration {
 }
 
 fn main() -> Result<(), String> {
-    let path = std::env::args().nth(1).ok_or("usage: cpu_profile PARAMS.json [seed] [players]")?;
+    let path = std::env::args().nth(1).ok_or("usage: cpu_profile PARAMS.json [seed] [players] [map, e.g. north_america]")?;
     let seed = std::env::args().nth(2).and_then(|s| s.parse().ok()).unwrap_or(667);
     let players: u16 = std::env::args().nth(3).and_then(|s| s.parse().ok()).unwrap_or(8);
+    let map = match std::env::args().nth(4) {
+        Some(name) => Some(serde_json::from_str(&format!("\"{name}\"")).map_err(|e| format!("map {name}: {e}"))?),
+        None => None,
+    };
     let bytes = std::fs::read(&path).map_err(|e| e.to_string())?;
     let params: BotParams = serde_json::from_slice(&bytes).map_err(|e| e.to_string())?;
     let style = Style {
@@ -35,7 +39,9 @@ fn main() -> Result<(), String> {
         program: None,
     };
     let styles = vec![style; players as usize];
-    let mut state = State::new(settings(players, seed), seat_names(&styles))?;
+    let mut settings = settings(players, seed);
+    settings.rules.map = map;
+    let mut state = State::new(settings, seat_names(&styles))?;
     let mut bots: Vec<Box<dyn Bot>> = styles
         .into_iter()
         .map(brains::build)
