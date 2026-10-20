@@ -56,6 +56,12 @@ impl Map {
             .then(|| ((h.r + r) * self.width + h.q + r) as usize)
     }
 
+    /// `(q - 2r) mod 7`: hexes of one class are exactly 3 apart, the Quarry spacing.
+    fn colour7(&self, i: usize) -> i32 {
+        let h = self.hexes[i];
+        (h.q - 2 * h.r).rem_euclid(7)
+    }
+
     fn colour(&self, i: usize) -> i32 {
         let h = self.hexes[i];
         (h.q - h.r).rem_euclid(3)
@@ -85,6 +91,13 @@ struct Knobs {
     /// every Village touches three Farms (3.67 troops a tick per hex against the
     /// flower's 3.33, at 90 troops per hex instead of 60).
     farm_lattice: bool,
+    /// Farm-centred lattice: hills on the Farm colour take Villages, which also count the
+    /// Quarry bonus (0/1).
+    hill_villages: bool,
+    /// Farm-centred lattice: Quarries only on hills of one seven-colour class (0/1).
+    quarry_lattice: bool,
+    /// Steps behind the border a Farm needs (Villages need `depth`).
+    farm_depth: u32,
 }
 
 impl Knobs {
@@ -101,6 +114,9 @@ impl Knobs {
             quarry: k("quarry", 0) > 0,
             quarry_min_x10: k("quarry_min_x10", 20) as u64,
             farm_lattice: k("farm_lattice", 0) > 0,
+            hill_villages: k("hill_villages", 0) > 0,
+            quarry_lattice: k("quarry_lattice", 0) > 0,
+            farm_depth: k("farm_depth", k("depth", 2)) as u32,
         }
     }
 }
@@ -112,6 +128,8 @@ pub struct Striker {
     map: Option<Map>,
     /// Lattice colour that holds Villages (Farms with `farm_lattice`).
     vclass: Option<i32>,
+    /// Seven-colour class whose hill hexes hold Quarries (`quarry_lattice`).
+    qclass: Option<i32>,
     last_build: Option<u32>,
 }
 
@@ -130,6 +148,7 @@ impl Striker {
             k: Knobs::read(&style),
             map: None,
             vclass: None,
+            qclass: None,
             last_build: None,
         }
     }
@@ -202,43 +221,46 @@ impl Striker {
         let near_quarry = |i: usize| m.nbrs[i].iter().any(|&n| site[n] == Site::Mine(Building::Quarry));
         let cost = |b: Building, i: usize| self.rules.build_cost(b, near_quarry(i)).troops;
         let fut = self.k.future_pct * 10;
+        let farm_lattice = self.k.farm_lattice;
+        let qclass = self.qclass;
+        // Mason's hill economy (mason-v9, reused with credit): hill hexes of the seven-colour
+        // class `qclass` are kept for Quarries, exactly 3 apart, each to be ringed by
+        // Villages; other hills, where no Farm can stand, take Villages.
+        let qcentre = |n: usize| {
+            farm_lattice && qclass.is_some_and(|q| m.colour7(n) == q) && !self.farmable(m, n) && self.quarry_ok(m, n)
+        };
+        let village_site = |j: usize| {
+            if !farm_lattice {
+                m.colour(j) == vclass
+            } else if self.k.hill_villages {
+                (m.colour(j) != vclass || !self.farmable(m, j)) && !qcentre(j)
+            } else {
+                m.colour(j) != vclass
+            }
+        };
+        let farm_site = |j: usize| !village_site(j) && self.farmable(m, j);
+        let quarry_bonus = if self.k.hill_villages { self.rules.quarry.village_bonus as u64 } else { 0 };
         let mut best: Option<(u64, usize, Building)> = None;
         for i in 0..slots {
-            if site[i] != Site::Empty || depth[i] < self.k.depth || depth[i] == u32::MAX {
+            let min_depth = if farm_site(i) { self.k.farm_depth } else { self.k.depth };
+            if site[i] != Site::Empty || depth[i] < min_depth || depth[i] == u32::MAX {
                 continue;
             }
             let count = |b: Building| m.nbrs[i].iter().filter(|&&n| site[n] == Site::Mine(b)).count() as u64;
             let mut options: Vec<(Building, u64)> = vec![];
-            // Which lattice role each hex plays: in the farm-centred lattice `vclass` holds
-            // the Farms.
-            let village_site = |j: usize| (m.colour(j) == vclass) != self.k.farm_lattice;
-            if self.k.farm_lattice && m.colour(i) == vclass && self.farmable(m, i) {
+            if village_site(i) {
+                let partners = m.nbrs[i].iter().filter(|&&n| site[n] == Site::Empty && farm_site(n)).count() as u64;
+                let rate = 1000
+                    * (self.rules.village.bonus as u64
+                        + self.rules.village.farm_bonus as u64 * count(Building::Farm)
+                        + quarry_bonus * count(Building::Quarry))
+                    + fut * partners;
+                options.push((Building::Village, rate));
+            } else if farm_site(i) {
                 let partners = m.nbrs[i].iter().filter(|&&n| site[n] == Site::Empty && village_site(n)).count() as u64;
                 let rate = 1000 * self.rules.village.farm_bonus as u64 * count(Building::Village) + fut * partners;
                 options.push((Building::Farm, rate));
-            } else if self.k.farm_lattice && village_site(i) {
-                let partners = m.nbrs[i]
-                    .iter()
-                    .filter(|&&n| site[n] == Site::Empty && !village_site(n) && self.farmable(m, n))
-                    .count() as u64;
-                let rate = 1000 * (self.rules.village.bonus as u64
-                    + self.rules.village.farm_bonus as u64 * count(Building::Farm))
-                    + fut * partners;
-                options.push((Building::Village, rate));
-            } else if self.k.farm_lattice && !self.quarry_ok(m, i) {
-            } else if !self.k.farm_lattice && m.colour(i) == vclass {
-                let partners =
-                    m.nbrs[i].iter().filter(|&&n| site[n] == Site::Empty && self.farmable(m, n)).count() as u64;
-                let rate = 1000 * (self.rules.village.bonus as u64
-                    + self.rules.village.farm_bonus as u64 * count(Building::Farm))
-                    + fut * partners;
-                options.push((Building::Village, rate));
-            } else if !self.k.farm_lattice && self.farmable(m, i) {
-                let partners =
-                    m.nbrs[i].iter().filter(|&&n| site[n] == Site::Empty && m.colour(n) == vclass).count() as u64;
-                let rate = 1000 * self.rules.village.farm_bonus as u64 * count(Building::Village) + fut * partners;
-                options.push((Building::Farm, rate));
-            } else if self.k.quarry && self.quarry_ok(m, i) {
+            } else if self.k.quarry && self.quarry_ok(m, i) && (qclass.is_none() || qcentre(i)) {
                 let close = (0..slots).any(|j| {
                     site[j] == Site::Mine(Building::Quarry)
                         && m.hexes[j].distance(m.hexes[i]) < self.rules.quarry.min_friendly_distance
@@ -291,6 +313,18 @@ impl Bot for Striker {
         if self.vclass.is_none() {
             let start = view.visible_hexes.iter().find(|c| c.owner == Some(view.you)).and_then(|c| m.slot(c.hex));
             self.vclass = start.map(|s| self.pick_class(&m, s));
+            if self.k.farm_lattice && self.k.quarry_lattice {
+                self.qclass = start.map(|s| {
+                    let hill = |i: usize| m.passable[i] && !self.farmable(&m, i) && self.quarry_ok(&m, i);
+                    (0..7)
+                        .max_by_key(|&c| {
+                            (0..m.passable.len())
+                                .filter(|&i| hill(i) && m.colour7(i) == c && m.hexes[i].distance(m.hexes[s]) <= 8)
+                                .count()
+                        })
+                        .unwrap_or(0)
+                });
+            }
         }
         let open = view.tick >= self.k.build_from
             && (self.k.build_until == 0 || view.tick < self.k.build_until)
