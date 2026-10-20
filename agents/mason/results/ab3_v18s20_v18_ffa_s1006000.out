@@ -1,0 +1,58 @@
+gain +0.370 ± 0.299 over 4 pairs (8 games)
+bot            seats  score    avp  rgn+/g  rgn-/g  demo  elim close cpu ms/mv  cpu max   ring ok wall max
+base              24   3.75   3.75   122.9   115.2   399    15     0    0.313    20.41  899/899      81.6
+cand              24   3.38   3.42   113.0   115.3   431    16     1    0.305     2.64  812/812      84.8
+homesteader        2   7.50   7.50     0.5     3.5     0     2     0    0.076     0.12    0/0        28.3
+predator           6   6.83   6.83     8.2    20.3     0     6     0    0.021     0.09    0/0        54.2
+raider             6   7.83   7.83     0.5     2.3     0     6     0    0.013     0.11    0/0        25.0
+relay              2   6.50   6.50     5.5     3.0     0     2     0    0.024     0.10    0/0        58.7
+buildings per seat-game (F/V/Q/W): lost by capture | lost by seal | won by capture; land held per seat at t1500/3000/6000
+base           lost 311.2/1372.8/87.3/70.9 seal 27.0/76.0/5.2/4.5  won 312.1/1377.0/87.5/70.0 land 101/106/101
+cand           lost 303.8/1401.8/118.4/55.2 seal 22.5/78.5/5.5/5.4  won 304.5/1414.3/118.3/56.0 land 116/111/116
+homesteader    lost 22.5/0.0/3.5/0.0       seal 1.0/0.0/0.5/0.0    won 6.0/0.0/1.5/0.0        land 0/0/0
+predator       lost 24.7/119.3/5.0/0.0     seal 4.8/8.7/0.2/0.0    won 29.3/60.7/5.2/0.0      land 0/0/0
+raider         lost 10.7/3.2/1.8/0.0       seal 0.7/0.2/0.0/0.0    won 4.8/2.5/1.8/0.0        land 0/0/0
+relay          lost 8.5/36.5/0.0/0.0       seal 1.5/0.5/0.0/0.0    won 10.0/14.0/0.0/0.0      land 1/0/0
+rival trades per seat-game: won cap+seal, lost cap+seal, net; Villages lost by capture, % retaken <=50 / <=200 ticks
+base           won 1945+122 lost 1932+115 net +19   V lost 1373 back 66%/80%
+cand           won 2005+112 lost 1980+115 net +22   V lost 1402 back 69%/82%
+homesteader    won 40+0 lost 60+4 net -24   V lost 0 back 0%/0%
+predator       won 247+7 lost 315+20 net -81   V lost 119 back 35%/41%
+raider         won 68+0 lost 125+2 net -59   V lost 3 back 26%/26%
+relay          won 70+6 lost 119+3 net -46   V lost 36 back 27%/32%
+hexes lost to seals per seat-game (cand+base), by pinch hex: rows garrison 0 / 1-3 / 4-10 / 11-30 / 31+, cols own neighbours 0..6
+  g0     0.0   0.0   0.0   0.0   0.0   0.0   0.0
+  g1     0.0   0.3   1.7   3.9   1.2   0.1   0.0
+  g2     0.0   0.4   1.2   4.0   3.1   0.1   0.0
+  g3     0.0   0.4   0.8   1.3   2.9   0.1   0.0
+  g4     0.0   2.2  12.8  28.6  47.8   1.1   0.0
+hexes lost to seals per seat-game (cand+base), by pinch hex: rows rival-held neighbours 0..6 after the capture, cols distinct rivals 0 / 1 / 2 / 3+
+  n0     0.0   0.0   0.0   0.0
+  n1     0.0   1.6   0.0   0.0
+  n2     0.0  68.0   0.0   0.0
+  n3     0.0  34.5   1.9   0.0
+  n4     0.0   6.1   1.6   0.0
+  n5     0.0   0.0   0.4   0.0
+  n6     0.0   0.0   0.0   0.0
+attacks (cand+base): rows height step from-to -2..2, cols garrison 0 / 1-3 / 4-10 / 11-30 / 31+: attempts/g, capture %, troops spent per capture
+rival    -2       0   0%   0.0 |     0 100%   3.5 |     0 100%   6.0 |     0 100%  97.3 |     1 100% 592.7
+rival    -1       0   0%   0.0 |     7 100%   5.5 |    21  99%  10.8 |    33 100%  17.9 |   190 100% 725.3
+rival    +0       0   0%   0.0 |    27 100%   3.3 |   106 100%   5.8 |   184 100%  12.8 |  1169 100% 507.5
+rival    +1       0   0%   0.0 |     4 100%   2.1 |    16 100%   4.0 |    28 100%   8.3 |   188 100% 415.8
+rival    +2       0   0%   0.0 |     0   0%   0.0 |     0 100%   1.0 |     1 100%   2.7 |     1 100% 136.1
+neutral  -2       0   0%   0.0 |     0   0%   0.0 |     0 100%  26.0 |     0 100%  48.8 |     0   0%   0.0
+neutral  -1       0   0%   0.0 |     0 100%   5.2 |     1 100%  14.7 |     8  99%  25.2 |     0   0%   0.0
+neutral  +0       0   0%   0.0 |     1 100%   1.7 |     9  99%  10.9 |    59  99%  16.1 |     0   0%   0.0
+neutral  +1       0   0%   0.0 |     0 100%   0.5 |     1 100%   7.8 |     9  99%  11.8 |     0   0%   0.0
+neutral  +2       0   0%   0.0 |     0   0%   0.0 |     0 100%   3.0 |     0   0%   0.0 |     0   0%   0.0
+layout          tick seats   land inc/hx inc/bh   bh%       F:V:Q  farms/village 0..6     villages/farm 0..6     no-farm V%: empty/built/unowned/hill
+base            1500    18    135   2.92   3.03   94% 0.34:1:0.09   34 13 18 31  2  0  0    0  5  6 11 20 20 35  0/10/0/24
+base            3000    15    169   2.94   3.04   95% 0.33:1:0.09   35 13 18 29  2  0  0    0  2  3 12 23 22 34  0/11/1/24
+base            6000    11    221   2.95   3.04   96% 0.32:1:0.09   36 13 17 28  2  0  0    0  2  4 10 22 24 34  0/12/0/25
+base            9000     9    270   2.96   3.04   96% 0.32:1:0.09   36 14 17 28  3  0  0    1  1  5 11 20 24 34  0/12/0/24
+cand            1500    21    132   2.94   3.06   95% 0.36:1:0.08   32 12 19 32  2  0  0    0  2  9 13 21 18 33  1/8/0/23
+cand            3000    16    167   3.00   3.09   96% 0.36:1:0.08   31 12 18 34  2  0  0    0  2  6 12 19 21 36  0/8/0/23
+cand            6000    11    252   3.04   3.13   96% 0.36:1:0.08   29 11 18 37  2  0  0    0  1  5 12 20 20 40  0/7/0/23
+cand            9000     8    266   3.02   3.11   96% 0.36:1:0.09   30 12 20 34  3  0  0    1  1  5 11 21 20 37  0/6/0/23
+predator        1500     1      1   1.00   0.00    0% 0.00:1:0.00    0  0  0  0  0  0  0    0  0  0  0  0  0  0  0/0/0/0
+relay           1500     1      2   1.50   2.00   50% 0.00:1:0.00  100  0  0  0  0  0  0    0  0  0  0  0  0  0  100/0/0/0
