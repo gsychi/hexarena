@@ -238,6 +238,8 @@ struct Knobs {
     neck_want_pct: u64,
     /// Most swallowed hexes the neck terms count.
     neck_cap: u32,
+    /// Extra hexes each swallowed Village counts as in the neck terms.
+    neck_village: u32,
     /// A capture sealing at least this ring value takes the tick before supply and
     /// staging (0 = no priority).
     ring_first: i64,
@@ -321,6 +323,7 @@ impl Knobs {
             neck_take: k("neck_take", 60),
             neck_want_pct: k("neck_want_pct", 15) as u64,
             neck_cap: k("neck_cap", 30) as u32,
+            neck_village: k("neck_village", 0) as u32,
             ring_first: k("ring_first", 300),
             ring_stage: k("ring_stage", 500),
         }
@@ -578,7 +581,8 @@ impl Core {
                 self.tarjan.run(&b, &self.blocked, &self.weights, &mut out);
                 for i in 0..slots {
                     if out[i].mine > 0 && geo.nbrs[i].iter().any(|&n| self.blocked[n]) {
-                        self.neck[i] = self.neck[i].max(out[i].mine.min(self.k.neck_cap));
+                        let lost = out[i].mine + self.k.neck_village * out[i].villages;
+                        self.neck[i] = self.neck[i].max(lost.min(self.k.neck_cap));
                     }
                 }
             }
