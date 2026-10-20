@@ -1,0 +1,12 @@
+seed 999400 tick 10000 closer None: warden=7/w2l14/d0/0.1ms@215 cand=3/w133l101/d9/1.8ms@9036 base=5/w36l52/d16/0.7ms@1503 cand=2/w149l157/d17/1.5ms@519 predator=6/w11l29/d0/0.1ms@1418 cand=4/w78l76/d13/0.9ms@1503 base=8/w0l1/d0/0.4ms@0 base=1/w188l157/d29/14.4ms@1688
+seed 999400 tick 5206 closer Some("base"): warden=7/w4l17/d0/0.1ms@209 base=1/w161l58/d22/0.5ms@2728 cand=3/w32l65/d24/0.6ms@2728 base=6/w4l2/d0/0.4ms@194 predator=4/w26l55/d0/0.1ms@3115 base=8/w0l2/d0/0.4ms@275 cand=5/w41l50/d15/0.5ms@2728 cand=2/w50l60/d19/0.5ms@2728
+after 1 pairs: gain +1.50 ± NaN
+seed 999401 tick 10000 closer None: ridgeline=2/w31l144/d0/0.2ms@7988 cand=1/w206l135/d24/0.9ms@3176 warden=8/w0l0/d0/0.0ms@26 cand=3/w116l112/d25/1.7ms@3765 base=5/w37l42/d20/0.8ms@3765 cand=6/w8l6/d2/0.7ms@661 base=4/w164l120/d17/47.5ms@7241 base=7/w0l3/d0/0.4ms@90
+seed 999401 tick 10000 closer None: ridgeline=3/w63l200/d0/0.1ms@2249 base=1/w202l131/d29/0.8ms@3856 warden=8/w0l0/d0/0.0ms@27 base=2/w190l119/d27/0.7ms@2496 cand=7/w12l9/d6/0.5ms@314 base=6/w9l7/d9/0.5ms@314 cand=4/w22l18/d8/0.7ms@3097 cand=5/w14l25/d17/0.5ms@314
+after 2 pairs: gain +0.67 ± 0.84
+seed 999402 tick 10000 closer None: base=1/w191l375/d45/0.7ms@8543 relay=5/w21l46/d0/0.1ms@1129 cand=4/w6l6/d13/0.5ms@397 base=7/w0l0/d0/0.4ms@121 cand=3/w248l127/d1/18.7ms@7548 base=2/w265l165/d30/0.8ms@9648 cand=6/w5l11/d1/0.4ms@461 raider=8/w0l4/d0/0.0ms@158
+seed 999402 tick 10000 closer None: cand=1/w233l188/d52/0.6ms@8086 relay=5/w41l87/d0/0.1ms@1421 base=4/w5l6/d12/0.6ms@3364 cand=7/w1l1/d0/0.4ms@0 base=2/w125l98/d0/0.8ms@8086 cand=3/w168l189/d31/0.9ms@8085 base=6/w21l19/d1/0.4ms@193 raider=8/w0l2/d0/0.1ms@170
+after 3 pairs: gain +0.33 ± 0.59
+seed 999403 tick 10000 closer None: relay=6/w0l8/d0/0.1ms@671 cand=3/w285l176/d11/1.0ms@2886 base=1/w120l217/d28/0.8ms@837 cand=5/w11l8/d2/13.4ms@1981 base=8/w0l0/d0/0.6ms@87 base=2/w160l171/d19/0.7ms@837 cand=4/w108l100/d29/0.9ms@4025 expander=7/w4l2/d0/0.1ms@365
+seed 999403 tick 10000 closer None: relay=5/w5l27/d0/0.1ms@1013 base=3/w189l132/d13/0.4ms@644 cand=1/w149l186/d33/0.5ms@362 base=7/w2l4/d0/0.5ms@376 cand=8/w0l0/d0/0.4ms@57 cand=4/w42l43/d11/0.4ms@387 base=2/w221l205/d38/0.4ms@8859 expander=6/w0l8/d0/0.1ms@325
+after 4 pairs: gain +0.17 ± 0.45
