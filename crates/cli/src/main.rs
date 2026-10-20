@@ -7,6 +7,7 @@ use std::collections::HashMap;
 
 mod agent;
 mod arena;
+mod endgame;
 
 pub(crate) fn flags(args: &[String]) -> HashMap<String, String> {
     let mut m = HashMap::new();
@@ -165,6 +166,7 @@ fn main() {
         Some("report") => report(flags(rest)),
         Some("map") => map(flags(rest)),
         Some("eval") => arena::eval(&flags(rest)),
+        Some("endgame") => endgame::main(&flags(rest)),
         Some("arena") => arena::main(rest),
         Some("agent") => agent::main(rest),
         Some("bot") => hexarena_sdk::process::serve_stdio(),
@@ -173,7 +175,7 @@ fn main() {
             (Some(a), Some(b)) => export(a, b),
             _ => Err("usage: hexarena export <replay.json> <viewer.json>".into()),
         },
-        _ => Err("usage: hexarena <simulate|report|map|verify|export|eval|arena|agent|bot> [--players N | --bots expander,raider,... --seed S --matches M --max-ticks T --out file]".into()),
+        _ => Err("usage: hexarena <simulate|report|map|verify|export|eval|endgame|arena|agent|bot> [--players N | --bots expander,raider,... --seed S --matches M --max-ticks T --out file]".into()),
     };
     if let Err(e) = res {
         eprintln!("error: {e}");

@@ -241,10 +241,11 @@ pub struct Wildcard {
     phase: [u64; 3],
 }
 
-/// mason-v10's and mason-v13's published genomes (agent:mason), played by `portfolio` 2
-/// and 3 as they are, so none of our own knobs leak into them.
+/// mason-v10's, mason-v13's and mason-v15's published genomes (agent:mason), played by
+/// `portfolio` 2, 3 and 4 as they are, so none of our own knobs leak into them.
 const MASON_V10: &str = include_str!("mason_v10.json");
 const MASON_V13: &str = include_str!("mason_v13.json");
+const MASON_V15: &str = include_str!("mason_v15.json");
 
 /// CPU time this thread has used, in nanoseconds.
 fn thread_cpu_ns() -> u64 {
@@ -826,6 +827,7 @@ impl Wildcard {
                 1 => Some(Box::new(KeystoneBot::new(Self::for_format(&s, "ks_"))) as Box<dyn Bot>),
                 2 => Some(Box::new(MasonBot::new(Self::mason(&s, MASON_V10))) as Box<dyn Bot>),
                 3 => Some(Box::new(MasonBot::new(Self::mason(&s, MASON_V13))) as Box<dyn Bot>),
+                4 => Some(Box::new(MasonBot::new(Self::mason(&s, MASON_V15))) as Box<dyn Bot>),
                 _ => None,
             };
             if self.delegate.is_some() {
