@@ -81,6 +81,10 @@ struct Knobs {
     quarry: bool,
     /// Lattice sites (x10 troops saved per troop paid) a Quarry must discount to be built.
     quarry_min_x10: u64,
+    /// Farm-centred lattice (0/1): Farms on one colour and Villages on the other two, so
+    /// every Village touches three Farms (3.67 troops a tick per hex against the
+    /// flower's 3.33, at 90 troops per hex instead of 60).
+    farm_lattice: bool,
 }
 
 impl Knobs {
@@ -96,6 +100,7 @@ impl Knobs {
             rush_roi: k("rush_roi", 60) as u64,
             quarry: k("quarry", 0) > 0,
             quarry_min_x10: k("quarry_min_x10", 20) as u64,
+            farm_lattice: k("farm_lattice", 0) > 0,
         }
     }
 }
@@ -105,7 +110,7 @@ pub struct Striker {
     rules: RulesConfig,
     k: Knobs,
     map: Option<Map>,
-    /// Lattice colour that holds Villages.
+    /// Lattice colour that holds Villages (Farms with `farm_lattice`).
     vclass: Option<i32>,
     last_build: Option<u32>,
 }
@@ -137,13 +142,18 @@ impl Striker {
         self.rules.terrain_allowed(Building::Quarry, m.height[i])
     }
 
-    /// The colour whose hexes near `start` make the best Village sites.
+    /// The colour whose hexes near `start` make the best Village sites (Farm sites with
+    /// `farm_lattice`).
     fn pick_class(&self, m: &Map, start: usize) -> i32 {
         let mut best = (i64::MIN, 0);
         for c in 0..3 {
             let mut score = 0i64;
             for i in 0..m.passable.len() {
                 if !m.passable[i] || m.colour(i) != c || m.hexes[i].distance(m.hexes[start]) > 6 {
+                    continue;
+                }
+                if self.k.farm_lattice {
+                    score += self.farmable(m, i) as i64;
                     continue;
                 }
                 score += m.nbrs[i].iter().filter(|&&n| self.farmable(m, n)).count() as i64;
@@ -199,14 +209,31 @@ impl Striker {
             }
             let count = |b: Building| m.nbrs[i].iter().filter(|&&n| site[n] == Site::Mine(b)).count() as u64;
             let mut options: Vec<(Building, u64)> = vec![];
-            if m.colour(i) == vclass {
+            // Which lattice role each hex plays: in the farm-centred lattice `vclass` holds
+            // the Farms.
+            let village_site = |j: usize| (m.colour(j) == vclass) != self.k.farm_lattice;
+            if self.k.farm_lattice && m.colour(i) == vclass && self.farmable(m, i) {
+                let partners = m.nbrs[i].iter().filter(|&&n| site[n] == Site::Empty && village_site(n)).count() as u64;
+                let rate = 1000 * self.rules.village.farm_bonus as u64 * count(Building::Village) + fut * partners;
+                options.push((Building::Farm, rate));
+            } else if self.k.farm_lattice && village_site(i) {
+                let partners = m.nbrs[i]
+                    .iter()
+                    .filter(|&&n| site[n] == Site::Empty && !village_site(n) && self.farmable(m, n))
+                    .count() as u64;
+                let rate = 1000 * (self.rules.village.bonus as u64
+                    + self.rules.village.farm_bonus as u64 * count(Building::Farm))
+                    + fut * partners;
+                options.push((Building::Village, rate));
+            } else if self.k.farm_lattice && !self.quarry_ok(m, i) {
+            } else if !self.k.farm_lattice && m.colour(i) == vclass {
                 let partners =
                     m.nbrs[i].iter().filter(|&&n| site[n] == Site::Empty && self.farmable(m, n)).count() as u64;
                 let rate = 1000 * (self.rules.village.bonus as u64
                     + self.rules.village.farm_bonus as u64 * count(Building::Farm))
                     + fut * partners;
                 options.push((Building::Village, rate));
-            } else if self.farmable(m, i) {
+            } else if !self.k.farm_lattice && self.farmable(m, i) {
                 let partners =
                     m.nbrs[i].iter().filter(|&&n| site[n] == Site::Empty && m.colour(n) == vclass).count() as u64;
                 let rate = 1000 * self.rules.village.farm_bonus as u64 * count(Building::Village) + fut * partners;
@@ -221,7 +248,7 @@ impl Striker {
                         .iter()
                         .filter(|&&n| site[n] == Site::Empty)
                         .map(|&n| {
-                            let b = if m.colour(n) == vclass { Building::Village } else { Building::Farm };
+                            let b = if village_site(n) { Building::Village } else { Building::Farm };
                             if b == Building::Farm && !self.farmable(m, n) {
                                 return 0;
                             }
