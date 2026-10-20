@@ -245,6 +245,10 @@ struct Knobs {
     recapture: i64,
     recapture_village: i64,
     recapture_ticks: u32,
+    /// Attacks on rival hexes holding at least `big_garrison` troops (0 = off) need a
+    /// capture value of at least `big_min_x100` / 100 per troop of expected loss.
+    big_garrison: u32,
+    big_min_x100: i64,
     /// A capture sealing at least this ring value takes the tick before supply and
     /// staging (0 = no priority).
     ring_first: i64,
@@ -332,6 +336,8 @@ impl Knobs {
             recapture: k("recapture", 0),
             recapture_village: k("recapture_village", 0),
             recapture_ticks: k("recapture_ticks", 100) as u32,
+            big_garrison: k("big_garrison", 0) as u32,
+            big_min_x100: k("big_min_x100", 0),
             ring_first: k("ring_first", 300),
             ring_stage: k("ring_stage", 500),
         }
@@ -978,6 +984,14 @@ impl Core {
                     continue;
                 }
                 let gain = self.capture_gain(geo, me, t, tc, seal);
+                if self.k.big_garrison > 0
+                    && !sprinting
+                    && tc.owner.is_some()
+                    && tc.troops >= self.k.big_garrison
+                    && gain * 100 < loss as i64 * self.k.big_min_x100
+                {
+                    continue;
+                }
                 let score = gain * st / 1000 + (v / 1000 - st) * self.k.land / 1000
                     - loss as i64 * cost_milli / 1000;
                 let better = best.as_ref().map_or(true, |b| {

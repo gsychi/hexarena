@@ -51,6 +51,9 @@ struct Tally {
     /// Hexes lost to seals, by the pinch hex the rival took: its garrison bucket before the
     /// capture, and how many of its neighbours we held (incl. the sealed ones).
     seal_pinch: [[u64; 7]; 5],
+    /// Hexes lost to seals by the pinch hex's rival-held neighbours (0..6) and the distinct
+    /// rivals among them (0..3+).
+    pinch_sides: [[u64; 4]; 7],
 }
 
 fn gbucket(t: u32) -> usize {
@@ -376,6 +379,17 @@ fn play(seed: u64, seats: &[Style], tallies: &mut BTreeMap<String, Tally>, log: 
                             .filter(|&&n| hexes.contains(&n) || st.cell(n).is_some_and(|c| c.owner == Some(*from)))
                             .count();
                         t[*from as usize].seal_pinch[g][held] += hexes.len() as u64;
+                        let mut rivals: Vec<PlayerId> = at
+                            .neighbors()
+                            .iter()
+                            .filter(|n| !hexes.contains(n))
+                            .filter_map(|&n| st.cell(n).and_then(|c| c.owner))
+                            .filter(|o| o != from)
+                            .collect();
+                        let sides = rivals.len();
+                        rivals.sort_unstable();
+                        rivals.dedup();
+                        t[*from as usize].pinch_sides[sides][rivals.len().min(3)] += hexes.len() as u64;
                     }
                 }
                 _ => {}
@@ -487,6 +501,11 @@ fn play(seed: u64, seats: &[Style], tallies: &mut BTreeMap<String, Tally>, log: 
         for g in 0..5 {
             for h in 0..7 {
                 e.seal_pinch[g][h] += tp.seal_pinch[g][h];
+            }
+        }
+        for a in 0..7 {
+            for b in 0..4 {
+                e.pinch_sides[a][b] += tp.pinch_sides[a][b];
             }
         }
         for k in 0..2 {
@@ -693,6 +712,21 @@ fn main() {
         }
         let cells: Vec<String> = row.iter().map(|&x| format!("{:>6.1}", x as f64 / seats.max(1) as f64)).collect();
         println!("  g{}  {}", g, cells.join(""));
+    }
+    println!("hexes lost to seals per seat-game (cand+base), by pinch hex: rows rival-held neighbours 0..6 after the capture, cols distinct rivals 0 / 1 / 2 / 3+");
+    for a in 0..7 {
+        let mut seats = 0;
+        let mut row = [0u64; 4];
+        for id in ["cand", "base"] {
+            if let Some(e) = tallies.get(id) {
+                seats += e.seats;
+                for b in 0..4 {
+                    row[b] += e.pinch_sides[a][b];
+                }
+            }
+        }
+        let cells: Vec<String> = row.iter().map(|&x| format!("{:>6.1}", x as f64 / seats.max(1) as f64)).collect();
+        println!("  n{}  {}", a, cells.join(""));
     }
     println!("attacks (cand+base): rows height step from-to -2..2, cols garrison 0 / 1-3 / 4-10 / 11-30 / 31+: attempts/g, capture %, troops spent per capture");
     for (k, what) in [(0usize, "rival"), (1, "neutral")] {
