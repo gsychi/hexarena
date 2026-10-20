@@ -1,0 +1,55 @@
+gain +0.303 ± 0.474 over 4 pairs (8 games)
+bot            seats  score    avp  rgn+/g  rgn-/g  demo  elim close cpu ms/mv  cpu max   ring ok wall max
+base              24   3.88   3.88    89.3    89.0   443    17     0    0.334    54.03  658/658      95.5
+cand              24   3.57   3.67    82.5    78.0   454    17     3    0.327    39.96  564/564      87.8
+raider             6   7.50   7.50     0.5     1.8     0     6     0    0.014     0.07    0/0        58.8
+relay              6   5.33   5.33     6.0    13.2     0     6     0    0.027     0.09    0/0        46.1
+warden             4   7.50   7.50     1.0     7.5     0     4     0    0.019     0.07    0/0        36.1
+buildings per seat-game (F/V/Q/W): lost by capture | lost by seal | won by capture; land held per seat at t1500/3000/6000
+base           lost 299.2/1386.2/59.7/70.6 seal 22.2/55.5/3.5/6.6  won 294.5/1387.9/59.5/70.1 land 103/97/94
+cand           lost 203.7/1278.7/98.8/62.6 seal 17.1/47.0/4.2/7.3  won 210.6/1290.4/99.0/66.3 land 106/115/96
+raider         lost 13.0/1.5/0.3/0.0       seal 0.3/0.0/0.2/0.0    won 7.5/0.8/0.5/0.0        land 0/0/0
+relay          lost 44.2/210.8/20.0/0.7    seal 1.8/8.0/0.7/0.0    won 45.8/158.8/20.7/0.7    land 33/21/0
+warden         lost 15.0/2.2/2.0/22.2      seal 2.8/0.5/0.0/0.5    won 7.8/1.0/0.8/3.0        land 0/0/0
+rival trades per seat-game: won cap+seal, lost cap+seal, net; Villages lost by capture, % retaken <=50 / <=200 ticks
+base           won 1914+89 lost 1907+89 net +7   V lost 1386 back 71%/82%
+cand           won 1775+82 lost 1742+78 net +36   V lost 1279 back 72%/83%
+raider         won 76+0 lost 122+2 net -48   V lost 2 back 22%/22%
+relay          won 314+6 lost 401+13 net -94   V lost 211 back 50%/60%
+warden         won 90+1 lost 128+8 net -44   V lost 2 back 33%/33%
+hexes lost to seals per seat-game (cand+base), by pinch hex: rows garrison 0 / 1-3 / 4-10 / 11-30 / 31+, cols own neighbours 0..6
+  g0     0.0   0.0   0.0   0.0   0.0   0.0   0.0
+  g1     0.0   0.2   1.3   2.1   1.6   0.0   0.0
+  g2     0.0   0.2   1.0   3.5   2.5   0.2   0.0
+  g3     0.0   0.3   0.7   1.1   2.2   0.3   0.0
+  g4     0.0   2.3  10.0  19.8  32.4   0.9   0.0
+hexes lost to seals per seat-game (cand+base), by pinch hex: rows rival-held neighbours 0..6 after the capture, cols distinct rivals 0 / 1 / 2 / 3+
+  n0     0.0   0.0   0.0   0.0
+  n1     0.0   1.7   0.0   0.0
+  n2     0.0  48.6   0.0   0.0
+  n3     0.0  23.7   1.6   0.0
+  n4     0.0   5.4   1.2   0.0
+  n5     0.0   0.0   0.2   0.1
+  n6     0.0   0.0   0.0   0.0
+attacks (cand+base): rows height step from-to -2..2, cols garrison 0 / 1-3 / 4-10 / 11-30 / 31+: attempts/g, capture %, troops spent per capture
+rival    -2       0   0%   0.0 |     0   0%   0.0 |     0   0%   0.0 |     0 100%  17.5 |     0 100% 467.8
+rival    -1       0   0%   0.0 |     6  99%  10.6 |    21 100%  15.3 |    33  99%  20.4 |   155 100% 701.9
+rival    +0       0   0%   0.0 |    36 100%   4.7 |   136 100%   7.2 |   235 100%  13.0 |  1014 100% 557.3
+rival    +1       0   0%   0.0 |     5 100%   2.3 |    18 100%   3.7 |    27 100%   7.7 |   163 100% 464.9
+rival    +2       0   0%   0.0 |     0   0%   0.0 |     0   0%   0.0 |     0 100%   1.0 |     0 100% 440.6
+neutral  -2       0   0%   0.0 |     0   0%   0.0 |     0   0%   0.0 |     0 100%  26.0 |     0   0%   0.0
+neutral  -1       0   0%   0.0 |     0 100%   3.7 |     1 100%  14.7 |     7  98%  27.1 |     0   0%   0.0
+neutral  +0       0   0%   0.0 |     1  98%   2.1 |     3  98%  10.5 |    64  98%  17.6 |     0   0%   0.0
+neutral  +1       0   0%   0.0 |     0 100%   0.5 |     0 100%   7.7 |    10  97%  13.3 |     0   0%   0.0
+neutral  +2       0   0%   0.0 |     0   0%   0.0 |     0   0%   0.0 |     0 100%   5.0 |     0   0%   0.0
+layout          tick seats   land inc/hx inc/bh   bh%       F:V:Q  farms/village 0..6     villages/farm 0..6     no-farm V%: empty/built/unowned/hill
+base            1500    22    112   2.90   3.08   91% 0.44:1:0.08   24 11 23 36  3  0  0    0  6  9 14 21 18 29  1/5/0/19
+base            3000    19    122   2.94   3.07   94% 0.40:1:0.07   27 12 23 33  3  0  0    0  4  7 14 23 19 30  0/7/0/19
+base            6000    10    226   2.94   3.06   94% 0.37:1:0.07   31 10 21 33  3  0  0    0  2  4 15 24 20 32  0/12/0/20
+base            9000     8    279   2.95   3.08   94% 0.37:1:0.07   30 11 20 34  3  0  0    0  1  6 13 22 22 32  0/10/0/20
+cand            1500    21    121   2.96   3.10   93% 0.44:1:0.07   25 11 21 36  4  0  0    0  4  9 15 23 19 26  0/5/1/19
+cand            3000    17    162   3.01   3.13   94% 0.42:1:0.08   23 11 22 37  4  0  0    0  2  7 12 23 20 32  0/6/1/18
+cand            6000    10    229   3.03   3.15   94% 0.39:1:0.07   25 11 22 36  4  0  0    0  0  7 11 23 22 35  0/7/0/18
+cand            9000     6    279   3.04   3.18   94% 0.40:1:0.08   20 13 23 38  3  0  0    2  1  4  8 23 20 39  0/4/0/16
+relay           1500     5     39   2.06   2.10   96% 0.05:1:0.02   92  4  2  0  0  0  0    0 12 37 37  0 12  0  6/58/1/27
+relay           3000     4     32   2.01   2.03   98% 0.01:1:0.01   98  1  0  0  0  0  0    0  0100  0  0  0  0  2/57/2/39

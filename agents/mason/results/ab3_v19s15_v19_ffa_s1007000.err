@@ -1,0 +1,12 @@
+seed 1007000 tick 10000 closer None: base=3/w13l7/d17/1.0ms@4030 raider=8/w0l2/d0/0.1ms@170 base=2/w168l247/d35/2.4ms@1715 cand=7/w0l0/d0/0.4ms@0 cand=1/w246l194/d50/0.8ms@4033 base=4/w29l14/d8/0.8ms@2609 warden=6/w3l6/d0/0.0ms@365 cand=5/w30l13/d19/0.7ms@2114
+seed 1007000 tick 10000 closer None: cand=4/w6l25/d16/36.3ms@4259 raider=7/w0l3/d0/0.1ms@482 cand=2/w160l289/d40/1.2ms@5957 base=1/w284l179/d26/0.9ms@4513 base=6/w23l18/d10/0.7ms@2232 cand=5/w12l16/d8/1.0ms@4511 warden=8/w1l4/d0/0.1ms@212 base=3/w236l179/d28/54.0ms@8915
+after 1 pairs: gain -0.83 ± NaN
+seed 1007001 tick 10000 closer None: raider=8/w0l0/d0/0.0ms@0 raider=7/w0l0/d0/0.0ms@0 base=4/w87l88/d15/3.0ms@1452 base=5/w37l44/d21/1.2ms@807 cand=6/w4l0/d0/40.0ms@1755 cand=1/w198l186/d21/1.1ms@807 base=3/w203l204/d36/0.8ms@387 cand=2/w219l218/d27/0.8ms@5034
+seed 1007001 tick 5699 closer Some("cand"): raider=8/w0l1/d0/0.0ms@0 raider=7/w3l5/d0/0.0ms@265 cand=4/w23l25/d7/0.9ms@4650 cand=3/w82l64/d27/1.0ms@4241 base=6/w8l1/d6/0.8ms@665 base=2/w55l89/d10/0.8ms@4648 cand=1/w106l71/d45/0.8ms@363 base=5/w11l25/d22/0.8ms@363
+after 2 pairs: gain +0.33 ± 1.16
+seed 1007002 tick 7285 closer Some("cand"): base=7/w25l10/d9/0.7ms@197 relay=5/w6l9/d0/0.1ms@198 base=8/w0l0/d0/0.7ms@197 cand=4/w24l26/d22/1.0ms@197 cand=3/w44l33/d7/0.9ms@197 base=2/w71l142/d18/0.8ms@196 relay=6/w12l32/d0/0.1ms@196 cand=1/w146l75/d34/0.7ms@196
+seed 1007002 tick 10000 closer None: cand=3/w159l114/d16/0.9ms@4715 relay=4/w7l5/d0/0.1ms@0 cand=7/w0l1/d1/0.4ms@837 base=5/w55l53/d28/6.4ms@4101 base=1/w170l218/d6/0.7ms@4580 cand=6/w1l5/d3/0.4ms@787 relay=8/w5l22/d0/0.0ms@316 base=2/w249l226/d37/0.9ms@4715
+after 3 pairs: gain +0.32 ± 0.67
+seed 1007003 tick 10000 closer None: base=2/w139l94/d29/0.4ms@8160 base=7/w3l0/d4/0.4ms@538 cand=4/w14l11/d0/0.5ms@1126 cand=3/w65l66/d35/0.5ms@2170 warden=8/w0l9/d0/0.0ms@208 relay=5/w2l6/d0/0.1ms@0 cand=6/w1l1/d0/0.4ms@0 base=1/w128l159/d41/0.5ms@914
+seed 1007003 tick 9339 closer Some("cand"): cand=2/w191l229/d21/0.7ms@7310 cand=7/w15l11/d11/0.5ms@1058 base=5/w9l6/d0/0.6ms@1912 base=3/w133l132/d35/0.5ms@1058 warden=8/w0l11/d0/0.0ms@173 relay=4/w4l5/d0/0.1ms@346 base=6/w8l1/d2/0.6ms@2198 cand=1/w235l198/d44/0.6ms@7309
+after 4 pairs: gain +0.30 ± 0.47

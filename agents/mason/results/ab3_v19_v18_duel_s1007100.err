@@ -1,0 +1,7 @@
+seed 1007100 tick 5255 closer Some("base"): base=1/w71l114/d29/0.3ms@0 cand=8/w114l71/d26/0.3ms@2012
+seed 1007100 tick 5288 closer Some("cand"): cand=1/w119l97/d34/0.2ms@0 base=8/w97l117/d26/0.2ms@0
+after 1 pairs: gain +0.00 ± NaN
+seed 1007101 tick 3153 closer Some("cand"): cand=1/w87l50/d22/0.2ms@0 base=8/w52l87/d26/0.2ms@1897
+seed 1007101 tick 2092 closer Some("base"): base=1/w82l36/d28/0.2ms@0 cand=8/w37l82/d25/0.2ms@1575
+after 2 pairs: gain +0.00 ± 0.00
+seed 1007102 tick 8086 closer Some("base"): base=1/w303l262/d26/0.2ms@3330 cand=8/w265l301/d20/0.3ms@7214
