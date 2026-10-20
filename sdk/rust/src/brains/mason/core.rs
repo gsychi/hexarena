@@ -166,6 +166,11 @@ struct Knobs {
     /// In the late phase, every this many ticks (0 = never) Gather toward the best
     /// capture's launch hex, so one action brings the whole interior bank a step closer.
     push_gather: u32,
+    /// Hexes we took in the last this many ticks count as fresh (0 = never reinforce);
+    /// a move of a neighbour's spare troops into a fresh hex still short of its garrison
+    /// takes the tick when it buys at least `reinforce_min` milli of safety.
+    reinforce: u32,
+    reinforce_min: i64,
     /// Before this tick (0 = never) the opening knobs below replace `margin_pct` and
     /// `safe_min`: on a crowded spawn every hex faces an enemy, and full garrisons freeze
     /// expansion while the rivals grow away from us.
@@ -257,6 +262,8 @@ impl Knobs {
             late_at: None,
             focus: k("focus", 0),
             push_gather: k("push_gather", 0) as u32,
+            reinforce: k("reinforce", 0) as u32,
+            reinforce_min: k("reinforce_min", 300),
             region: k("region", 0) > 0,
             region_max: k("region_max", 200) as usize,
             loot_village: k("loot_village", 0),
@@ -337,6 +344,8 @@ pub struct Core {
     tarjan: Tarjan,
     /// Hexes we own this tick.
     mine_now: Vec<bool>,
+    /// Tick each hex last became ours (0 = never or at the start).
+    flipped: Vec<u32>,
     /// What taking each hex would seal off for us this tick.
     ring: Vec<Loot>,
     /// Lookahead credit for taking each hex.
@@ -389,6 +398,7 @@ impl Core {
             board: None,
             tarjan: Tarjan::default(),
             mine_now: vec![],
+            flipped: vec![],
             ring: vec![],
             setup: vec![],
             neck: vec![],
@@ -1025,6 +1035,38 @@ impl Core {
         t.saturating_sub(keep)
     }
 
+    /// Moves a neighbour's spare troops into the freshest-taken hex still short of its
+    /// garrison, so it isn't simply retaken. Returns the safety gain (milli).
+    fn reinforce(&self, geo: &Geometry, me: PlayerId, mine: &[usize], tick: u32) -> Option<(i64, Action)> {
+        let mut best: Option<(i64, usize, usize, u64)> = None;
+        for &f in mine {
+            let at = self.flipped.get(f).copied().unwrap_or(0);
+            if at == 0 || tick >= at + self.k.reinforce {
+                continue;
+            }
+            let Some(w) = self.want(geo, me, f, usize::MAX) else { continue };
+            let have = self.seen[f].unwrap().troops as u64;
+            if have >= w {
+                continue;
+            }
+            for &n in &geo.nbrs[f] {
+                if !self.owned(n, me) {
+                    continue;
+                }
+                let spare = self.spare(geo, me, n);
+                if spare == 0 {
+                    continue;
+                }
+                let gain = Self::safety(have + spare, Some(w)) - Self::safety(have, Some(w));
+                if best.is_none_or(|b| (gain, std::cmp::Reverse(n)) > (b.0, std::cmp::Reverse(b.1))) {
+                    best = Some((gain, n, f, spare));
+                }
+            }
+        }
+        let (gain, n, f, spare) = best?;
+        Some((gain, Action::Move { from: geo.hexes[n], to: geo.hexes[f], troops: spare as u32 }))
+    }
+
     /// Relays the spare stack that buys the most border safety per step one hex toward
     /// the short border hex nearest to it. Returns the safety gain per step (milli).
     fn supply(&self, geo: &Geometry, me: PlayerId, mine: &[usize]) -> Option<(i64, Action)> {
@@ -1162,6 +1204,16 @@ impl Bot for Core {
         // A hex we remember owning but can't see any more was lost (a pocket swallowed
         // beyond fog range); forget the owner rather than count it as ours.
         let slots = geo.passable.len();
+        if self.k.reinforce > 0 {
+            self.flipped.resize(slots, 0);
+            if !self.mine_now.is_empty() {
+                for &i in &mine {
+                    if !self.mine_now[i] {
+                        self.flipped[i] = view.tick;
+                    }
+                }
+            }
+        }
         self.mine_now.clear();
         self.mine_now.resize(slots, false);
         for &i in &mine {
@@ -1241,9 +1293,14 @@ impl Bot for Core {
             && self.k.push_gather > 0
             && view.tick % self.k.push_gather == 0;
         let pad = capture.or(blocked).map(|c| c.from);
+        let reinforce = (!sprinting && self.k.reinforce > 0)
+            .then(|| self.reinforce(&geo, me, &mine, view.tick))
+            .flatten()
+            .filter(|r| r.0 >= self.k.reinforce_min);
         let action = match (supply, capture) {
             _ if push && pad.is_some() => Action::Gather { target: geo.hexes[pad.unwrap()] },
             (Some((gain, a)), _) if supply_tick && gain >= self.k.supply_min => a,
+            _ if reinforce.is_some() => reinforce.unwrap().1,
             _ if staging.is_some() => staging.unwrap(),
             (_, Some(c)) => {
                 Action::Move { from: geo.hexes[c.from], to: geo.hexes[c.to], troops: c.send }
