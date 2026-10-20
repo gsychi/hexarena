@@ -397,6 +397,10 @@ pub struct Core {
     lost: Vec<i64>,
     fights: Vec<i64>,
     pub stats: Stats,
+    /// Thread CPU time of the last move's phases when `WILDCARD_CPU` is set: analyse,
+    /// sealed masks, seal and supply, best capture, the rest.
+    pub phase: [u64; 5],
+    timing: bool,
 }
 
 /// Counters for `WILDCARD_DEBUG`.
@@ -444,6 +448,8 @@ impl Core {
             lost: vec![0; 16],
             fights: vec![0; 16],
             stats: Stats::default(),
+            phase: [0; 5],
+            timing: std::env::var("WILDCARD_CPU").is_ok(),
         }
     }
 
@@ -1395,11 +1401,20 @@ impl Bot for Core {
                 }
             }
         }
+        let timing = self.timing;
+        let stamp = move || if timing { super::thread_cpu_ns() } else { 0 };
+        let mut last = stamp();
+        let mut lap = |phase: &mut [u64; 5], i: usize| {
+            let now = stamp();
+            phase[i] = now.saturating_sub(last);
+            last = now;
+        };
         if self.k.ring {
             if self.board.is_none() {
                 self.board = Some(Board::new(view));
             }
             self.analyse(&geo, me);
+            lap(&mut self.phase, 0);
             if self.k.net > 0 && view.tick % self.k.net_every == 0 {
                 self.nets(&geo, me);
             } else if self.k.net > 0 && self.net_bonus.len() != slots {
@@ -1421,11 +1436,14 @@ impl Bot for Core {
                 self.sealed_mask[t] = mask;
             }
         }
+        lap(&mut self.phase, 1);
         let sprinting = view.tick + self.k.sprint >= self.rules.max_ticks
             || (self.k.late_sprint && self.k.late_at.is_some());
         let seal = (self.k.seal > 0 || self.k.backyard > 0).then(|| self.seal(&geo, me));
         let supply = self.supply(&geo, me, &mine);
+        lap(&mut self.phase, 2);
         let (capture, blocked) = self.best_capture(&geo, me, &mine, sprinting, seal.as_ref());
+        lap(&mut self.phase, 3);
         let capture = capture.filter(|c| sprinting || c.score >= self.k.min_score);
         let ring_of = |c: &Capture| if self.k.ring { self.ring_value(&self.ring[c.to]) } else { 0 };
         let ring_now = capture.as_ref().map_or(0, ring_of);

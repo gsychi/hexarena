@@ -734,11 +734,19 @@ impl Bot for Wildcard {
         let took = thread_cpu_ns().saturating_sub(start);
         if took > 2_500_000 {
             let [core, danger, build] = self.phase.map(|p| p as f64 / 1e6);
+            let p = self.inner.phase;
+            let rest = self.phase[0].saturating_sub(p[..4].iter().sum());
+            let ms = |x: u64| x as f64 / 1e6;
             eprintln!(
-                "slow t{} {:.3} ms delegate {} core {core:.3} danger {danger:.3} build {build:.3} land {}",
+                "slow t{} {:.3} ms delegate {} core {core:.3} (analyse {:.3} masks {:.3} supply {:.3} capture {:.3} rest {:.3}) danger {danger:.3} build {build:.3} land {}",
                 view.tick,
                 took as f64 / 1e6,
                 self.delegate.is_some(),
+                ms(p[0]),
+                ms(p[1]),
+                ms(p[2]),
+                ms(p[3]),
+                ms(rest),
                 view.visible_hexes.iter().filter(|c| c.owner == Some(view.you)).count()
             );
         }
