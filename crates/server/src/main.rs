@@ -8,7 +8,7 @@ use axum::routing::get;
 use axum::{Json, Router};
 use hexarena_arena::{play_on, seat_names, viewer_json};
 use hexarena_engine::atlas;
-use hexarena_protocol::{MapPreset, PlayerId, RulesConfig};
+use hexarena_protocol::{MapPreset, PlayerId, Replay, RulesConfig};
 use hexarena_sdk::Style;
 use serde::{Deserialize, Serialize};
 use catalog::Catalog;
@@ -778,8 +778,62 @@ async fn artifact(app: Shared, id: String, kind: &str) -> Response {
     }
 }
 
+/// Viewer documents are derived from the replay, so ones pruned from disk are rebuilt on
+/// request (and not written back).
 async fn viewer(State(app): State<Shared>, Path(id): Path<String>) -> Response {
-    artifact(app, id, "viewer").await
+    if !id.chars().all(|c| c.is_ascii_alphanumeric()) {
+        return err(StatusCode::BAD_REQUEST, "bad id");
+    }
+    if let Ok(bytes) = tokio::fs::read(app.path(&id, "viewer")).await {
+        return ([(header::CONTENT_TYPE, "application/json")], bytes).into_response();
+    }
+    let Ok(bytes) = tokio::fs::read(app.path(&id, "replay")).await else {
+        return err(StatusCode::NOT_FOUND, "match not finished or missing");
+    };
+    let built = tokio::task::spawn_blocking(move || -> Result<Vec<u8>, String> {
+        let replay: Replay = serde_json::from_slice(&bytes).map_err(|e| e.to_string())?;
+        Ok(serde_json::to_vec(&viewer_json(&replay)?).unwrap())
+    })
+    .await;
+    match built {
+        Ok(Ok(doc)) => ([(header::CONTENT_TYPE, "application/json")], doc).into_response(),
+        Ok(Err(e)) => err(StatusCode::INTERNAL_SERVER_ERROR, &e),
+        Err(_) => err(StatusCode::INTERNAL_SERVER_ERROR, "viewer rebuild failed"),
+    }
+}
+
+/// Viewer documents older than this many hours are deleted from disk; they are rebuilt
+/// from the replay when someone opens the game. `HEXARENA_VIEWER_KEEP_HOURS=0` keeps all.
+const VIEWER_KEEP_HOURS: u64 = 12;
+
+async fn prune_viewers(app: Shared, keep_hours: u64) {
+    loop {
+        let dir = app.dir.clone();
+        let pruned = tokio::task::spawn_blocking(move || {
+            let cutoff = SystemTime::now() - std::time::Duration::from_secs(keep_hours * 3600);
+            let (mut files, mut bytes) = (0u64, 0u64);
+            let Ok(entries) = std::fs::read_dir(&dir) else { return (0, 0) };
+            for e in entries.flatten() {
+                let name = e.file_name();
+                let Some(id) = name.to_str().and_then(|n| n.strip_suffix(".viewer.json")) else { continue };
+                let Ok(meta) = e.metadata() else { continue };
+                if meta.modified().map_or(true, |m| m > cutoff) || !dir.join(format!("{id}.replay.json")).exists() {
+                    continue;
+                }
+                if std::fs::remove_file(e.path()).is_ok() {
+                    files += 1;
+                    bytes += meta.len();
+                }
+            }
+            (files, bytes)
+        })
+        .await
+        .unwrap_or((0, 0));
+        if pruned.0 > 0 {
+            println!("pruned {} viewer documents older than {keep_hours}h ({:.1} GB)", pruned.0, pruned.1 as f64 / 1e9);
+        }
+        tokio::time::sleep(std::time::Duration::from_secs(600)).await;
+    }
 }
 
 async fn replay(State(app): State<Shared>, Path(id): Path<String>) -> Response {
@@ -1179,6 +1233,10 @@ async fn main() {
     state.autoplay_parallel = env("HEXARENA_AUTOPLAY_PARALLEL").unwrap_or(AUTOPLAY_PARALLEL).max(1);
     let app: Shared = Arc::new(state);
     tokio::spawn(backfill_habits(app.clone()));
+    let keep_hours = env("HEXARENA_VIEWER_KEEP_HOURS").unwrap_or(VIEWER_KEEP_HOURS);
+    if keep_hours > 0 {
+        tokio::spawn(prune_viewers(app.clone(), keep_hours));
+    }
     if app.autoplay {
         tokio::spawn(autoplay(app.clone()));
         println!(
