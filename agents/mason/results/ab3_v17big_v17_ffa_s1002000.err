@@ -1,0 +1,12 @@
+seed 1002000 tick 10000 closer None: cand=4/w24l62/d5/1.1ms@578 cand=6/w3l2/d7/0.9ms@578 cand=3/w177l92/d29/2.2ms@4078 base=5/w7l79/d1/1.0ms@1388 base=1/w157l80/d27/1.0ms@578 expander=8/w0l0/d0/0.0ms@297 base=2/w102l138/d24/0.9ms@577 expander=7/w1l8/d0/0.1ms@398
+seed 1002000 tick 10000 closer None: base=3/w43l112/d4/1.0ms@2155 base=2/w73l60/d18/0.9ms@2680 base=1/w154l100/d41/1.0ms@2154 cand=5/w3l5/d1/0.8ms@2715 cand=4/w106l86/d20/1.1ms@2715 expander=8/w0l0/d0/0.0ms@141 cand=6/w0l3/d8/0.9ms@2155 expander=7/w1l5/d0/0.0ms@194
+after 1 pairs: gain -2.33 ± NaN
+seed 1002001 tick 10000 closer None: base=8/w0l0/d0/0.3ms@81 cand=5/w6l7/d2/0.7ms@2846 base=1/w178l81/d22/0.8ms@2640 base=2/w142l170/d47/0.7ms@2640 cand=3/w74l89/d24/0.6ms@2847 raider=7/w0l0/d0/0.0ms@0 cand=4/w57l90/d4/0.7ms@2847 raider=6/w0l17/d0/0.1ms@853
+seed 1002001 tick 10000 closer None: cand=8/w0l0/d0/0.3ms@0 base=4/w25l15/d7/1.0ms@1214 cand=1/w168l153/d20/0.6ms@1855 cand=3/w97l60/d33/0.8ms@1855 base=2/w168l217/d34/0.7ms@2918 raider=7/w0l0/d0/0.0ms@0 base=5/w5l4/d0/0.4ms@539 raider=6/w0l12/d0/0.1ms@521
+after 2 pairs: gain -1.33 ± 1.00
+seed 1002002 tick 10000 closer None: cand=8/w0l1/d0/0.3ms@0 base=2/w99l89/d17/0.9ms@7697 warden=7/w1l13/d0/0.1ms@417 cand=6/w3l0/d0/0.4ms@540 base=1/w75l76/d30/0.7ms@1259 cand=5/w22l12/d11/13.4ms@3316 predator=3/w16l30/d0/0.1ms@5409 base=4/w61l46/d26/0.6ms@1259
+seed 1002002 tick 10000 closer None: base=8/w0l1/d0/0.4ms@132 cand=4/w149l113/d9/0.9ms@5189 warden=7/w1l18/d0/0.1ms@438 base=5/w0l3/d0/0.5ms@847 cand=2/w17l18/d28/0.8ms@5182 base=1/w168l146/d26/0.8ms@9951 predator=6/w3l19/d0/0.1ms@2268 cand=3/w41l51/d25/0.8ms@9951
+after 3 pairs: gain -1.28 ± 0.58
+seed 1002003 tick 10000 closer None: base=8/w1l1/d0/0.6ms@169 predator=6/w2l34/d0/0.1ms@573 cand=1/w112l169/d7/1.3ms@8332 cand=7/w0l8/d13/0.7ms@435 base=2/w303l136/d26/5.1ms@9095 cand=4/w3l0/d10/1.0ms@8331 relay=3/w43l115/d0/0.2ms@8259 base=5/w3l1/d0/0.9ms@176
+seed 1002003 tick 10000 closer None: cand=8/w1l1/d0/0.4ms@0 predator=6/w3l24/d0/0.1ms@642 base=4/w136l62/d7/0.9ms@1442 base=1/w207l119/d25/0.7ms@5670 cand=5/w7l5/d11/3.0ms@5272 base=3/w219l167/d11/0.9ms@5672 relay=2/w97l293/d0/0.1ms@1441 cand=7/w5l4/d0/0.7ms@351
+after 4 pairs: gain -1.33 ± 0.41

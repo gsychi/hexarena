@@ -249,6 +249,9 @@ struct Knobs {
     /// capture value of at least `big_min_x100` / 100 per troop of expected loss.
     big_garrison: u32,
     big_min_x100: i64,
+    /// Extra % of garrison on a neck hex per rival-held neighbour beyond the first: the
+    /// pinches we lose are flanked by one rival on two or three sides.
+    neck_side_pct: u64,
     /// A capture sealing at least this ring value takes the tick before supply and
     /// staging (0 = no priority).
     ring_first: i64,
@@ -338,6 +341,7 @@ impl Knobs {
             recapture_ticks: k("recapture_ticks", 100) as u32,
             big_garrison: k("big_garrison", 0) as u32,
             big_min_x100: k("big_min_x100", 0),
+            neck_side_pct: k("neck_side_pct", 0) as u64,
             ring_first: k("ring_first", 300),
             ring_stage: k("ring_stage", 500),
         }
@@ -713,7 +717,13 @@ impl Core {
         } else {
             0
         };
-        self.want_base(geo, me, h, skip).map(|w| w * (100 + self.k.neck_want_pct * neck) / 100)
+        let sides = if neck > 0 && self.k.neck_side_pct > 0 {
+            (geo.nbrs[h].iter().filter(|&&n| self.enemy(n, me)).count() as u64).saturating_sub(1)
+        } else {
+            0
+        };
+        self.want_base(geo, me, h, skip)
+            .map(|w| w * (100 + self.k.neck_want_pct * neck) / 100 * (100 + self.k.neck_side_pct * sides) / 100)
     }
 
     fn want_base(&self, geo: &Geometry, me: PlayerId, h: usize, skip: impl Fn(usize) -> bool) -> Option<u64> {
