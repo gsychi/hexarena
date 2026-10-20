@@ -203,6 +203,9 @@ pub struct Wildcard {
     /// blitz only starts when a conquest before the cutoff looks reachable.
     gate_share: u64,
     gate_until: u32,
+    /// ... and never starts while we own this many per mille or more (0 = no cap): a
+    /// clear land leader wins the cutoff race and only risks it by blitzing.
+    gate_share_max: u64,
     /// ... and, when `gate_proj` > 0, until our land growth over the last 500 ticks, sped
     /// up `gate_proj`% by the blitz, would reach `gate_need` per mille of the board by
     /// the cutoff.
@@ -286,6 +289,7 @@ impl Wildcard {
             duel_share: 0,
             gate_share: 0,
             gate_until: 0,
+            gate_share_max: 0,
             gate_proj: 0,
             gate_need: 900,
             land_log: VecDeque::new(),
@@ -818,6 +822,7 @@ impl Wildcard {
             self.duel_share = if duel { 0 } else { s.params.knob("duel_share", 0).max(0) as u64 };
             self.gate_share = s.params.knob("gate_share", 0).max(0) as u64;
             self.gate_until = s.params.knob("gate_until", 0).max(0) as u32;
+            self.gate_share_max = s.params.knob("gate_share_max", 0).max(0) as u64;
             self.gate_proj = s.params.knob("gate_proj", 0).max(0) as u64;
             self.gate_need = s.params.knob("gate_need", 900).max(0) as u64;
             self.duel_style = (self.duel_when > 0 || self.duel_share > 0)
@@ -859,6 +864,7 @@ impl Wildcard {
             && view.public_players.iter().filter(|p| p.alive).count() <= self.duel_when
             && (self.gate_until == 0 || view.tick < self.gate_until)
             && (self.gate_share == 0 || share() >= self.gate_share)
+            && (self.gate_share_max == 0 || share() < self.gate_share_max)
             && (self.gate_proj == 0 || reachable());
         let big = self.duel_style.is_some() && self.duel_share > 0 && share() >= self.duel_share;
         if few || big {

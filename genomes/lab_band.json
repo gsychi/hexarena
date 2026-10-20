@@ -48,10 +48,10 @@
   "duel_handover": 4500,
   "end_focus": 100,
   "ffa_portfolio": 4,
-  "ffa_gate_share": 250,
+  "ffa_gate_share": 0,
   "ffa_gate_until": 8000,
   "end_neck_cap": 60,
   "end_neck_want_pct": 25,
-  "ffa_gate_share_max": 400
+  "ffa_gate_share_max": 350
  }
 }
