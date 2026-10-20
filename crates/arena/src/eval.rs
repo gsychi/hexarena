@@ -1,8 +1,9 @@
 //! Head-to-head comparison of two bots in mirrored 8-player lobbies, for trying a
 //! version locally before publishing it.
 
-use crate::play_result;
-use hexarena_protocol::RulesConfig;
+use crate::play_result_on;
+use hexarena_engine::atlas::PRESETS;
+use hexarena_protocol::{MapPreset, RulesConfig};
 use hexarena_sdk::Style;
 use serde::Serialize;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -44,7 +45,7 @@ fn play_lobby(seed: u64, seats: &[Style]) -> Result<Lobby, String> {
         .enumerate()
         .map(|(i, s)| Style { name: format!("Player {}", i + 1), blurb: String::new(), ..s.clone() })
         .collect();
-    let result = play_result(seed, &styles, u32::MAX)?;
+    let result = play_result_on(seed, &styles, u32::MAX, eval_map(seed)?)?;
     let cutoff = RulesConfig::default().max_ticks;
     let mut avp = vec![0.0; seats.len()];
     for p in &result.placements {
@@ -57,6 +58,16 @@ fn play_lobby(seed: u64, seats: &[Style]) -> Result<Lobby, String> {
         final_tick: result.final_tick,
         closer: (result.final_tick < cutoff).then(|| result.winner()).flatten().map(|p| p as usize),
     })
+}
+
+/// The board for a lobby: `HEXARENA_EVAL_MAP` names a real-world map (e.g. `europe`), or
+/// `all` cycles through every real map by seed; unset means procedural.
+fn eval_map(seed: u64) -> Result<Option<MapPreset>, String> {
+    match std::env::var("HEXARENA_EVAL_MAP").ok().as_deref() {
+        None | Some("") => Ok(None),
+        Some("all") => Ok(Some(PRESETS[(seed % PRESETS.len() as u64) as usize])),
+        Some(name) => serde_json::from_str(&format!("\"{name}\"")).map(Some).map_err(|e| format!("map {name}: {e}")),
+    }
 }
 
 /// Plays every lobby on `HEXARENA_EVAL_THREADS` threads (all cores by default),

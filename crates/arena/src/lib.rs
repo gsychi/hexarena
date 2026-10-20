@@ -87,6 +87,11 @@ pub fn play_result(seed: u64, styles: &[Style], max_ticks: u32) -> Result<MatchR
     run(seed, styles, max_ticks, None, false).map(|p| p.result())
 }
 
+/// [`play_result`] on a real-world map (`None` = procedural).
+pub fn play_result_on(seed: u64, styles: &[Style], max_ticks: u32, map: Option<MapPreset>) -> Result<MatchResult, String> {
+    run(seed, styles, max_ticks, map, false).map(|p| p.result())
+}
+
 fn run(seed: u64, styles: &[Style], max_ticks: u32, map: Option<MapPreset>, record: bool) -> Result<Played, String> {
     let mut s = settings(styles.len() as u16, seed);
     s.rules.map = map;
