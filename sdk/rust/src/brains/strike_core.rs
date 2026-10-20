@@ -294,6 +294,9 @@ struct Knobs {
     /// Score lost for a capture facing an enemy that leaves the new hex with at most 2
     /// of ours around it and short of its garrison: a tendril a rival pinches off.
     thin_pen: i64,
+    /// Extra % of garrison an own hex facing an enemy wants when at most 2 of ours are
+    /// around it.
+    thin_want_pct: u64,
     /// Whether the duel overrides have been applied.
     duel_set: bool,
 }
@@ -368,6 +371,7 @@ impl Knobs {
             finish_rush: k("finish_rush", 1) > 0,
             notch: k("notch", 0),
             thin_pen: k("thin_pen", 0),
+            thin_want_pct: k("thin_want_pct", 0) as u64,
             duel_set: false,
         }
     }
@@ -484,8 +488,12 @@ impl StrikeCore {
             let k = self.kills(stack, self.defense(geo, n, h, MILLI));
             worst = Some(worst.map_or(k, |w| w.max(k)));
         }
-        let neck = if self.owned(h, me) { self.neck.get(h).copied().unwrap_or(0) as u64 } else { 0 };
-        worst.map(|k| (self.k.guard + k * self.k.margin_pct / 100) * (100 + self.k.neck_want_pct * neck) / 100)
+        let worst = worst?;
+        let owned = self.owned(h, me);
+        let neck = if owned { self.neck.get(h).copied().unwrap_or(0) as u64 } else { 0 };
+        let thin = owned && self.k.thin_want_pct > 0 && geo.nbrs[h].iter().filter(|&&n| self.owned(n, me)).count() <= 2;
+        let pct = 100 + self.k.neck_want_pct * neck + if thin { self.k.thin_want_pct } else { 0 };
+        Some((self.k.guard + worst * self.k.margin_pct / 100) * pct / 100)
     }
 
     /// How safe (milli) a hex holding `troops` is against `want`: concave, full at `want`.
